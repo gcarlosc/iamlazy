@@ -1,0 +1,15 @@
+---
+description: Adversarial read-only reviewer for Sextant low-reversibility work.
+mode: subagent
+model: {{CRITIC_MODEL}}
+permission:
+  edit: deny
+tools:
+  write: false
+  edit: false
+  read: true
+  grep: true
+  glob: true
+  bash: true
+# sextant-managed
+---

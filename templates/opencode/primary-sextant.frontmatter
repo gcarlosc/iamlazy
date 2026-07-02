@@ -1,0 +1,6 @@
+---
+description: Sextant — full development harness (6 postures, one thread)
+mode: primary
+model: {{MAIN_MODEL}}
+# sextant-managed
+---
