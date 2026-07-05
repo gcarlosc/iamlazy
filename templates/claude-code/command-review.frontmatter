@@ -1,5 +1,5 @@
 ---
-description: Sextant — show the last 20 harness runs
+description: Ledger — show the last 20 harness runs
 model: {{MAIN_MODEL}}
-# sextant-managed
+# ledger-managed
 ---

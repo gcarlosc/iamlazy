@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
-# sextant installer — bash 3.2 compatible. Zero external deps (coreutils only;
+# ledger installer — bash 3.2 compatible. Zero external deps (coreutils only;
 # curl is needed only for the curl|bash remote path). Idempotent via the
-# `sextant-managed` marker embedded in every generated file's frontmatter.
+# `ledger-managed` marker embedded in every generated file's frontmatter.
 set -eu
 
-MARKER="sextant-managed"
+MARKER="ledger-managed"
 
 CC_CMD_DIR="${HOME}/.claude/commands"
 CC_AGENT_DIR="${HOME}/.claude/agents"
 OC_CMD_DIR="${HOME}/.config/opencode/commands"
 OC_AGENT_DIR="${HOME}/.config/opencode/agents"
-LOG_DIR="${HOME}/.sextant"
+LOG_DIR="${HOME}/.ledger"
 
 # Files that make up the payload (relative to the repo root).
-PAYLOAD="core/sextant.md core/sextant-review.md critic/sextant-critic.md \
-templates/claude-code/command-sextant.frontmatter \
+PAYLOAD="core/ledger.md core/ledger-review.md critic/ledger-critic.md \
+templates/claude-code/command-ledger.frontmatter \
 templates/claude-code/command-review.frontmatter \
 templates/claude-code/agent-critic.frontmatter \
-templates/opencode/primary-sextant.frontmatter \
-templates/opencode/command-sextant.frontmatter \
+templates/opencode/primary-ledger.frontmatter \
+templates/opencode/command-ledger.frontmatter \
 templates/opencode/command-review.frontmatter \
 templates/opencode/subagent-critic.frontmatter \
 models.conf"
 
 usage() {
   cat <<'EOF'
-sextant installer
+ledger installer
   usage: install.sh [--tool=claude|opencode|both]
   Auto-detects installed tools when --tool is omitted.
-  For curl|bash installs, set SEXTANT_RAW_BASE to the raw file base URL.
+  For curl|bash installs, set LEDGER_RAW_BASE to the raw file base URL.
 EOF
 }
 
@@ -41,7 +41,7 @@ render() {
 # Write stdin to $1, but never clobber a pre-existing file that is not ours.
 write_file() {
   dest="$1"
-  tmp="$(mktemp 2>/dev/null || echo "${dest}.sxtmp.$$")"
+  tmp="$(mktemp 2>/dev/null || echo "${dest}.ldtmp.$$")"
   cat > "$tmp"
   if [ -f "$dest" ] && ! grep -q "$MARKER" "$dest" 2>/dev/null; then
     echo "  SKIP (exists, not $MARKER): $dest" >&2
@@ -56,38 +56,38 @@ write_file() {
 install_claude() {
   mkdir -p "$CC_CMD_DIR" "$CC_AGENT_DIR"
   {
-    render "$SRC/templates/claude-code/command-sextant.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"
-    cat "$SRC/core/sextant.md"
+    render "$SRC/templates/claude-code/command-ledger.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"
+    cat "$SRC/core/ledger.md"
     printf '\n\n---\n\n**Request:** $ARGUMENTS\n'
-  } | write_file "$CC_CMD_DIR/sextant.md"
+  } | write_file "$CC_CMD_DIR/ledger.md"
   {
     render "$SRC/templates/claude-code/command-review.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"
-    cat "$SRC/core/sextant-review.md"
-  } | write_file "$CC_CMD_DIR/sextant-review.md"
+    cat "$SRC/core/ledger-review.md"
+  } | write_file "$CC_CMD_DIR/ledger-review.md"
   {
     render "$SRC/templates/claude-code/agent-critic.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"
-    cat "$SRC/critic/sextant-critic.md"
-  } | write_file "$CC_AGENT_DIR/sextant-critic.md"
+    cat "$SRC/critic/ledger-critic.md"
+  } | write_file "$CC_AGENT_DIR/ledger-critic.md"
 }
 
 install_opencode() {
   mkdir -p "$OC_CMD_DIR" "$OC_AGENT_DIR"
   {
-    render "$SRC/templates/opencode/primary-sextant.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
-    cat "$SRC/core/sextant.md"
-  } | write_file "$OC_AGENT_DIR/sextant.md"
+    render "$SRC/templates/opencode/primary-ledger.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
+    cat "$SRC/core/ledger.md"
+  } | write_file "$OC_AGENT_DIR/ledger.md"
   {
-    render "$SRC/templates/opencode/command-sextant.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
+    render "$SRC/templates/opencode/command-ledger.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
     printf '\n$ARGUMENTS\n'
-  } | write_file "$OC_CMD_DIR/sextant.md"
+  } | write_file "$OC_CMD_DIR/ledger.md"
   {
     render "$SRC/templates/opencode/command-review.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
-    cat "$SRC/core/sextant-review.md"
-  } | write_file "$OC_CMD_DIR/sextant-review.md"
+    cat "$SRC/core/ledger-review.md"
+  } | write_file "$OC_CMD_DIR/ledger-review.md"
   {
     render "$SRC/templates/opencode/subagent-critic.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
-    cat "$SRC/critic/sextant-critic.md"
-  } | write_file "$OC_AGENT_DIR/sextant-critic.md"
+    cat "$SRC/critic/ledger-critic.md"
+  } | write_file "$OC_AGENT_DIR/ledger-critic.md"
 }
 
 # ---------- parse args ----------
@@ -96,7 +96,7 @@ for arg in "$@"; do
   case "$arg" in
     --tool=*) TOOL="${arg#--tool=}" ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "sextant: unknown arg: $arg" >&2; usage; exit 1 ;;
+    *) echo "ledger: unknown arg: $arg" >&2; usage; exit 1 ;;
   esac
 done
 
@@ -110,21 +110,21 @@ CLEANUP_TMP=""
 cleanup() { [ -n "$CLEANUP_TMP" ] && rm -rf "$CLEANUP_TMP"; return 0; }
 trap cleanup EXIT
 
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/core/sextant.md" ]; then
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/core/ledger.md" ]; then
   SRC="$SCRIPT_DIR"
 else
-  RAW="${SEXTANT_RAW_BASE:-}"
+  RAW="${LEDGER_RAW_BASE:-}"
   if [ -z "$RAW" ]; then
-    echo "sextant: run from a cloned repo, or set SEXTANT_RAW_BASE for curl|bash install." >&2
+    echo "ledger: run from a cloned repo, or set LEDGER_RAW_BASE for curl|bash install." >&2
     exit 1
   fi
-  command -v curl >/dev/null 2>&1 || { echo "sextant: curl is required for remote install." >&2; exit 1; }
-  CLEANUP_TMP="$(mktemp -d 2>/dev/null || echo "/tmp/sextant.$$")"
+  command -v curl >/dev/null 2>&1 || { echo "ledger: curl is required for remote install." >&2; exit 1; }
+  CLEANUP_TMP="$(mktemp -d 2>/dev/null || echo "/tmp/ledger.$$")"
   mkdir -p "$CLEANUP_TMP"
   for rel in $PAYLOAD; do
     mkdir -p "$CLEANUP_TMP/$(dirname "$rel")"
     curl -fsSL "$RAW/$rel" -o "$CLEANUP_TMP/$rel" \
-      || { echo "sextant: failed to fetch $rel from $RAW" >&2; exit 1; }
+      || { echo "ledger: failed to fetch $rel from $RAW" >&2; exit 1; }
   done
   SRC="$CLEANUP_TMP"
 fi
@@ -143,17 +143,17 @@ case "$TOOL" in
     if command -v claude >/dev/null 2>&1 || [ -d "$HOME/.claude" ]; then do_claude=1; fi
     if command -v opencode >/dev/null 2>&1 || [ -d "$HOME/.config/opencode" ]; then do_opencode=1; fi
     ;;
-  *) echo "sextant: unknown --tool=$TOOL (use claude|opencode|both)" >&2; exit 1 ;;
+  *) echo "ledger: unknown --tool=$TOOL (use claude|opencode|both)" >&2; exit 1 ;;
 esac
 
 if [ "$do_claude" -eq 0 ] && [ "$do_opencode" -eq 0 ]; then
-  echo "sextant: neither claude nor opencode detected. Force with --tool=claude|opencode|both." >&2
+  echo "ledger: neither claude nor opencode detected. Force with --tool=claude|opencode|both." >&2
   exit 1
 fi
 
 # ---------- install ----------
 mkdir -p "$LOG_DIR"
-echo "sextant installer  (source: $SRC)"
+echo "ledger installer  (source: $SRC)"
 if [ "$do_claude" -eq 1 ]; then
   echo "Claude Code -> $CC_MAIN_MODEL (main) / $CC_CRITIC_MODEL (critic)"
   install_claude
@@ -166,7 +166,7 @@ fi
 echo
 echo "done."
 echo "  log dir:  $LOG_DIR"
-echo "  commands: /sextant  /sextant-review"
+echo "  commands: /ledger  /ledger-review"
 if [ "$do_opencode" -eq 1 ]; then
   echo "  note: OpenCode needs a DeepSeek credential (env or opencode.json). Not configured by this installer."
 fi

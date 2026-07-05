@@ -1,7 +1,7 @@
 ---
-name: sextant-critic
-description: Adversarial read-only reviewer for Sextant low-reversibility work. Spawned by /sextant when the change is hard to revert.
+name: ledger-critic
+description: Adversarial read-only reviewer for Ledger. Spawned by /ledger on low-reversibility work or when the post-diff structural floor fires.
 tools: Read, Grep, Glob, Bash
 model: {{CRITIC_MODEL}}
-# sextant-managed
+# ledger-managed
 ---

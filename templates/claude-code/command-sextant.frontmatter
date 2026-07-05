@@ -1,6 +1,0 @@
----
-description: Sextant — full development harness (6 postures, one thread)
-argument-hint: [task]
-model: {{MAIN_MODEL}}
-# sextant-managed
----

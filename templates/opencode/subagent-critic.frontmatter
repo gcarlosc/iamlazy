@@ -1,5 +1,5 @@
 ---
-description: Adversarial read-only reviewer for Sextant low-reversibility work.
+description: Adversarial read-only reviewer for Ledger — low reversibility or structural-floor escalation.
 mode: subagent
 model: {{CRITIC_MODEL}}
 permission:
@@ -11,5 +11,5 @@ tools:
   grep: true
   glob: true
   bash: true
-# sextant-managed
+# ledger-managed
 ---

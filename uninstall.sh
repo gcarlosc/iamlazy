@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# sextant uninstaller — removes only files that carry the `sextant-managed`
-# marker. Never touches ~/.sextant/runs.jsonl and never touches any PROJECT.md.
+# ledger uninstaller — removes only files that carry the `ledger-managed`
+# marker. Never touches ~/.ledger/runs.jsonl and never touches any PROJECT.md.
 set -eu
 
-MARKER="sextant-managed"
+MARKER="ledger-managed"
 
 TARGETS="\
-${HOME}/.claude/commands/sextant.md \
-${HOME}/.claude/commands/sextant-review.md \
-${HOME}/.claude/agents/sextant-critic.md \
-${HOME}/.config/opencode/commands/sextant.md \
-${HOME}/.config/opencode/commands/sextant-review.md \
-${HOME}/.config/opencode/agents/sextant.md \
-${HOME}/.config/opencode/agents/sextant-critic.md"
+${HOME}/.claude/commands/ledger.md \
+${HOME}/.claude/commands/ledger-review.md \
+${HOME}/.claude/agents/ledger-critic.md \
+${HOME}/.config/opencode/commands/ledger.md \
+${HOME}/.config/opencode/commands/ledger-review.md \
+${HOME}/.config/opencode/agents/ledger.md \
+${HOME}/.config/opencode/agents/ledger-critic.md"
 
 remove_if_managed() {
   f="$1"
@@ -27,12 +27,12 @@ remove_if_managed() {
   fi
 }
 
-echo "sextant uninstaller"
+echo "ledger uninstaller"
 for t in $TARGETS; do
   remove_if_managed "$t"
 done
 
 echo
 echo "done. Your data was left untouched:"
-echo "  ~/.sextant/runs.jsonl  (run log)"
+echo "  ~/.ledger/runs.jsonl  (run log)"
 echo "  any PROJECT.md         (project ground truth)"
