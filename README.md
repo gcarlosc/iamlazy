@@ -1,4 +1,4 @@
-# Ledger
+# iamlazy
 
 A software-development harness for **Claude Code** and **OpenCode**. It covers the full loop —
 understand the request → grounding → plan → implement → post-validation — on both existing and
@@ -6,17 +6,17 @@ new projects. No MCP, no plugins, no external dependencies. Just bash and files.
 
 ## The mental model (one page)
 
-Ledger is **not** a pipeline of separate agents, and it does not role-play personas either.
+iamlazy is **not** a pipeline of separate agents, and it does not role-play personas either.
 It is one thread that must produce **five artifacts**, each with a required shape and a size
 cap:
 
 1. **Brief** — what is actually being asked; declared assumptions; the questions that would
    change the plan, each with a recommendation — asked only **after** a quick reconnaissance,
    never from ignorance.
-2. **Ground** (`.ledger/ground.md`) — facts about the system, each tagged
+2. **Ground** (`.iamlazy/ground.md`) — facts about the system, each tagged
    `[observed] / [inferred] / [assumed]`; empty tool output counts as *uncertain*, never as a
    confirmed negative.
-3. **Plan** (`.ledger/plan.md`) — verifiable steps, discarded alternatives, and the
+3. **Plan** (`.iamlazy/plan.md`) — verifiable steps, discarded alternatives, and the
    **load-bearing claims**: the 2–3 claims that would invalidate the plan if wrong, each with
    its <10s command **and the command's real output, captured while composing the Plan**.
    **Your approval gate runs on this artifact** — you read verified evidence and decide;
@@ -40,7 +40,7 @@ the *consequence* of demanding each artifact, not as prompt instructions.
 | **Medium** (undo with git) | scoped feature, local refactor | all five | plan mode on the Plan | same-thread reset |
 | **Low** (not easily undone) | architecture, migration, auth, prod | all five | plan mode + claim review | **fresh-context sub-agent** |
 
-Ledger declares its reversibility estimate in one line up front — **that's the first thing
+iamlazy declares its reversibility estimate in one line up front — **that's the first thing
 you can correct**, and it recalibrates without argument.
 
 **The structural floor.** After the code is written, the touched paths are checked
@@ -51,17 +51,17 @@ deterministic, non-negotiable, announced in one line. The fresh Critic re-runs t
 claim commands itself — captured output is never trusted. The Critic must produce a real
 finding or show its adversarial hunt; a bare "looks good" is an invalid verdict.
 
-**Ground truth lives in `PROJECT.md`** at the repo root, versioned with your code. Ledger
+**Ground truth lives in `PROJECT.md`** at the repo root, versioned with your code. iamlazy
 reads it at the start of every session, proposes creating it if it's missing, and **never
 edits it without showing the diff and getting your approval.** When it grows past ~150 lines,
-Ledger proposes a consolidation — also as a diff.
+iamlazy proposes a consolidation — also as a diff.
 
 ## Install
 
 Clone and run (fully offline):
 
 ```sh
-git clone <repo> ledger && cd ledger
+git clone <repo> iamlazy && cd iamlazy
 ./install.sh
 ```
 
@@ -74,21 +74,21 @@ Or force a specific tool:
 `curl | bash` (set the raw file base URL of your fork/repo):
 
 ```sh
-LEDGER_RAW_BASE="https://raw.example/ledger/main" curl -fsSL https://raw.example/ledger/main/install.sh | bash
+IAMLAZY_RAW_BASE="https://raw.example/iamlazy/main" curl -fsSL https://raw.example/iamlazy/main/install.sh | bash
 ```
 
 The installer:
 - auto-detects `claude` and `opencode`,
 - writes the slash commands and the Critic sub-agent to their global config dirs,
 - projects `models.conf` into each file's frontmatter,
-- is **idempotent** (re-run any time) and **never clobbers** a file that isn't Ledger's,
-- creates `~/.ledger/` for the run log.
+- is **idempotent** (re-run any time) and **never clobbers** a file that isn't iamlazy's,
+- creates `~/.iamlazy/` for the run log.
 
 ## Use
 
 ```
-/ledger <your task>      # runs the full harness
-/ledger-review           # shows the last 20 runs, readable
+/iamlazy <your task>      # runs the full harness
+/iamlazy-review           # shows the last 20 runs, readable
 ```
 
 You never see internal mechanics — no session ids, no states, no protocol chatter. You see
@@ -96,9 +96,9 @@ the reversibility call, one block of questions (each with its recommendation), t
 its load-bearing claims (at the gate), the delivery, and the close. Each stage opens with an
 artifact banner so you always know where the work stands.
 
-During a task, `.ledger/` at your project root holds the approved Ground and Plan —
+During a task, `.iamlazy/` at your project root holds the approved Ground and Plan —
 persisted **verbatim as you approved them** — for the Critic to review against and for you to
-inspect afterwards. Add `.ledger/` to your `.gitignore` (Ledger proposes it if missing).
+inspect afterwards. Add `.iamlazy/` to your `.gitignore` (iamlazy proposes it if missing).
 
 ## Models and credentials
 
@@ -122,19 +122,19 @@ Code takes bare Anthropic model ids.
 
 ## The gate is not optional
 
-On medium/low reversibility, Ledger does **not** write code until you approve the Plan. On
+On medium/low reversibility, iamlazy does **not** write code until you approve the Plan. On
 Claude Code the gate rides the **native plan mode** — platform-enforced structure, not prose
 imitating it. On OpenCode, the installed permission config is the backstop.
 
-**Do not run Ledger under `--dangerously-skip-permissions` (or any bypass mode).** It
-removes the structural gate the harness is built on. Ledger installs **no hooks**.
+**Do not run iamlazy under `--dangerously-skip-permissions` (or any bypass mode).** It
+removes the structural gate the harness is built on. iamlazy installs **no hooks**.
 
 ## Validation
 
 Don't take the harness on faith. During the first month, run a few comparable tasks both
-ways — with `/ledger`, and with the bare tool plus a good `CLAUDE.md` — and compare three
+ways — with `/iamlazy`, and with the bare tool plus a good `CLAUDE.md` — and compare three
 questions: did the gate catch something real? did any work have to be undone? what was the
-total time? `runs.jsonl` + `/ledger-review` are half the instrumentation. If Ledger does
+total time? `runs.jsonl` + `/iamlazy-review` are half the instrumentation. If iamlazy does
 not clearly win, the right conclusion is to cut it down, not to defend it.
 
 ## Uninstall
@@ -143,13 +143,13 @@ not clearly win, the right conclusion is to cut it down, not to defend it.
 ./uninstall.sh
 ```
 
-Removes only files carrying the `ledger-managed` marker. It **never** deletes
-`~/.ledger/runs.jsonl` or any `PROJECT.md`.
+Removes only files carrying the `iamlazy-managed` marker. It **never** deletes
+`~/.iamlazy/runs.jsonl` or any `PROJECT.md`.
 
 ## What's in the box
 
 ```
-ledger/
+iamlazy/
   core/            main prompt body (5 rules + 5 artifacts) + the review command body
   critic/          the Critic sub-agent prompt
   templates/       per-tool frontmatter wrappers (claude-code/, opencode/)

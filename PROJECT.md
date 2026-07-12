@@ -1,12 +1,12 @@
-# PROJECT.md — Ledger
+# PROJECT.md — iamlazy
 
-Ground truth for this repo. Ledger reads this at the start of every session and proposes updates
+Ground truth for this repo. iamlazy reads this at the start of every session and proposes updates
 (diff first, human approves) when it learns something. Authoritative but correctable: if an
 observation contradicts this file, that contradiction gets reported, not silently resolved.
 
 ## Purpose
 
-Ledger is a software-development harness for **Claude Code** and **OpenCode**. One main thread
+iamlazy is a software-development harness for **Claude Code** and **OpenCode**. One main thread
 produces **five artifacts** — Brief, Ground, Plan, Diff+deviation note, Close — across the full
 loop: understand the request → grounding → plan → implement → post-validation, on both existing
 and new projects. It is **not** a pipeline of separate agents, and it does not organize work by
@@ -24,25 +24,25 @@ prompt instructions.
   `models.conf` into the `model:` field.
 - **Generated artifacts default to English** (prompts, comments, README). User-facing chat is in
   the user's language.
-- **Idempotency** via a `# ledger-managed` marker inside each generated file's YAML frontmatter.
+- **Idempotency** via a `# iamlazy-managed` marker inside each generated file's YAML frontmatter.
 - Global install (not per-project), one command, works for both tools.
 
 ## Architecture in 10 lines
 
-1. `core/ledger.md` — the main prompt: 5 inviolable rules + 5 artifacts (**hard budget ≤250
+1. `core/iamlazy.md` — the main prompt: 5 inviolable rules + 5 artifacts (**hard budget ≤250
    lines**; a new rule must evict another or become structure).
-2. `core/ledger-review.md` — the `/ledger-review` body (reads the run log).
-3. `critic/ledger-critic.md` — the Critic sub-agent (read-only, fresh context; reads
-   `.ledger/ground.md` + `.ledger/plan.md` from disk, re-runs the Plan's claim commands).
+2. `core/iamlazy-review.md` — the `/iamlazy-review` body (reads the run log).
+3. `critic/iamlazy-critic.md` — the Critic sub-agent (read-only, fresh context; reads
+   `.iamlazy/ground.md` + `.iamlazy/plan.md` from disk, re-runs the Plan's claim commands).
 4. `templates/claude-code/*` and `templates/opencode/*` — frontmatter wrappers only.
 5. The Critic is the **only** real sub-agent — on low reversibility, or whenever the post-diff
    structural floor fires (sensitive glob match or >400 changed lines).
 6. Everything else runs in one thread; artifacts hand off via a "baton" (conclusions +
    pointers) + re-reading primary sources from disk.
 7. Ground truth lives in each target project's `PROJECT.md`; per-task Ground/Plan persist in
-   the target's `.ledger/` (gitignored, overwritten at the next task's gate).
+   the target's `.iamlazy/` (gitignored, overwritten at the next task's gate).
 8. Ceremony is calibrated by **reversibility** (high/medium/low), not size or greenfield.
-9. Observability: one JSON line per task appended to `~/.ledger/runs.jsonl` (tmp→flush).
+9. Observability: one JSON line per task appended to `~/.iamlazy/runs.jsonl` (tmp→flush).
 10. `install.sh` / `uninstall.sh` manage global config for both tools; uninstall preserves data.
 
 ## Decisions (mini-ADRs)
@@ -65,7 +65,7 @@ prompt instructions.
   checklist — captured output is never trusted.
 - **A2/A3 persisted verbatim post-gate** (2026-07-04). Claude Code's plan mode blocks Write, so
   Ground/Plan are composed as text inside plan mode, gated via plan approval, then persisted to
-  `.ledger/` as the first post-approval action — byte-for-byte what was approved. The Critic
+  `.iamlazy/` as the first post-approval action — byte-for-byte what was approved. The Critic
   reads them from disk, never from memory.
 - **One real sub-agent: the Critic, conditional** (2026-07-02; updated 2026-07-04). Why: true
   fresh context is needed where in-thread discipline isn't enough — low reversibility, or when
@@ -83,21 +83,21 @@ prompt instructions.
 - The Critic sub-agent **never** has write/edit permission. Bash is read/test only.
 - `PROJECT.md` is **never** edited without showing the diff and getting approval.
 - On medium/low reversibility, **no code is written before the human approves the plan.**
-- `.ledger/ground.md` and `.ledger/plan.md` are persisted **verbatim as approved at the
+- `.iamlazy/ground.md` and `.iamlazy/plan.md` are persisted **verbatim as approved at the
   gate** — never re-worded on the way to disk.
 - The post-diff structural floor (globs + size cap) is **never skipped or negotiated**.
-- Ledger installs **no hooks** and must not be run under `--dangerously-skip-permissions`.
-- `uninstall.sh` **never** deletes `~/.ledger/runs.jsonl` or any `PROJECT.md`.
+- iamlazy installs **no hooks** and must not be run under `--dangerously-skip-permissions`.
+- `uninstall.sh` **never** deletes `~/.iamlazy/runs.jsonl` or any `PROJECT.md`.
 - Empty tool output is never treated as a confirmed negative (second independent method required).
 
 ## Debt and known risks
 
 - **No automated tests, and the harness's runtime behavior is not executed in CI.** Only install,
   file composition, and installer logic are verified (end-to-end in an isolated HOME). The 5
-  artifacts are correct *by construction of the prompt*, not by a live `/ledger` run.
+  artifacts are correct *by construction of the prompt*, not by a live `/iamlazy` run.
 - **OpenCode directory + frontmatter conventions are trusted from this machine** (`agents/`,
   `commands/`, `mode:`, `permission:`). If OpenCode changes these, the installer needs updating.
-- **`curl | bash` requires `LEDGER_RAW_BASE`** pointing at a raw file base URL; the offline path
+- **`curl | bash` requires `IAMLAZY_RAW_BASE`** pointing at a raw file base URL; the offline path
   is clone+run.
 - **The run log assumes one active session at a time** (tmp→flush orphan recovery).
 - **Bypass detection is not enforceable from inside a prompt** — the detection logic was

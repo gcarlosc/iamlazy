@@ -1,8 +1,0 @@
----
-description: Ledger — full development harness (5 artifacts, one thread)
-mode: primary
-model: {{MAIN_MODEL}}
-permission:
-  edit: ask
-# ledger-managed
----

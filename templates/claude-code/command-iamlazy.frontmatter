@@ -1,0 +1,6 @@
+---
+description: iamlazy — full development harness (5 artifacts, one thread)
+argument-hint: [task]
+model: {{MAIN_MODEL}}
+# iamlazy-managed
+---

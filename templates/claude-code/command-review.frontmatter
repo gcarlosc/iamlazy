@@ -1,5 +1,5 @@
 ---
-description: Ledger — show the last 20 harness runs
+description: iamlazy — show the last 20 harness runs
 model: {{MAIN_MODEL}}
-# ledger-managed
+# iamlazy-managed
 ---

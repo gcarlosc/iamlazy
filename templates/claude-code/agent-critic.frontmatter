@@ -1,7 +1,7 @@
 ---
-name: ledger-critic
-description: Adversarial read-only reviewer for Ledger. Spawned by /ledger on low-reversibility work or when the post-diff structural floor fires.
+name: iamlazy-critic
+description: Adversarial read-only reviewer for iamlazy. Spawned by /iamlazy on low-reversibility work or when the post-diff structural floor fires.
 tools: Read, Grep, Glob, Bash
 model: {{CRITIC_MODEL}}
-# ledger-managed
+# iamlazy-managed
 ---

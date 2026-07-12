@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# ledger uninstaller — removes only files that carry the `ledger-managed`
-# marker. Never touches ~/.ledger/runs.jsonl and never touches any PROJECT.md.
+# iamlazy uninstaller — removes only files that carry the `iamlazy-managed`
+# marker. Never touches ~/.iamlazy/runs.jsonl and never touches any PROJECT.md.
 set -eu
 
-MARKER="ledger-managed"
+MARKER="iamlazy-managed"
 
 TARGETS="\
-${HOME}/.claude/commands/ledger.md \
-${HOME}/.claude/commands/ledger-review.md \
-${HOME}/.claude/agents/ledger-critic.md \
-${HOME}/.config/opencode/commands/ledger.md \
-${HOME}/.config/opencode/commands/ledger-review.md \
-${HOME}/.config/opencode/agents/ledger.md \
-${HOME}/.config/opencode/agents/ledger-critic.md"
+${HOME}/.claude/commands/iamlazy.md \
+${HOME}/.claude/commands/iamlazy-review.md \
+${HOME}/.claude/agents/iamlazy-critic.md \
+${HOME}/.config/opencode/commands/iamlazy.md \
+${HOME}/.config/opencode/commands/iamlazy-review.md \
+${HOME}/.config/opencode/agents/iamlazy.md \
+${HOME}/.config/opencode/agents/iamlazy-critic.md"
 
 remove_if_managed() {
   f="$1"
@@ -27,12 +27,12 @@ remove_if_managed() {
   fi
 }
 
-echo "ledger uninstaller"
+echo "iamlazy uninstaller"
 for t in $TARGETS; do
   remove_if_managed "$t"
 done
 
 echo
 echo "done. Your data was left untouched:"
-echo "  ~/.ledger/runs.jsonl  (run log)"
+echo "  ~/.iamlazy/runs.jsonl  (run log)"
 echo "  any PROJECT.md         (project ground truth)"

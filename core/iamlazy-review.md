@@ -1,11 +1,11 @@
-# Ledger Review — read the run log
+# iamlazy Review — read the run log
 
 Show the human the last runs of the harness in a readable form.
 
 1. Read the last 20 entries:
 
    ```
-   tail -n 20 ~/.ledger/runs.jsonl
+   tail -n 20 ~/.iamlazy/runs.jsonl
    ```
 
    If the file does not exist, say so plainly ("no runs recorded yet") and stop. Do not treat an
