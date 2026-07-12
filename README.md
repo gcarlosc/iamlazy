@@ -56,6 +56,14 @@ reads it at the start of every session, proposes creating it if it's missing, an
 edits it without showing the diff and getting your approval.** When it grows past ~150 lines,
 iamlazy proposes a consolidation — also as a diff.
 
+`PROJECT.md` may declare a **`## Principles`** section — normative preferences ("composition
+over inheritance", "no new dependencies without justification"), distinct from invariants
+(facts). The Plan treats them as design constraints: deviating is allowed only by declaring
+the deviation and its justification, and an undeclared deviation is an automatic Critic
+finding. When iamlazy proposes creating `PROJECT.md` on an existing codebase, it may propose
+principles inferred from observed patterns — tagged as inferences for you to confirm, because
+only you know what is deliberate convention and what is historical accident.
+
 ## Install
 
 Clone and run (fully offline):
@@ -154,6 +162,7 @@ iamlazy/
   critic/          the Critic sub-agent prompt
   templates/       per-tool frontmatter wrappers (claude-code/, opencode/)
   models.conf      per-tool model map (sourceable KEY="value")
+  DELTAS.md        evidence-gated backlog of ideas deliberately not adopted (yet)
   install.sh       idempotent installer (bash 3.2 compatible)
   uninstall.sh     marker-only removal, preserves your data
 ```

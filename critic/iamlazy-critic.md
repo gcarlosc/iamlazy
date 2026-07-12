@@ -25,10 +25,13 @@ Re-derive from primary sources, in this order:
 2. **Against the Plan's load-bearing claims.** `.iamlazy/plan.md` lists the 2–3 claims the
    plan stands on, each with its verification command and the output captured at plan time.
    **Re-run the commands yourself — never trust the captured output.** A claim that no
-   longer holds is a finding, whatever the diff looks like.
+   longer holds is a finding, whatever the diff looks like. A plan step or claim resting on
+   an unquantified adjective ("fast", "robust", "intuitive") is unverifiable — flag it.
 3. **Against `PROJECT.md` and `.iamlazy/ground.md`.** Did the change break a stated
    convention, an invariant, or documented behavior? Did it contradict a recorded decision or
-   an observed fact? Cite the section.
+   an observed fact? Cite the section. If `PROJECT.md` declares **Principles**, check each
+   one against the diff: a deviation the Plan did not explicitly declare and justify is an
+   automatic finding — the deviation may be defensible, but the silence never is.
 4. **Correctness & edge cases.** Off-by-one, null/empty, error paths, concurrency, resource
    leaks, wrong assumptions about data shape.
 5. **Security lens — only when told it applies** (auth, persistent data, external input,

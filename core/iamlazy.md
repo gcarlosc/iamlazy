@@ -65,9 +65,8 @@ advance the flow. On medium/low reversibility, A2 and A3 end up as **files on di
   recommendation ("X or Y? We recommend X because Z"). One single block, never rounds.
   Anything cosmetic becomes a declared assumption instead.
 - **Questions go out only after reconnaissance.** Read `PROJECT.md` (if present) and take a
-  quick look at the terrain before finalizing them. A1 and A2 may interleave internally, but
-  the human receives one question block, informed by ground — never questions from ignorance.
-  On high reversibility this collapses naturally.
+  quick look at the terrain before finalizing them. A1 and A2 may interleave internally; the
+  human still receives one informed block. On high reversibility this collapses naturally.
 
 ### A2 — Ground (cap ~40 lines) → `.iamlazy/ground.md`
 
@@ -76,7 +75,8 @@ advance the flow. On medium/low reversibility, A2 and A3 end up as **files on di
 - Empty output = uncertain (rule 3): second independent method; if both come back empty,
   record "not found via methods X and Y". If two methods disagree, record the discrepancy.
 - Checklist before closing: mono-repo or multi-project and each part's purpose? New work
-  inside or as a sibling? Undocumented conventions? Ground truth outside the repo (`.env`,
+  inside or as a sibling? Undocumented conventions — `PROJECT.md` Principle candidates,
+  proposed as inferences for the human to confirm? Ground truth outside the repo (`.env`,
   external services)? Tests — and if none, is the risk flagged? Anything still "don't know"
   that affects the plan → ask the human, never leave it implicit.
 
@@ -84,12 +84,13 @@ advance the flow. On medium/low reversibility, A2 and A3 end up as **files on di
 
 - Verifiable steps. Discarded alternatives with one sentence of reason each.
 - **Mandatory section — "Load-bearing claims":** the 2–3 claims that, if wrong, invalidate
-  the plan. For each: the claim, the exact <10s verification command, and the command's
-  **real output — run it yourself while composing A3** (read-only; plan mode allows it). The
-  command stays visible so the human *can* re-run it — their option, never their duty. A
-  claim with neither verified evidence nor a citation to A2/`PROJECT.md` does not enter.
+  the plan — each with its <10s verification command and the command's **real output, run
+  yourself while composing A3**; re-running is the human's option, never their duty. A
+  claim with neither verified evidence nor an A2/`PROJECT.md` citation does not enter.
 - On a new project, the stack: honor stated preferences; otherwise 2–3 options with
   trade-offs and a recommendation, biased toward boring and well-supported.
+- `PROJECT.md` **Principles** are design constraints: any deviation is declared here with
+  its justification; an undeclared deviation is an automatic Critic finding.
 - **The human gate is exercised on this artifact.**
 
 ### A4 — Diff + deviation note
@@ -105,9 +106,9 @@ advance the flow. On medium/low reversibility, A2 and A3 end up as **files on di
 
 - The Critic's verdict (next section), then validation in the real environment when
   possible: run the server, the test, the build.
-- Proposed `PROJECT.md` diff with what was learned — applied only after approval (rule 5).
-- **Pruning:** if `PROJECT.md` exceeds ~150 lines, also propose consolidation (merge stale
-  ADRs, drop the obsolete) — as a diff, like everything.
+- Proposed `PROJECT.md` diff with what was learned — including a new Principle when a
+  session decision reveals one — applied only after approval (rule 5).
+- **Pruning:** past ~150 lines, propose consolidation (merge or drop the stale) — as a diff.
 - The log line (see *Session log*), then the closing summary — delivered vs. asked, what
   remains — exactly once. No farewell features; scope does not reopen here.
 
@@ -116,9 +117,9 @@ advance the flow. On medium/low reversibility, A2 and A3 end up as **files on di
 ## The baton
 
 What crosses between artifacts is a short note (~5–10 lines): decisions, open questions, and
-**pointers** to artifacts on disk (`.iamlazy/ground.md`, `.iamlazy/plan.md`, `PROJECT.md`, the
-diff) — never reasoning, never certainties. Each stage re-reads its primary sources from disk:
-*prior certainties are not evidence; only the baton and the sources are.*
+**pointers** to artifacts on disk — never reasoning, never certainties. Each stage re-reads
+its primary sources from disk: *prior certainties are not evidence; only the baton and the
+sources are.*
 
 ---
 
@@ -168,8 +169,7 @@ On **medium/low** reversibility:
 1. After A1, enter **plan mode** (Claude Code: native plan mode; on OpenCode the installed
    permission config is the backstop). Exploration is read-only and allowed there.
 2. Compose A2 and A3 as text inside plan mode, honoring shapes and caps.
-3. Present A3 as the plan to approve — steps, discarded alternatives, claims with commands
-   and real outputs: the human reads verified evidence; re-running is optional for them.
+3. Present A3 as the plan to approve — steps, alternatives, claims with real outputs.
 4. On approval, the **first action** is persisting `.iamlazy/ground.md` and
    `.iamlazy/plan.md` — **verbatim as presented and approved**. No re-wording, no
    restructuring, no "improving" on the way to disk. Then, and only then, build.
@@ -239,8 +239,8 @@ banner: `── A5 — CIERRE (crítico: sub-agente) ──…`.
 - **`.iamlazy/` persistence** — silent; the human already approved that exact content.
 - **Code delivery** — never tool confirmations or line counts. One clean line per file:
   `→ path — what it is and why it exists`, with aligned continuation lines for a batch.
-- **Diffs** — suppressed by default; a minimal fragment only when it is the subject of a
-  Critic finding or needs explicit approval. Never raw line-number dumps.
+- **Diffs** — suppressed by default; a minimal fragment only for a Critic finding or
+  explicit approval. Never raw line-number dumps.
 
 ### Always visible — and how to speak
 

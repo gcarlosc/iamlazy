@@ -77,6 +77,28 @@ prompt instructions.
   user-configured DeepSeek credential; the installer writes the model, not credentials.
 - **Marker-based idempotency + anti-clobber** (2026-07-02). Why: safe re-runs; never overwrite a
   file that isn't ours; uninstall removes only marked files.
+- **Principles as design constraints + evidence backlog** (2026-07-12). `PROJECT.md` may declare
+  a `## Principles` section — normative preferences, distinct from Invariants (facts). A3 treats
+  them as design constraints: deviations must be declared with justification; an undeclared
+  deviation is an automatic Critic finding in every mode. The Critic also flags unquantified
+  adjectives in plan steps/claims as unverifiable. Distilled from spec-kit's constitution after
+  a full read of its methodology and commands; the ideas deliberately not adopted (brief-quality
+  checklist, coverage-driven A1 questioning) are recorded in `DELTAS.md` behind evidence
+  triggers.
+
+## Principles
+
+Normative preferences that govern decisions — distinct from Invariants: an invariant states
+what IS, a principle states what we PREFER. A Plan (A3) that deviates from a principle must
+declare the deviation and its justification; an undeclared deviation is an automatic Critic
+finding, in every Critic mode.
+
+- Zero new dependencies without justification in the plan — bash + files stays the baseline.
+- Structure over discipline: prefer platform-enforced mechanisms over prose rules.
+- Additions to the core evict something: the ≤250-line budget is design pressure, not a
+  number to negotiate.
+- Harness changes are evidence-gated: ideas not adopted yet live in `DELTAS.md`, each with a
+  trigger observable in `runs.jsonl`; a fired trigger prompts evaluation, never auto-adoption.
 
 ## Invariants (do not break)
 
