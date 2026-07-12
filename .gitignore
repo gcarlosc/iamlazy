@@ -3,3 +3,6 @@
 
 # local scratch
 *.sxtmp.*
+
+# gentle-ai skill-registry cache
+.atl/
