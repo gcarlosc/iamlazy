@@ -26,8 +26,11 @@ models.conf"
 usage() {
   cat <<'EOF'
 iamlazy installer
-  usage: install.sh [--tool=claude|opencode|both]
+  usage: install.sh [--tool=claude|opencode|both] [--model=<id>]
   Auto-detects installed tools when --tool is omitted.
+  --model=<id> sets BOTH roles (main + critic) for a single tool, persists the
+    choice to models.conf, and reinstalls. Requires a single --tool (claude or
+    opencode) because their model-id namespaces differ.
   For curl|bash installs, set IAMLAZY_RAW_BASE to the raw file base URL.
 EOF
 }
@@ -92,9 +95,11 @@ install_opencode() {
 
 # ---------- parse args ----------
 TOOL="auto"
+MODEL_OVERRIDE=""
 for arg in "$@"; do
   case "$arg" in
     --tool=*) TOOL="${arg#--tool=}" ;;
+    --model=*) MODEL_OVERRIDE="${arg#--model=}" ;;
     -h|--help) usage; exit 0 ;;
     *) echo "iamlazy: unknown arg: $arg" >&2; usage; exit 1 ;;
   esac
@@ -149,6 +154,29 @@ esac
 if [ "$do_claude" -eq 0 ] && [ "$do_opencode" -eq 0 ]; then
   echo "iamlazy: neither claude nor opencode detected. Force with --tool=claude|opencode|both." >&2
   exit 1
+fi
+
+# ---------- --model override (both roles, single tool) ----------
+# Rewrite two models.conf lines portably (sed -> tmp -> mv; no `sed -i`, macOS bash 3.2).
+persist_model() {
+  # $1 main-var name, $2 critic-var name, $3 value, $4 conf path
+  ptmp="$(mktemp 2>/dev/null || echo "$4.ilztmp.$$")"
+  sed -e "s|^$1=.*|$1=\"$3\"|" -e "s|^$2=.*|$2=\"$3\"|" "$4" > "$ptmp" \
+    && mv "$ptmp" "$4"
+}
+
+if [ -n "$MODEL_OVERRIDE" ]; then
+  if [ "$do_claude" -eq 1 ] && [ "$do_opencode" -eq 1 ]; then
+    echo "iamlazy: --model requires a single --tool=claude|opencode (namespaces differ)." >&2
+    exit 1
+  fi
+  if [ "$do_claude" -eq 1 ]; then
+    CC_MAIN_MODEL="$MODEL_OVERRIDE"; CC_CRITIC_MODEL="$MODEL_OVERRIDE"
+    if [ -n "$SCRIPT_DIR" ]; then persist_model CC_MAIN_MODEL CC_CRITIC_MODEL "$MODEL_OVERRIDE" "$SRC/models.conf"; fi
+  else
+    OC_MAIN_MODEL="$MODEL_OVERRIDE"; OC_CRITIC_MODEL="$MODEL_OVERRIDE"
+    if [ -n "$SCRIPT_DIR" ]; then persist_model OC_MAIN_MODEL OC_CRITIC_MODEL "$MODEL_OVERRIDE" "$SRC/models.conf"; fi
+  fi
 fi
 
 # ---------- install ----------

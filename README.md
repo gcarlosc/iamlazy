@@ -110,7 +110,10 @@ inspect afterwards. Add `.iamlazy/` to your `.gitignore` (iamlazy proposes it if
 
 ## Models and credentials
 
-`models.conf` maps models **per tool** — edit it and re-run `./install.sh`:
+`models.conf` maps models **per tool** — edit it and re-run `./install.sh`, or set both roles of
+one tool in a single command: `./install.sh --tool=claude --model=<id>` (persists the choice to
+`models.conf`, then reinstalls). One `--model` targets one tool — Claude Code and OpenCode use
+different model-id namespaces.
 
 | Role | Claude Code | OpenCode |
 |---|---|---|

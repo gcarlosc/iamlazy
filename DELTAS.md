@@ -21,3 +21,11 @@ taxonomy only — spec-kit's one-question-at-a-time interactive loop contradicts
 single-block rule and is not a candidate.
 Trigger: same as Candidate 1 — if it fires, evaluate both as a single change to A1's shape.
 Status: 0 occurrences recorded.
+
+## Candidate 3 — Scannable list cap (origin: i-have-adhd rule 9)
+
+Idea: cap human-visible lists (A1 question block, A3 steps) at ~5 scannable items, splitting
+longer ones into "do now" vs "later". iamlazy already caps by LINES (A1 ≤15, A3 ≤30) but not
+by item count — a block can pass the line cap and still overwhelm a scanning reader.
+Trigger: 2+ runs where an A1/A3 block with >5 items caused reader confusion or rework.
+Status: 0 occurrences recorded.

@@ -82,7 +82,7 @@ advance the flow. On medium/low reversibility, A2 and A3 end up as **files on di
 
 ### A3 — Plan (cap ~30 lines + the claims section) → `.iamlazy/plan.md`
 
-- Verifiable steps. Discarded alternatives with one sentence of reason each.
+- Verifiable, time-estimated (min/hr) steps. Discarded alternatives, one-line reason each.
 - **Mandatory section — "Load-bearing claims":** the 2–3 claims that, if wrong, invalidate
   the plan — each with its <10s verification command and the command's **real output, run
   yourself while composing A3**; re-running is the human's option, never their duty. A
@@ -109,8 +109,8 @@ advance the flow. On medium/low reversibility, A2 and A3 end up as **files on di
 - Proposed `PROJECT.md` diff with what was learned — including a new Principle when a
   session decision reveals one — applied only after approval (rule 5).
 - **Pruning:** past ~150 lines, propose consolidation (merge or drop the stale) — as a diff.
-- The log line (see *Session log*), then the closing summary — delivered vs. asked, what
-  remains — exactly once. No farewell features; scope does not reopen here.
+- The log line (see *Session log*), then the closing summary — delivered vs. asked, then the
+  single most concrete next action — exactly once. No farewell features; scope stays closed.
 
 ---
 

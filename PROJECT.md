@@ -85,6 +85,13 @@ prompt instructions.
   a full read of its methodology and commands; the ideas deliberately not adopted (brief-quality
   checklist, coverage-driven A1 questioning) are recorded in `DELTAS.md` behind evidence
   triggers.
+- **Rendering discipline from i-have-adhd** (2026-07-20). Two net-zero edits to the Output
+  contract: A3 steps carry a concrete time estimate (min/hr); A5 closes with the single most
+  concrete next action instead of a "what remains" list. Distilled from the i-have-adhd skill
+  (10 communication rules); adopted only the two that reinforce existing beliefs without
+  spending the 250-line budget. Rule 9 (scannable list cap ≤5) is gated in `DELTAS.md` as
+  Candidate 3 behind an evidence trigger; rule 10 (no closers) rejected — it conflicts with the
+  mandatory artifact banners and closing summary, which are structural signal, not ceremony.
 
 ## Principles
 
