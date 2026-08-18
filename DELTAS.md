@@ -29,3 +29,36 @@ longer ones into "do now" vs "later". iamlazy already caps by LINES (A1 ≤15, A
 by item count — a block can pass the line cap and still overwhelm a scanning reader.
 Trigger: 2+ runs where an A1/A3 block with >5 items caused reader confusion or rework.
 Status: 0 occurrences recorded.
+
+## Candidate 4 — `## Expected scope` block in A3 (origin: metrics-instrumentation session, Step 2)
+
+Idea: A3 declares the file paths / scope boundaries it expects to touch, so A4 can be checked
+against it and drift becomes observable. Deliberately deferred from Step 1 (per-run metrics,
+this change) — adding it now would change agent behavior and contaminate the measurement
+baseline before it's collected.
+Trigger: not a hypothesis — scheduled. 5 baseline runs recorded in `runs.jsonl` after Step 1
+lands.
+Status: 0 runs recorded (Step 1 just landed).
+
+## Candidate 5 — Scope drift comparator (origin: metrics-instrumentation session, Step 3)
+
+Idea: compare A3's declared scope (Candidate 4) against A4's actual diff paths; report drift.
+Trigger: written in observable terms only in the second measurement window, after Candidate 4
+lands — the Step 1 baseline cannot measure scope drift (no declared scope exists yet).
+Status: blocked on Candidate 4.
+
+## Candidate 6 — Dynamic reversibility recalculation from the real diff
+
+Idea: instead of relying only on the agent's declared `reversibility`/`reversibility_final`,
+derive a check from the actual diff (paths touched, size) and flag mismatches.
+Trigger: 2+ runs where `reversibility != reversibility_final` in `runs.jsonl` — first
+measurable now that Step 1 landed.
+Status: 0 runs recorded.
+
+## Candidate 7 — Structural floor expanded (new deps, IaC, public endpoints, API contracts)
+
+Idea: extend the sensitive-glob list beyond the current set to catch more escalation-worthy
+surfaces.
+Trigger: 2+ runs where `floor_triggered: none` but the Critic still reported a `[HIGH]`
+finding on a surface the current globs don't cover.
+Status: 0 runs recorded.

@@ -92,6 +92,16 @@ prompt instructions.
   spending the 250-line budget. Rule 9 (scannable list cap ≤5) is gated in `DELTAS.md` as
   Candidate 3 behind an evidence trigger; rule 10 (no closers) rejected — it conflicts with the
   mandatory artifact banners and closing summary, which are structural signal, not ceremony.
+- **Per-run metrics: reconciled, not accumulated** (2026-08-17). `runs.jsonl` gained 10 fields
+  (duration_seconds, reversibility_final, critic_findings_count, files_changed, lines_changed,
+  retries, human_interventions, validation_result, session_id, tokens_total) as passive
+  instrumentation — no behavior change. Three proposed fields were dropped as duplicates of
+  existing ones (critic_invoked, critic_escalated_by, reversibility_declared). `session_id` uses
+  a project-scoped transcript glob — the naive global glob picks up unrelated background
+  sessions (verified, see Debt). The log is self-reported, not independent telemetry — useful
+  for trends across runs, not for auditing a single run. Line-budget rule: a shape-line
+  character increase is paid in equivalent lines (⌈Δchars/95⌉), since context cost tracks
+  characters, not `wc -l`.
 
 ## Principles
 

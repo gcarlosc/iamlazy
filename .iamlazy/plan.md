@@ -1,84 +1,63 @@
-# Plan — `--model` flag para install.sh (modelo unificado orquestador+critic)
+# PLAN — instrumentación de métricas (Paso 1)
 
-## Context
+**Objetivo:** solo el Paso 1 (instrumentación pasiva del log que iamlazy ya escribe).
+Paso 2 (`## Expected scope`) y Paso 3 (comparador de scope drift) NO se implementan —
+van a `DELTAS.md` con trigger.
 
-Hoy, para cambiar el modelo del harness hay que editar `models.conf` a mano (4 variables:
-main/critic × Claude Code/OpenCode) y re-correr `./install.sh`. El usuario quiere un **comando**
-que reciba **un** modelo y lo aplique a **ambos roles a la vez** — orquestador (hilo principal) y
-Critic. Decisión tomada: el comando **persiste** la elección en `models.conf` **y reinstala** en
-un solo paso.
+## Pasos
 
-Restricción real del dominio: Claude Code usa ids Anthropic pelados (`claude-opus-4-8`) y OpenCode
-usa `provider/model` (`deepseek/deepseek-v4-pro`) — namespaces incompatibles. Por eso un `--model`
-apunta a **una** herramienta por invocación.
+1. Extender el shape JSON `:211` con los 11 campos nuevos (una línea, más larga).
+2. Extender el bloque de valores `:214-217`: cada campo con su lista, mismo estilo `·`
+   terco del bloque existente.
+3. Nota de auto-reporte (2 líneas cerca del flush): el log es el reporte del agente sobre
+   sí mismo, no telemetría independiente; se escribe con la misma honestidad que exige el
+   resto del harness, incluidos los propios fallos.
+4. `duration_seconds` con epoch persistido en `run.tmp.json` al inicio de sesión (no
+   `date +%s` en A1 cargado en contexto). En A5: nuevo `date +%s` y resta.
+5. Pagar el presupuesto (~8-11 líneas) por evicción de **duplicación o ejemplo**, nunca de
+   regla. El Baton (`:117-122`) no se toca.
+6. Verificar net-zero: `wc -l ≤ 250` + medir crecimiento de `:211` en líneas equivalentes.
+7. `PROJECT.md`: mini-ADR con diff, esperando aprobación (regla 5). `DELTAS.md`: candidatos
+   4-7 con trigger observable.
 
-Reversibilidad: **media** (feature acotada, git-reversible, sin datos/producción).
+## Campos nuevos (11)
 
-## Approach (recomendado)
+| Campo | Valores | Nota |
+|---|---|---|
+| `duration_seconds` | entero | epoch en disco, no en contexto |
+| `reversibility_final` | `high\|medium\|low` | re-declaración durante construcción (regla 1) |
+| `critic_findings_count` | entero | `0` es válido: búsqueda adversarial sin hallazgos |
+| `files_changed` | entero | de `git diff --stat` |
+| `lines_changed` | entero | insertions + deletions |
+| `retries` | entero `0-2` | ciclos Critic↔build, cap en `:188` |
+| `human_interventions` | entero | mensajes que cambiaron el rumbo (no la aprobación del gate) |
+| `validation_result` | `passed\|failed\|not_run\|n/a` | |
+| `session_id` | string | glob **scopeado al proyecto**, no global |
+| `tokens_total` | entero | Σ de `input+cache_creation+cache_read+output` sobre todos los turnos assistant |
 
-Flag `--model=<id>` en `install.sh`. Sin script aparte (mantiene "un comando, bash+files, cero
-deps").
+Primero en caer si no entra presupuesto: `human_interventions` (definición más blanda).
 
-### Cambios en `install.sh`
+## Load-bearing claims (verificados, salida real)
 
-1. **Init + parsing** (loop args ~L94-101): agregar `MODEL_OVERRIDE=""` y un case nuevo
-   `--model=*) MODEL_OVERRIDE="${arg#--model=}" ;;` antes del catch-all `*)`.
+| Claim | Comando | Salida |
+|---|---|---|
+| L1: archivo en cap, adición net-zero | `wc -l < core/iamlazy.md` | `250` |
+| L5a: session_id vía glob **scopeado** | `ls -t ~/.claude/projects/-Users-giancarlo-development-iamlazy/*.jsonl \| head -1` | `b2e0dc63…` ✅ |
+| L5b: usage con tokens | `rg -c '"usage"'` sobre el transcript | `4`, con `input/output/cache_*` ✅ |
 
-2. **Aplicación en memoria** (después de resolver `do_claude`/`do_opencode`, ~L152, antes de la
-   sección install L154): si `MODEL_OVERRIDE` no vacío:
-   - Exigir **exactamente una** herramienta activa. Si `do_claude=1 && do_opencode=1` → error:
-     `--model requires a single --tool=claude|opencode`, exit 1.
-   - Pisar en memoria las 2 vars del rol de esa herramienta:
-     - claude → `CC_MAIN_MODEL=$MODEL_OVERRIDE; CC_CRITIC_MODEL=$MODEL_OVERRIDE`
-     - opencode → `OC_MAIN_MODEL=$MODEL_OVERRIDE; OC_CRITIC_MODEL=$MODEL_OVERRIDE`
+## Alternativas descartadas
 
-3. **Persistencia a `models.conf`** (solo clone+run, `[ -n "$SCRIPT_DIR" ]`; en `curl|bash` `SRC`
-   es temp descartable → skip): reescribir las 2 líneas afectadas con `sed → tmp → mv` (portable,
-   **sin `-i`** — macOS bash 3.2). Patrón:
-   ```
-   sed -e 's|^CC_MAIN_MODEL=.*|CC_MAIN_MODEL="'"$MODEL_OVERRIDE"'"|' \
-       -e 's|^CC_CRITIC_MODEL=.*|CC_CRITIC_MODEL="'"$MODEL_OVERRIDE"'"|' \
-       "$SRC/models.conf" > "$tmp" && mv "$tmp" "$SRC/models.conf"
-   ```
-   Reusar el idioma de `render()` (L36-39) y del tmp+mv de `write_file()` (L42-54).
+- Versionar el esquema — innecesario (L3: `/iamlazy-review` parsea por nombre).
+- Adelantar `## Expected scope` — contamina el baseline de las 5 features de medición.
+- Glob global para `session_id` — roto, devuelve el observer de claude-mem en vez de la
+  sesión activa (ver GROUND, corrección 1).
 
-4. **usage()** (L27-32): documentar `--model=<id>` (requiere `--tool` único; fija main+critic).
+## Riesgo declarado
 
-### Docs
+El riesgo real está en el Paso 5: comprimir prosa en un archivo sin holgura es donde se
+pierde matiz. Las evicciones se muestran por separado en el diff; `wc -l` prueba que el
+presupuesto cuadra, no que el significado sobrevivió.
 
-5. `README.md:113` — sección "Models and credentials": agregar alternativa
-   `./install.sh --tool=claude --model=<id>` junto a la edición manual.
+## Aprobación
 
-6. `PROJECT.md` — mini-ADR "Comando de modelo unificado (`--model`)". **Va como diff separado con
-   aprobación explícita** (invariante regla 5: PROJECT.md nunca se edita sin diff + OK).
-
-## Discarded alternatives
-
-- Script `iamlazy-set-model` aparte → más superficie, rompe "un comando".
-- `sed -i` in-place → no portable en macOS (necesita `-i ''`); install.sh nunca lo usa.
-- Flag por rol (`--main-model`/`--critic-model`) → contradice "uno aplica a ambos".
-
-## Load-bearing claims (verificadas read-only)
-
-- **C1** — 4 vars existen y se sourcean en L133. `rg -n 'MODEL' models.conf` →
-  `CC_MAIN_MODEL`, `CC_CRITIC_MODEL`, `OC_MAIN_MODEL`, `OC_CRITIC_MODEL`. ✓
-- **C2** — install.sh nunca usa `sed -i`. `rg -n 'sed' install.sh` → única línea L38 sin `-i`. ✓
-- **C3** — arg loop rechaza desconocidos y `TOOL=auto` puede prender ambas. `rg -n 'tool=|unknown
-  arg|TOOL='` → `L94 TOOL="auto"`, `L97 --tool=*`, `L99 unknown arg`. ✓
-
-## Verification (end-to-end, HOME aislado)
-
-- Sintaxis: `bash -n install.sh`.
-- Aplicar: `HOME=$(mktemp -d) ./install.sh --tool=claude --model=claude-sonnet-5` →
-  - stdout muestra `Claude Code -> claude-sonnet-5 (main) / claude-sonnet-5 (critic)`.
-  - `rg 'MODEL' models.conf` → CC_* = `claude-sonnet-5` (persistido); OC_* intactos.
-  - `rg 'model:' $HOME/.claude/commands/iamlazy.md $HOME/.claude/agents/iamlazy-critic.md` →
-    `claude-sonnet-5`.
-- Error path: `./install.sh --tool=both --model=x` → falla pidiendo `--tool` único.
-- Restaurar `models.conf` a opus tras la prueba (o dejar el valor elegido por el usuario).
-
-## Critic
-
-Post-diff: toca `install.sh` (no matchea globs sensibles) y el diff es < 400 líneas →
-Critic en modo **same-thread-reset** (base de reversibilidad media). Re-lee diff + este plan desde
-disco y re-corre C1-C3.
+Aprobado por el humano: incluir `tokens_total` con la definición precisa (11 campos totales).
