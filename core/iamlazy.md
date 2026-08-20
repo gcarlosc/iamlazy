@@ -55,21 +55,19 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
 
 ### A1 — Brief (cap ~15 lines)
 
-- What is actually being asked — restated, not parroted. If the request arrived empty, A1
-  asks for it.
+- What is actually being asked — restated, not parroted; if the request arrived empty, ask.
 - Declared assumptions: "we assume X unless you say otherwise."
 - Open questions — ONLY those whose answer would change the plan, each with a recommendation
   ("X or Y? We recommend X because Z"), in **one single block, never rounds** (cosmetic items
-  become declared assumptions instead) — and **only after reconnaissance**: read `PROJECT.md`
-  and scan the terrain first. A1/A2 may interleave internally; the human still gets one
-  informed block. Collapses naturally on high reversibility.
+  become declared assumptions) — and **only after reconnaissance**: read `PROJECT.md` and scan
+  the terrain first. A1/A2 may interleave internally; the human still gets one informed block.
 
 ### A2 — Ground (cap ~40 lines) → `.iamlazy/ground.md`
 
 - Born from `PROJECT.md` plus exploring only what is missing or may have changed.
 - Every fact tagged `[observed: <source>]` / `[inferred]` / `[assumed]`.
-- Empty output = uncertain (rule 3): second independent method; if both come back empty,
-  record "not found via methods X and Y". If two methods disagree, record the discrepancy.
+- Empty output = uncertain (rule 3): second independent method; if both come back empty, record
+  "not found via methods X and Y". Two methods disagreeing → record the discrepancy.
 - Checklist before closing: mono-repo/multi-project, each part's purpose, and where new work
   lands? Undocumented conventions — `PROJECT.md` Principle candidates for the human to confirm?
   Ground truth outside the repo (`.env`, external services)? Tests — flag the risk if none?
@@ -86,12 +84,15 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
   trade-offs and a recommendation, biased toward boring and well-supported.
 - `PROJECT.md` **Principles** are design constraints: any deviation is declared here with
   its justification; an undeclared deviation is an automatic Critic finding.
-- **Sequential form**: when work can't be verified and closed as one unit, A3 emits ordered
-  steps `T01…TN` instead of one plan — never a new command or artifact. Cut on verifiability,
-  not size (the 400-line floor is a Critic trigger, not a decomposition rule). Each step must
-  leave the repo valid and tested alone; the next reads `PROJECT.md` + this Plan + the prior
-  step's result (status, changed, decisions, deviations — ~10 lines capped), never the
-  conversation. Splitting or merging mid-flight is a proposed diff, never a silent mutation.
+- **Sequential form** → `.iamlazy/steps.md`. The cut test: **can one command verify the whole
+  job?** If yes it stays a single Plan — do not decompose. If it needs several independent
+  verifications, A3 emits ordered steps `T01…TN` instead — never a new command or artifact. Cut
+  on verifiability, not size (the 400-line floor is a Critic trigger, not a decomposition rule).
+  Each step carries its own verification command and must leave the repo valid alone; at its
+  close it appends its result there (status, changed, decisions, deviations — ~10 lines). The
+  next step reads `PROJECT.md` + Plan + that result, never the conversation — that is where the
+  token cost actually drops. `steps.md` is **appended across the sequence**, replaced only when
+  a new Plan supersedes it. Splitting or merging mid-flight is a proposed diff, never silent.
 - **The human gate is exercised on this artifact.**
 
 ### A4 — Diff + deviation note
@@ -105,22 +106,22 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
 
 ### A5 — Close
 
-- The Critic's verdict (next section), then validation in the real environment when
-  possible: run the server, the test, the build.
+- The Critic's verdict, then real-environment validation when possible: server, test, build.
 - Proposed `PROJECT.md` diff with what was learned — including a new Principle when a
   session decision reveals one — applied only after approval (rule 5).
 - **Pruning:** past ~150 lines, propose consolidation (merge or drop the stale) — as a diff.
-- The log line (see *Session log*), then the closing summary — delivered vs. asked, then the
-  single most concrete next action — exactly once. No farewell features; scope stays closed.
+- The log line (see *Session log*), then the closing summary — delivered vs. asked, then the one
+  most concrete next action — exactly once. No farewell features; scope stays closed. In
+  sequential form the next action is `T<n+1>`, run as its own `/iamlazy`.
 
 ---
 
 ## The baton
 
 What crosses between artifacts is a short note (~5–10 lines): decisions, open questions, and
-**pointers** to artifacts on disk — never reasoning, never certainties. Each stage re-reads
-its primary sources from disk: *prior certainties are not evidence; only the baton and the
-sources are.*
+**pointers** to artifacts on disk — never reasoning, never certainties. Each stage re-reads its
+primary sources from disk: *prior certainties are not evidence; only the baton and the sources
+are.*
 
 ---
 
@@ -152,7 +153,7 @@ False positives escalate — they cost tokens, never safety.
 
 - **`inline`** — a quick in-thread check. The verdict rule still applies.
 - **`same-thread-reset`** — discard the builder's certainties out loud, re-read the diff and
-  both artifact files from disk, then review as if arriving fresh.
+  artifact files from disk, then review as if arriving fresh.
 - **`subagent`** — launch **iamlazy-critic** (read-only, fresh context); declare whether the
   **security lens** applies — sensitive surface (auth, data, external input, secrets, new
   dependencies, public exposure, IaC/deploy).
@@ -167,11 +168,11 @@ On **medium/low** reversibility:
    permission config is the backstop). Exploration is read-only and allowed there.
 2. Compose A2 and A3 as text inside plan mode, honoring shapes and caps.
 3. Present A3 as the plan to approve — steps, alternatives, claims with real outputs.
-4. On approval, the **first action** is persisting `.iamlazy/ground.md` and `.iamlazy/plan.md`
-   **verbatim as approved** — no re-wording on the way to disk. Then, and only then, build.
+4. On approval, the **first action** is persisting `.iamlazy/ground.md`, `.iamlazy/plan.md`
+   (plus `steps.md` in sequential form) **verbatim as approved**. Then, and only then, build.
 
 `.iamlazy/` lives at the target project's root, belongs in its `.gitignore` (A5 proposes it),
-survives the close for inspection, and is overwritten at the next task's gate.
+survives the close, and is overwritten at the next gate — except `steps.md` mid-sequence.
 
 On **high** reversibility the gate is a **diff preview** before applying. Record the gate
 outcome for the log: `approved` / `edited` / `rejected` / `n/a`. Do not run under a
@@ -194,14 +195,13 @@ At session start: if `~/.iamlazy/run.tmp.json` exists, append it as-is to `~/.ia
 `"outcome": "incomplete"`, `"start_epoch"` from `date +%s`, and `"session_id"` resolved **once,
 now** from the newest `~/.claude/projects/<cwd-slug>/*.jsonl` — never re-derived at flush.
 
-At A5, flush. **No `jq`.** Build the JSON yourself: collapse newlines/tabs in `task_summary`,
-escape `"` and `\`, write the temp with the file-writing tool (never shell `echo`), then:
+At A5, flush — self-report, not telemetry; write it as honestly as the harness demands, your
+own failures included. **No `jq`.** Build the JSON yourself: collapse newlines/tabs in
+`task_summary`, escape `"` and `\`, write the temp with the file tool (never `echo`), then:
 
 ```
 cat ~/.iamlazy/run.tmp.json >> ~/.iamlazy/runs.jsonl && rm -f ~/.iamlazy/run.tmp.json
 ```
-
-This log is the agent's self-report, not independent telemetry — write it as honestly as the harness demands, including your own failures.
 
 Shape (one line when flushed):
 

@@ -111,6 +111,19 @@ prompt instructions.
   the **sequential A3 form** (`T01…TN` when work can't close as one unit), now adopted.
   DELTAS.md Candidate 4's "5 baseline runs" checkpoint is met but deliberately not auto-adopted
   — see DELTAS.md for why.
+- **Sequential steps persist to `.iamlazy/steps.md`; cut test is verification, not size**
+  (2026-08-19). The sequential form was prose that could not execute: it told the next step to
+  read "the prior step's result" with nowhere to write it, so it would have fallen back to the
+  conversation — destroying the mechanism's whole purpose. Added `steps.md` as the ledger,
+  appended at each step's close and **exempt from the next-gate overwrite** while a sequence is
+  open (otherwise T02's gate would erase T01's result). The decomposition test is now concrete
+  and reuses the load-bearing-claims machinery: *can one command verify the whole job?* One
+  command → single Plan, do not decompose. Several independent verifications → `T01…TN`. A5 in
+  sequential form closes by naming `T<n+1>` as its own `/iamlazy` run. Rationale for that last
+  part is measured, not assumed: across 5 real sessions, cost per turn rose from ~100k (81–103
+  turns) to ~233k (447 turns) because ~97.6% of spend is `cache_read` re-reading accumulated
+  context. Splitting one 447-turn session into ~5 shorter runs projects to roughly half the
+  tokens — the saving comes from ending sessions, which only works if steps hand off by file.
 
 ## Principles
 

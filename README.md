@@ -20,9 +20,11 @@ cap:
    **load-bearing claims**: the 2–3 claims that would invalidate the plan if wrong, each with
    its <10s command **and the command's real output, captured while composing the Plan**.
    **Your approval gate runs on this artifact** — you read verified evidence and decide;
-   re-running the commands is your option, not your duty. When the work can't close as one
-   coherent unit, the Plan takes a **sequential form** instead: ordered steps (`T01…TN`), each
-   leaving the repo valid and tested on its own, handed off by result rather than conversation.
+   re-running the commands is your option, not your duty. When **one command can't verify the
+   whole job**, the Plan takes a **sequential form** instead: ordered steps (`T01…TN`) in
+   `.iamlazy/steps.md`, each leaving the repo valid on its own and each run as its own
+   `/iamlazy`. Steps hand off by written result, never by conversation — which is also where
+   the token saving comes from, since a long session costs ~2x per turn what a short one does.
 4. **Diff + deviation note** — the code against the approved plan; a deviation that
    contradicts the plan stops and reports instead of improvising.
 5. **Close** — the Critic's verdict, real-environment validation, the proposed `PROJECT.md`
