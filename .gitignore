@@ -6,3 +6,6 @@
 
 # gentle-ai skill-registry cache
 .atl/
+
+# per-task iamlazy artifacts (regenerated at every gate, never versioned)
+.iamlazy/

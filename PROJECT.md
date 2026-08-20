@@ -92,16 +92,25 @@ prompt instructions.
   spending the 250-line budget. Rule 9 (scannable list cap ≤5) is gated in `DELTAS.md` as
   Candidate 3 behind an evidence trigger; rule 10 (no closers) rejected — it conflicts with the
   mandatory artifact banners and closing summary, which are structural signal, not ceremony.
-- **Per-run metrics: reconciled, not accumulated** (2026-08-17). `runs.jsonl` gained 10 fields
-  (duration_seconds, reversibility_final, critic_findings_count, files_changed, lines_changed,
-  retries, human_interventions, validation_result, session_id, tokens_total) as passive
-  instrumentation — no behavior change. Three proposed fields were dropped as duplicates of
-  existing ones (critic_invoked, critic_escalated_by, reversibility_declared). `session_id` uses
-  a project-scoped transcript glob — the naive global glob picks up unrelated background
-  sessions (verified, see Debt). The log is self-reported, not independent telemetry — useful
-  for trends across runs, not for auditing a single run. Line-budget rule: a shape-line
+- **Per-run metrics: reconciled, not accumulated** (2026-08-17; corrected 2026-08-19, next
+  entry). `runs.jsonl` gained passive instrumentation fields — no behavior change. Three
+  proposed fields were dropped as duplicates of existing ones (critic_invoked,
+  critic_escalated_by, reversibility_declared). The log is self-reported, not independent
+  telemetry — useful for trends, not for auditing a single run. Line-budget rule: a shape-line
   character increase is paid in equivalent lines (⌈Δchars/95⌉), since context cost tracks
   characters, not `wc -l`.
+- **Metrics baseline validated: `tokens_total` dropped, `session_id` timing fixed, sequential
+  A3 form adopted** (2026-08-19). 7 real runs checked against actual transcripts: `tokens_total`
+  was wrong in 7/7 (round, estimated numbers — up to ~94x off real usage). It needs an external
+  observer, which the no-runtime design forbids, so the field is removed; reconcile manually
+  against `~/.claude/projects/<slug>/*.jsonl` if cost ever matters. `session_id`, previously
+  resolved at A5 via a glob heuristic, picked a stale session at least once (confirmed: the run
+  logged at 02:58:59 under `1f1314b3` actually ran in `b5d05eb4`) — now resolved once at A1 and
+  carried through `run.tmp.json`. The same 7 runs showed 6/7 tripping `floor_triggered: size`
+  (760–2034 changed lines) — real evidence tasks routinely don't fit one Plan. That motivated
+  the **sequential A3 form** (`T01…TN` when work can't close as one unit), now adopted.
+  DELTAS.md Candidate 4's "5 baseline runs" checkpoint is met but deliberately not auto-adopted
+  — see DELTAS.md for why.
 
 ## Principles
 
@@ -145,3 +154,14 @@ finding, in every Critic mode.
   the primary agent plus the tool's native prompts.
 - **The Critic's Bash is a discipline hole**: frontmatter denies the write/edit tools, but Bash
   can write via shell. Accepted so the Critic can run tests; the prompt forbids writes.
+- **Self-reported log fields degrade under load, not just once.** `tokens_total`, `session_id`,
+  and `duration_seconds` all showed estimation or staleness across real runs (2026-08-19) — the
+  mechanism is a prose instruction, not an enforced one. Expect the same pattern in any future
+  self-reported field; prefer fields derivable from a real command (`git diff --stat`) over
+  fields that require the model to introspect its own session.
+- **`.iamlazy/` is untracked by convention but was tracked in this repo's own git history**
+  until 2026-08-19. A prior session had already deleted `ground.md`/`plan.md` from disk and
+  half-edited `.gitignore`, but left both uncommitted — the fix was started, not finished.
+  Completed 2026-08-19 (`.gitignore` entry + `git rm --cached`). Consistent with the bullet
+  above: even when the self-report *is* attempted, follow-through (commit) isn't guaranteed
+  without an explicit close.

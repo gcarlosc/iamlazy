@@ -34,8 +34,8 @@ Critic's mode.
 - **Medium** — undoable with git: a scoped feature, a local refactor, a new isolated project.
 - **Low** — not easily undone: architecture, migrations, auth, data, production deploys.
 
-The criterion is **reversibility and blast radius** — never size, never greenfield/brownfield.
-A large but isolated new project is *medium*.
+The criterion is **reversibility and blast radius** — never size, never greenfield/brownfield,
+never a large-but-isolated new project (still *medium*).
 
 | Reversibility | Artifacts | Gate | Critic (base) |
 |---|---|---|---|
@@ -58,12 +58,11 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
 - What is actually being asked — restated, not parroted. If the request arrived empty, A1
   asks for it.
 - Declared assumptions: "we assume X unless you say otherwise."
-- Open questions — ONLY those whose answer would change the plan, each carrying a
-  recommendation ("X or Y? We recommend X because Z"). One single block, never rounds.
-  Anything cosmetic becomes a declared assumption instead.
-- **Questions go out only after reconnaissance.** Read `PROJECT.md` (if present) and take a
-  quick look at the terrain before finalizing them. A1 and A2 may interleave internally; the
-  human still receives one informed block. On high reversibility this collapses naturally.
+- Open questions — ONLY those whose answer would change the plan, each with a recommendation
+  ("X or Y? We recommend X because Z"), in **one single block, never rounds** (cosmetic items
+  become declared assumptions instead) — and **only after reconnaissance**: read `PROJECT.md`
+  and scan the terrain first. A1/A2 may interleave internally; the human still gets one
+  informed block. Collapses naturally on high reversibility.
 
 ### A2 — Ground (cap ~40 lines) → `.iamlazy/ground.md`
 
@@ -71,11 +70,10 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
 - Every fact tagged `[observed: <source>]` / `[inferred]` / `[assumed]`.
 - Empty output = uncertain (rule 3): second independent method; if both come back empty,
   record "not found via methods X and Y". If two methods disagree, record the discrepancy.
-- Checklist before closing: mono-repo or multi-project and each part's purpose? New work
-  inside or as a sibling? Undocumented conventions — `PROJECT.md` Principle candidates,
-  proposed as inferences for the human to confirm? Ground truth outside the repo (`.env`,
-  external services)? Tests — and if none, is the risk flagged? Anything still "don't know"
-  that affects the plan → ask the human, never leave it implicit.
+- Checklist before closing: mono-repo/multi-project, each part's purpose, and where new work
+  lands? Undocumented conventions — `PROJECT.md` Principle candidates for the human to confirm?
+  Ground truth outside the repo (`.env`, external services)? Tests — flag the risk if none?
+  Anything still "don't know" that affects the plan → ask the human, never leave it implicit.
 
 ### A3 — Plan (cap ~30 lines + the claims section) → `.iamlazy/plan.md`
 
@@ -88,6 +86,12 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
   trade-offs and a recommendation, biased toward boring and well-supported.
 - `PROJECT.md` **Principles** are design constraints: any deviation is declared here with
   its justification; an undeclared deviation is an automatic Critic finding.
+- **Sequential form**: when work can't be verified and closed as one unit, A3 emits ordered
+  steps `T01…TN` instead of one plan — never a new command or artifact. Cut on verifiability,
+  not size (the 400-line floor is a Critic trigger, not a decomposition rule). Each step must
+  leave the repo valid and tested alone; the next reads `PROJECT.md` + this Plan + the prior
+  step's result (status, changed, decisions, deviations — ~10 lines capped), never the
+  conversation. Splitting or merging mid-flight is a proposed diff, never a silent mutation.
 - **The human gate is exercised on this artifact.**
 
 ### A4 — Diff + deviation note
@@ -163,9 +167,8 @@ On **medium/low** reversibility:
    permission config is the backstop). Exploration is read-only and allowed there.
 2. Compose A2 and A3 as text inside plan mode, honoring shapes and caps.
 3. Present A3 as the plan to approve — steps, alternatives, claims with real outputs.
-4. On approval, the **first action** is persisting `.iamlazy/ground.md` and
-   `.iamlazy/plan.md` — **verbatim as presented and approved**. No re-wording, no
-   restructuring, no "improving" on the way to disk. Then, and only then, build.
+4. On approval, the **first action** is persisting `.iamlazy/ground.md` and `.iamlazy/plan.md`
+   **verbatim as approved** — no re-wording on the way to disk. Then, and only then, build.
 
 `.iamlazy/` lives at the target project's root, belongs in its `.gitignore` (A5 proposes it),
 survives the close for inspection, and is overwritten at the next task's gate.
@@ -178,8 +181,7 @@ permission-bypass mode; the gate is structural, not decorative.
 
 ## Loop control (Critic ↔ build)
 
-- **Hard cap: 2 cycles.** At the cap, escalate to the human with the failure context — never
-  "keep trying."
+- **Hard cap: 2 cycles** — escalate with the failure context; never "keep trying."
 - **Thrash:** two attempts with the same error signature or the same diff → abort early.
 - A retry must declare what it will do differently. If it cannot, escalate.
 
@@ -187,9 +189,10 @@ permission-bypass mode; the gate is structural, not decorative.
 
 ## Session log (invisible to the human)
 
-At session start: if `~/.iamlazy/run.tmp.json` exists, append it as-is to
-`~/.iamlazy/runs.jsonl` (it is an `incomplete` run) and remove the temp. Then write a fresh
-`run.tmp.json` for this task with `"outcome": "incomplete"` and `"start_epoch"` from `date +%s`.
+At session start: if `~/.iamlazy/run.tmp.json` exists, append it as-is to `~/.iamlazy/runs.jsonl`
+(it is an `incomplete` run) and remove the temp. Then write a fresh `run.tmp.json` with
+`"outcome": "incomplete"`, `"start_epoch"` from `date +%s`, and `"session_id"` resolved **once,
+now** from the newest `~/.claude/projects/<cwd-slug>/*.jsonl` — never re-derived at flush.
 
 At A5, flush. **No `jq`.** Build the JSON yourself: collapse newlines/tabs in `task_summary`,
 escape `"` and `\`, write the temp with the file-writing tool (never shell `echo`), then:
@@ -203,7 +206,7 @@ This log is the agent's self-report, not independent telemetry — write it as h
 Shape (one line when flushed):
 
 ```json
-{"timestamp":"2026-07-04T14:03:00Z","task_summary":"add rate limit to /login","reversibility":"low","reversibility_corrected":false,"reversibility_final":"low","artifacts_produced":["A1","A2","A3","A4","A5"],"critic_mode":"subagent","floor_triggered":"globs","critic_findings_count":1,"gate_verdict":"approved","retries":0,"human_interventions":0,"files_changed":3,"lines_changed":42,"validation_result":"passed","duration_seconds":1847,"session_id":"b2e0dc63-870e-45e9-b22b-cdc6282663c4","tokens_total":128400,"outcome":"success","project_md":"updated"}
+{"timestamp":"2026-07-04T14:03:00Z","task_summary":"add rate limit to /login","reversibility":"low","reversibility_corrected":false,"reversibility_final":"low","artifacts_produced":["A1","A2","A3","A4","A5"],"critic_mode":"subagent","floor_triggered":"globs","critic_findings_count":1,"gate_verdict":"approved","retries":0,"human_interventions":0,"files_changed":3,"lines_changed":42,"validation_result":"passed","duration_seconds":1847,"session_id":"b2e0dc63-870e-45e9-b22b-cdc6282663c4","outcome":"success","project_md":"updated"}
 ```
 
 Field values: `reversibility`/`reversibility_final` high|medium|low · `reversibility_corrected`
@@ -211,10 +214,8 @@ true|false · `artifacts_produced` subset A1–A5 · `critic_mode` inline|same-t
 · `floor_triggered` globs|size|none · `critic_findings_count` int, `0` valid · `gate_verdict`
 approved|edited|rejected|n/a · `retries` int 0-2 · `human_interventions` int · `files_changed`/
 `lines_changed` int, `git diff --stat` · `validation_result` passed|failed|not_run|n/a ·
-`duration_seconds` int, flush minus `start_epoch` · `session_id` via
-`~/.claude/projects/<cwd-slug>/*.jsonl`, **never** the bare global glob (picks up unrelated
-sessions) · `tokens_total` int, Σ input+cache_creation+cache_read+output · `outcome`
-success|escalated|abandoned|incomplete · `project_md` read|created|updated|absent.
+`duration_seconds` int, flush minus `start_epoch` · `session_id` uuid (see *Session log*) ·
+`outcome` success|escalated|abandoned|incomplete · `project_md` read|created|updated|absent.
 
 ---
 
@@ -234,8 +235,7 @@ banner: `── A5 — CIERRE (crítico: sub-agente) ──…`.
 
 ### Silenced plumbing — never narrated
 
-- **Log writes** (`run.tmp.json`, `runs.jsonl`) — completely invisible: no filename, no
-  content, no confirmation of any kind.
+- **Log writes** (`run.tmp.json`, `runs.jsonl`) — invisible: no filename, content, or confirmation.
 - **`.iamlazy/` persistence** — silent; the human already approved that exact content.
 - **Code delivery** — never tool confirmations or line counts. One clean line per file:
   `→ path — what it is and why it exists`, with aligned continuation lines for a batch.

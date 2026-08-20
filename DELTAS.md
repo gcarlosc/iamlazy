@@ -38,14 +38,22 @@ this change) — adding it now would change agent behavior and contaminate the m
 baseline before it's collected.
 Trigger: not a hypothesis — scheduled. 5 baseline runs recorded in `runs.jsonl` after Step 1
 lands.
-Status: 0 runs recorded (Step 1 just landed).
+Status: checkpoint met (2026-08-19) — 7 real runs recorded post-Step-1, exceeding the 5-run
+baseline. Evaluated, not auto-adopted: `files_changed`/`lines_changed` (computed via
+`git diff --stat`, not self-reported — trustworthy) show 6/7 runs at 760–2034 changed lines,
+past the 400-line floor. That's evidence real tasks routinely don't fit one Plan, which is what
+motivated the **sequential A3 form** (adopted, see PROJECT.md 2026-08-19) — not this block
+directly. Once large work decomposes into `T01…TN`, each step's own diff is the unit "scope"
+should be checked against; evaluating a scope-drift mechanism before that existed would have
+measured the wrong thing. Re-evaluate after a few sequential-form runs land.
 
 ## Candidate 5 — Scope drift comparator (origin: metrics-instrumentation session, Step 3)
 
 Idea: compare A3's declared scope (Candidate 4) against A4's actual diff paths; report drift.
 Trigger: written in observable terms only in the second measurement window, after Candidate 4
 lands — the Step 1 baseline cannot measure scope drift (no declared scope exists yet).
-Status: blocked on Candidate 4.
+Status: blocked on Candidate 4, which is itself now deferred behind the sequential A3 form
+(2026-08-19) — see Candidate 4.
 
 ## Candidate 6 — Dynamic reversibility recalculation from the real diff
 
