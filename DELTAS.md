@@ -70,3 +70,61 @@ surfaces.
 Trigger: 2+ runs where `floor_triggered: none` but the Critic still reported a `[HIGH]`
 finding on a surface the current globs don't cover.
 Status: 0 runs recorded.
+
+## Candidate 8 — Evict the sequential `steps.md` ledger
+
+Idea: remove the `T01…TN` sequential form and its `.iamlazy/steps.md` ledger from the core,
+reclaiming lines from the ≤250 budget. Adopted 2026-08-19 on the strength of 6/7 runs tripping
+the 400-line floor — and not exercised once since.
+Evidence (2026-08-21): V2.4 in git-diff-viewer was an 11-slice task where the model itself
+proposed splitting ("this session = Slices 1-6, next session = Slices 7-11"). Two runs followed,
+`e52bc9dd` (1-6) and `335de855` (7-11), and `.iamlazy/steps.md` was never created in either. The
+handoff still worked — through the target project's `PROJECT.md` (`## Delivery status — V2.4
+Slices 1-6 DONE`) plus a hand-written continuation prompt. Measured effect: the second session
+averaged 163k context per turn against 188k, ~13% cheaper per changed line. So the model
+resolves decomposition as a **scope cut**, not as the designed sequential form, and the ledger's
+stated problem (nowhere to write a step's result) was already solved by an artifact that existed.
+Trigger to evict: 1 more multi-step task where the model splits work without writing `steps.md`.
+Trigger to keep: any run where `steps.md` is created AND a later step reads it.
+Status: 2 non-activations recorded (2026-08-21).
+
+## Candidate 9 — Reinstate one delegated builder sub-agent
+
+Idea: allow a single delegated writer alongside the Critic, reversing the 2026-08-20 exclusion.
+Evidence FOR (2026-08-21), cost-weighted (`cache_read` × 0.1, `cache_write` × 1.25, `output` × 5),
+main thread plus sub-agents, normalized by changed lines:
+
+| Run | sub-agents | weighted | lines | per line |
+|-----|-----------|----------|-------|----------|
+| V2.3 `d7508d76` | 6 (builders + Critic) | 11.18M | 3401 | **3,287** |
+| V2.4 `e52bc9dd` + `335de855` | 1 each (Critic only) | 18.23M | 3312 | **5,504** |
+
+The delegated configuration came out **1.67x cheaper per changed line**.
+Evidence AGAINST: V2.3 logged `retries: 1` and `human_interventions: 2` on both runs, against
+`retries: 0` on both V2.4 runs — and `retries` survived the field audit below, so that contrast
+is real, not self-flattery. Delegation may buy tokens and pay in rework. Also: the two features
+differ in complexity, so this is an observation, not a controlled experiment.
+Trigger: a controlled pair (same class of feature, one run each way), or 3+ runs showing >1.5x
+cost per changed line in the single-thread direction.
+Status: 1 uncontrolled observation. The exclusion stands (PROJECT.md 2026-08-20).
+
+## Field audit — self-reported log fields (2026-08-21)
+
+Audited against real transcripts across 5 sessions. Corrects the blanket expectation in
+PROJECT.md's Debt section that self-reported fields degrade generally:
+
+- **`critic_findings_count` — PASSES.** `335de855` reported 6; the Critic's own verdict says
+  "four LOW and two INFO" = 6. Exact.
+- **`retries` — PASSES (consistent).** V2.4 runs: one Critic invocation each, gate approved,
+  `retries: 0`. `d7508d76`: 6 sub-agent transcripts, `retries: 1`. No contradiction found.
+- **`human_interventions` — UNDERCOUNTS.** `1f1314b3` reported 1 against at least 3 real ones
+  (a language correction, a tool-use interrupt, a config decision). `e48d685e` reported 0 with
+  3 genuine human messages. `335de855` reported 1, defensible if only interrupts count — the
+  field's definition is ambiguous, which is the actual defect.
+
+Refined pattern: introspection fails when the field requires **estimating a quantity**
+(`tokens_total`) or when its **definition is ambiguous** (`human_interventions`). It holds when
+the model counts **discrete artifacts it produced** (`critic_findings_count`, `retries`).
+Derivable replacement available: `[Request interrupted by user for tool use]` is a literal
+transcript marker — 1 in `1f1314b3`, 1 in `335de855`, 0 elsewhere. Countable by command, like
+`git diff --stat`.

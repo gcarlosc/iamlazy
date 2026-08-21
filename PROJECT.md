@@ -182,11 +182,17 @@ finding, in every Critic mode.
   the primary agent plus the tool's native prompts.
 - **The Critic's Bash is a discipline hole**: frontmatter denies the write/edit tools, but Bash
   can write via shell. Accepted so the Critic can run tests; the prompt forbids writes.
-- **Self-reported log fields degrade under load, not just once.** `tokens_total`, `session_id`,
-  and `duration_seconds` all showed estimation or staleness across real runs (2026-08-19) — the
-  mechanism is a prose instruction, not an enforced one. Expect the same pattern in any future
-  self-reported field; prefer fields derivable from a real command (`git diff --stat`) over
-  fields that require the model to introspect its own session.
+- **Self-reported log fields fail selectively, not generally** (2026-08-19; refined 2026-08-21).
+  `tokens_total`, `session_id` and `duration_seconds` showed estimation or staleness across real
+  runs. But a 5-session audit against transcripts found the failure is not universal:
+  `critic_findings_count` was exact (6 reported = "four LOW and two INFO") and `retries` was
+  consistent, while `human_interventions` undercounts (1 reported against ≥3 real in
+  `1f1314b3`; 0 against 3 in `e48d685e`). The discriminator is what the field asks for:
+  introspection fails when it must **estimate a quantity** or when its **definition is
+  ambiguous**, and holds when the model **counts discrete artifacts it produced**. Still prefer
+  command-derivable fields (`git diff --stat`); for `human_interventions` the derivable
+  replacement is the literal `[Request interrupted by user for tool use]` transcript marker.
+  See DELTAS.md "Field audit" for the per-field evidence.
 - **`.iamlazy/` is untracked by convention but was tracked in this repo's own git history**
   until 2026-08-19. A prior session had already deleted `ground.md`/`plan.md` from disk and
   half-edited `.gitignore`, but left both uncommitted — the fix was started, not finished.
