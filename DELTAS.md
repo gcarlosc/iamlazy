@@ -84,9 +84,17 @@ Slices 1-6 DONE`) plus a hand-written continuation prompt. Measured effect: the 
 averaged 163k context per turn against 188k, ~13% cheaper per changed line. So the model
 resolves decomposition as a **scope cut**, not as the designed sequential form, and the ledger's
 stated problem (nowhere to write a step's result) was already solved by an artifact that existed.
-Trigger to evict: 1 more multi-step task where the model splits work without writing `steps.md`.
+Sampling caveat (do not skip): both observations came from a task the HUMAN had already
+decomposed — A1 records "11 slices explícitas". The sequential form exists for the opposite
+case, where the model must decompose because no single command verifies the whole job. With
+pre-numbered slices the human's numbering already IS the ledger, so non-activation is the
+expected outcome, not evidence against the mechanism.
+Trigger to evict: 1 run where the task is handed over as an OBJECTIVE with no slices or
+numbering, needs several independent verifications, and the model still splits work without
+writing `steps.md`.
 Trigger to keep: any run where `steps.md` is created AND a later step reads it.
-Status: 2 non-activations recorded (2026-08-21).
+Status: 2 non-activations recorded (2026-08-21), both on pre-decomposed input — not counted
+toward the evict trigger.
 
 ## Candidate 9 — Reinstate one delegated builder sub-agent
 
