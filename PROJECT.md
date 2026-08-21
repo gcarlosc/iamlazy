@@ -124,6 +124,19 @@ prompt instructions.
   turns) to ~233k (447 turns) because ~97.6% of spend is `cache_read` re-reading accumulated
   context. Splitting one 447-turn session into ~5 shorter runs projects to roughly half the
   tokens — the saving comes from ending sessions, which only works if steps hand off by file.
+- **iamlazy is out of scope for the host's delegation rules** (2026-08-20). The single-thread
+  model was fiction under Claude Code: `~/.claude/CLAUDE.md` carries an "Agent Teams Lite"
+  orchestrator block whose Mandatory Delegation Triggers ("multi-file write → delegate one
+  writer") are declared non-skippable, and a global CLAUDE.md outranks a command prompt.
+  Measured on 3 real sessions: delegated **builder** agents (`Write`×12, `Edit`×12, 115 turns —
+  not the Critic) cost 113% and 122% of their main session, and none of it reaches `runs.jsonl`,
+  which accounts only the main thread. Resolution: a precedence clause in `~/.claude/CLAUDE.md`,
+  placed **outside** the `gentle-ai:*` markers so a sync can't regenerate it away. Honest limit:
+  that clause is prose, not structure — `allowed-tools` cannot express it, since denying `Task`
+  would also kill the Critic. Detection is the fallback: any file under a session's
+  `subagents/` other than the Critic's is evidence the exclusion was violated. Method note —
+  those percentages are cost-weighted (`cache_read` × 0.1); raw transcript sums are ~95%
+  `cache_read` and overstate spend by roughly 4x.
 
 ## Principles
 
@@ -142,6 +155,8 @@ finding, in every Critic mode.
 ## Invariants (do not break)
 
 - The Critic sub-agent **never** has write/edit permission. Bash is read/test only.
+- **The Critic is the only sub-agent an iamlazy run may spawn** — on any host tool, regardless of
+  that host's own delegation rules. Delegating a writer is drift, not an optimization.
 - `PROJECT.md` is **never** edited without showing the diff and getting approval.
 - On medium/low reversibility, **no code is written before the human approves the plan.**
 - `.iamlazy/ground.md` and `.iamlazy/plan.md` are persisted **verbatim as approved at the
