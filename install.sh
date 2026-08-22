@@ -195,6 +195,18 @@ echo
 echo "done."
 echo "  log dir:  $LOG_DIR"
 echo "  commands: /iamlazy  /iamlazy-review"
+if [ "$do_claude" -eq 1 ]; then
+  echo
+  echo "  note: '$CC_MAIN_MODEL' covers the planner turn only — a command's model:"
+  echo "  frontmatter expires at your next prompt, and the gate is a prompt. To route"
+  echo "  the builder separately, set your SESSION model to 'opusplan' (/model opusplan):"
+  echo "  Opus in plan mode, Sonnet on execution. iamlazy's gate rides on plan mode, so"
+  echo "  the switch lands exactly on the plan/build boundary."
+  if [ -n "${CLAUDE_CODE_SUBAGENT_MODEL:-}" ]; then
+    echo "  WARNING: CLAUDE_CODE_SUBAGENT_MODEL='$CLAUDE_CODE_SUBAGENT_MODEL' is set and"
+    echo "  overrides CC_CRITIC_MODEL ('$CC_CRITIC_MODEL'). Unset it to use the value above."
+  fi
+fi
 if [ "$do_opencode" -eq 1 ]; then
   echo "  note: OpenCode needs a DeepSeek credential (env or opencode.json). Not configured by this installer."
 fi

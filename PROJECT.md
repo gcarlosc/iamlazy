@@ -70,10 +70,12 @@ prompt instructions.
 - **One real sub-agent: the Critic, conditional** (2026-07-02; updated 2026-07-04). Why: true
   fresh context is needed where in-thread discipline isn't enough — low reversibility, or when
   the structural floor fires.
-- **Per-tool models, strongest for both roles** (2026-07-02; updated 2026-07-04). Claude Code:
+- **Per-tool models, strongest for both roles** (2026-07-02; updated 2026-07-04;
+  **superseded 2026-08-22**, see below). Claude Code:
   `claude-opus-4-8` (main + critic). OpenCode: `deepseek/deepseek-v4-pro` (main + critic).
   Rationale: the Critic subagent only runs on the least reversible work — rare enough that
-  sharpness beats cost. Ids verified against `opencode models` on 2026-07-04. OpenCode needs a
+  sharpness beats cost — **a premise the run log refutes: 12 of 28 runs escalated it.**
+  Ids verified against `opencode models` on 2026-07-04. OpenCode needs a
   user-configured DeepSeek credential; the installer writes the model, not credentials.
 - **Marker-based idempotency + anti-clobber** (2026-07-02). Why: safe re-runs; never overwrite a
   file that isn't ours; uninstall removes only marked files.
@@ -137,6 +139,24 @@ prompt instructions.
   `subagents/` other than the Critic's is evidence the exclusion was violated. Method note —
   those percentages are cost-weighted (`cache_read` × 0.1); raw transcript sums are ~95%
   `cache_read` and overstate spend by roughly 4x.
+- **Model routing is a session setting, not a `models.conf` field; validation precedes the
+  Critic** (2026-08-22). Two corrections from a cross-model review round.
+  (a) `models.conf` reaches less far than assumed. A command's `model:` frontmatter overrides
+  the model **for the current turn only** — verified in the Claude Code docs — and the session
+  model resumes at the human's next prompt. The gate IS a human turn, so `CC_MAIN_MODEL`
+  governs the planner (A1–A3) and the **session model** governs the builder (A4–A5); it was
+  never doing what the file claimed. `CC_CRITIC_MODEL` is unaffected: a subagent's model holds
+  for its whole run. The planner/builder split therefore needs no new command and no new
+  sub-agent — Claude Code's native `opusplan` alias (Opus in plan mode, Sonnet on execution)
+  lands the switch exactly on iamlazy's gate, because the gate rides on native plan mode.
+  Structure over discipline, at zero prompt lines. No OpenCode equivalent exists.
+  (b) A5 ordered the Critic's verdict **before** real-environment validation, so a subagent
+  Critic could be spent reviewing code that does not build — the harness's most expensive
+  single action against its least useful input. Inverted: validation first, a failure
+  short-circuits the review. Net zero lines; the budget stayed at 250.
+  Open and deliberately not decided: whether the Critic should run a model decorrelated from
+  the builder rather than the strongest one — `DELTAS.md` Candidate 10, gated on adding a
+  derivable `critic_model` field to `runs.jsonl` first.
 
 ## Principles
 

@@ -136,3 +136,23 @@ the model counts **discrete artifacts it produced** (`critic_findings_count`, `r
 Derivable replacement available: `[Request interrupted by user for tool use]` is a literal
 transcript marker — 1 in `1f1314b3`, 1 in `335de855`, 0 elsewhere. Countable by command, like
 `git diff --stat`.
+
+## Candidate 10 — Critic decorrelated from the builder (origin: cross-model review round, 2026-08-22)
+
+Idea: pick `*_CRITIC_MODEL` for **independence from the builder**, not for tier. A Critic that
+shares a model with the builder shares its blind spots — it cannot see what the builder could
+not see. The current ADR ("strongest for both roles") optimizes sharpness; this optimizes
+decorrelation. Note the asymmetry: OpenCode can cross providers for free, Claude Code is
+Anthropic-only, so there the knob is tier, not family — and lowering the Critic's tier
+contradicts the fact that it produces 2–6 findings per run.
+Also corrects a stale premise: the ADR justified one model with "the Critic only fires on the
+least reversible work — rare enough". It is not rare. 12 of 28 logged runs escalated it to a
+subagent, because the post-diff size floor fires far more often than the declared tier does.
+Prerequisite to measure anything: `runs.jsonl` has no `critic_model` field. It is derivable
+(the installer wrote it into the frontmatter), so it should be added before the trigger below
+can be evaluated.
+Trigger A: 2+ runs where a `[HIGH]` or `[MEDIUM]` finding lands on code a previous Critic
+already reviewed and passed — a shared blind spot, observable as a regression the review missed.
+Trigger B (cheaper, deliberate): one controlled pair — the same diff reviewed twice, once by a
+Critic sharing the builder's model and once by a different one — comparing unique findings.
+Status: 0 occurrences. No `critic_model` recorded yet.

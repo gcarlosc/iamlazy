@@ -106,9 +106,9 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
 
 ### A5 — Close
 
-- The Critic's verdict, then real-environment validation when possible: server, test, build.
-- Proposed `PROJECT.md` diff with what was learned — including a new Principle when a
-  session decision reveals one — applied only after approval (rule 5).
+- Real-environment validation first when possible — server, test, build. A failure
+  short-circuits the Critic: fix, then review. Only then the Critic's verdict.
+- Proposed `PROJECT.md` diff with what was learned, new Principles included (rule 5).
 - **Pruning:** past ~150 lines, propose consolidation (merge or drop the stale) — as a diff.
 - The log line (see *Session log*), then the closing summary — delivered vs. asked, then the one
   most concrete next action — exactly once. No farewell features; scope stays closed. In

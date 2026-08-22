@@ -27,7 +27,8 @@ cap:
    the token saving comes from, since a long session costs ~2x per turn what a short one does.
 4. **Diff + deviation note** — the code against the approved plan; a deviation that
    contradicts the plan stops and reports instead of improvising.
-5. **Close** — the Critic's verdict, real-environment validation, the proposed `PROJECT.md`
+5. **Close** — real-environment validation first (a failing build short-circuits the review:
+   fix, then review), then the Critic's verdict, then the proposed `PROJECT.md`
    update (diff first, you approve), the run log line.
 
 Why artifacts instead of personas: an abandoned role is invisible, but **a missing or
@@ -119,14 +120,33 @@ one tool in a single command: `./install.sh --tool=claude --model=<id>` (persist
 `models.conf`, then reinstalls). One `--model` targets one tool — Claude Code and OpenCode use
 different model-id namespaces.
 
-| Role | Claude Code | OpenCode |
-|---|---|---|
-| Main thread | `claude-opus-4-8` | `deepseek/deepseek-v4-pro` |
-| Critic | `claude-opus-4-8` | `deepseek/deepseek-v4-pro` |
+| Role | Set by | Claude Code | OpenCode |
+|---|---|---|---|
+| Planner (A1–A3) | `*_MAIN_MODEL` | `claude-opus-4-8` | `deepseek/deepseek-v4-pro` |
+| Builder (A4–A5) | **your session model** | see below | `deepseek/deepseek-v4-pro` |
+| Critic | `*_CRITIC_MODEL` | `claude-opus-4-8` | `deepseek/deepseek-v4-pro` |
 
-Both roles run the strongest model deliberately: the Critic sub-agent only fires on the least
-reversible work (or when the structural floor escalates it) — rare enough that sharpness
-beats cost.
+**How far `models.conf` actually reaches on Claude Code.** A command's `model:` frontmatter
+overrides the model **for the current turn only** — the session model resumes at your next
+prompt, and the gate *is* a prompt. So `CC_MAIN_MODEL` covers the planner, and your **session
+model** covers the builder. `CC_CRITIC_MODEL` is the exception: a sub-agent's model holds for
+its whole run.
+
+**To route planner and builder separately, set your session model to `opusplan`** — `/model
+opusplan`, or `"model": "opusplan"` in `~/.claude/settings.json`. It runs Opus during plan mode
+and switches to Sonnet on execution; since iamlazy's gate rides on native plan mode, the switch
+lands exactly on the plan/build boundary. `CC_MAIN_MODEL` then acts as a floor: a strong
+planner even when the session is on something cheap. There is no equivalent on OpenCode — the
+primary agent's model is the session model and holds for the whole run.
+
+The Critic stays on the strongest model, but **not** because it is rare: 12 of 28 logged runs
+escalated it to a sub-agent, since the structural floor fires on size far more often than the
+tier does. It is the review of record. Whether it should instead run a model *decorrelated*
+from the builder — different blind spots, genuinely independent review — is an open question
+tracked in `DELTAS.md`.
+
+> **Heads up:** the `CLAUDE_CODE_SUBAGENT_MODEL` environment variable, when set, silently
+> overrides `CC_CRITIC_MODEL`. Unset it if you want `models.conf` to apply.
 
 > **OpenCode requires a DeepSeek credential that you configure** — an API key in your
 > environment or in `opencode.json`. The installer writes the `model` into the frontmatter;
