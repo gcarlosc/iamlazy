@@ -19,12 +19,15 @@ cap:
 3. **Plan** (`.iamlazy/plan.md`) — verifiable steps, discarded alternatives, and the
    **load-bearing claims**: the 2–3 claims that would invalidate the plan if wrong, each with
    its <10s command **and the command's real output, captured while composing the Plan**.
+   The Plan also names the **Critic mode it expects**, so you know before approving whether the
+   review will escalate — an expectation, not a promise; the post-diff floor still decides.
    **Your approval gate runs on this artifact** — you read verified evidence and decide;
    re-running the commands is your option, not your duty. When **one command can't verify the
-   whole job**, the Plan takes a **sequential form** instead: ordered steps (`T01…TN`) in
-   `.iamlazy/steps.md`, each leaving the repo valid on its own and each run as its own
-   `/iamlazy`. Steps hand off by written result, never by conversation — which is also where
-   the token saving comes from, since a long session costs ~2x per turn what a short one does.
+   whole job**, the steps become the unit of delivery — each leaving the repo valid on its own,
+   each run as its own `/iamlazy` — and **the Plan is its own ledger**: a step is marked done in
+   `.iamlazy/plan.md` with its result appended under it. Runs hand off by written result, never
+   by conversation, which is where the token saving comes from: a long session costs about
+   twice per turn what a short one does.
 4. **Diff + deviation note** — the code against the approved plan; a deviation that
    contradicts the plan stops and reports instead of improvising.
 5. **Close** — real-environment validation first (a failing build short-circuits the review:
@@ -122,9 +125,9 @@ different model-id namespaces.
 
 | Role | Set by | Claude Code | OpenCode |
 |---|---|---|---|
-| Planner (A1–A3) | `*_MAIN_MODEL` | `claude-opus-4-8` | `deepseek/deepseek-v4-pro` |
+| Planner (A1–A3) | `*_MAIN_MODEL` | `claude-opus-5` | `deepseek/deepseek-v4-pro` |
 | Builder (A4–A5) | **your session model** | see below | `deepseek/deepseek-v4-pro` |
-| Critic | `*_CRITIC_MODEL` | `claude-opus-4-8` | `deepseek/deepseek-v4-pro` |
+| Critic | `*_CRITIC_MODEL` | `claude-opus-5` | `deepseek/deepseek-v4-pro` |
 
 **How far `models.conf` actually reaches on Claude Code.** A command's `model:` frontmatter
 overrides the model **for the current turn only** — the session model resumes at your next
@@ -140,7 +143,7 @@ non-determinism here. Set `"model"` in `~/.claude/settings.json`, or in a projec
 
 | You want | Set |
 |---|---|
-| One model the whole way | `"model": "claude-opus-4-8"` |
+| One model the whole way | `"model": "claude-opus-5"` |
 | Strong planner, cheap builder | `"model": "opusplan"` |
 
 `opusplan` runs Opus during plan mode and switches to Sonnet on execution. Since iamlazy's gate
@@ -179,8 +182,10 @@ removes the structural gate the harness is built on. iamlazy installs **no hooks
 Don't take the harness on faith. During the first month, run a few comparable tasks both
 ways — with `/iamlazy`, and with the bare tool plus a good `CLAUDE.md` — and compare three
 questions: did the gate catch something real? did any work have to be undone? what was the
-total time? `runs.jsonl` + `/iamlazy-review` are half the instrumentation. If iamlazy does
-not clearly win, the right conclusion is to cut it down, not to defend it.
+total time? `runs.jsonl` + `/iamlazy-review` are half the instrumentation — and the review also
+sweeps `DELTAS.md`'s triggers against your runs, reporting which ones fired, so the backlog
+tells you when it has evidence instead of waiting to be asked. If iamlazy does not clearly win,
+the right conclusion is to cut it down, not to defend it.
 
 ## Uninstall
 

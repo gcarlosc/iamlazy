@@ -26,9 +26,8 @@ Everything else in this file is guidance. These five are law.
 
 ## Triage — reversibility sets the flow
 
-The first thing you say about a task is a one-line reversibility estimate. It is the human's
-first chance to correct you; if they do, recalibrate without argument and recompute the
-Critic's mode.
+The first thing you say is a one-line reversibility estimate — the human's first chance to
+correct you. If they do, recalibrate without argument and recompute the Critic's mode.
 
 - **High** — undoable in ~30 seconds: typo, comment, copy, log line, trivial bump.
 - **Medium** — undoable with git: a scoped feature, a local refactor, a new isolated project.
@@ -84,15 +83,16 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
   trade-offs and a recommendation, biased toward boring and well-supported.
 - `PROJECT.md` **Principles** are design constraints: any deviation is declared here with
   its justification; an undeclared deviation is an automatic Critic finding.
-- **Sequential form** → `.iamlazy/steps.md`. The cut test: **can one command verify the whole
-  job?** If yes it stays a single Plan — do not decompose. If it needs several independent
-  verifications, A3 emits ordered steps `T01…TN` instead — never a new command or artifact. Cut
-  on verifiability, not size (the 400-line floor is a Critic trigger, not a decomposition rule).
-  Each step carries its own verification command and must leave the repo valid alone; at its
-  close it appends its result there (status, changed, decisions, deviations — ~10 lines). The
-  next step reads `PROJECT.md` + Plan + that result, never the conversation — that is where the
-  token cost actually drops. `steps.md` is **appended across the sequence**, replaced only when
-  a new Plan supersedes it. Splitting or merging mid-flight is a proposed diff, never silent.
+- Expected Critic mode: check the steps' paths against the sensitive globs and say it here, so
+  the human knows before approving. An expectation only — the post-diff floor still decides.
+- **Decomposition.** The cut test: **can one command verify the whole job?** If yes it stays one
+  Plan. If it needs several independent verifications, the steps become the unit of delivery —
+  each verifiable, each leaving the repo valid alone — and **the Plan is its own ledger**: mark
+  a step done in `.iamlazy/plan.md` and append its result under it (~5 lines: changed,
+  decisions, deviations). A later run reads `PROJECT.md` + that Plan, never the conversation —
+  that is where the token cost actually drops. Cut on verifiability, not size (the 400-line
+  floor is a Critic trigger, not a decomposition rule). Re-cutting mid-flight is a proposed
+  diff, never silent.
 - **The human gate is exercised on this artifact.**
 
 ### A4 — Diff + deviation note
@@ -111,8 +111,8 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
 - Proposed `PROJECT.md` diff with what was learned, new Principles included (rule 5).
 - **Pruning:** past ~150 lines, propose consolidation (merge or drop the stale) — as a diff.
 - The log line (see *Session log*), then the closing summary — delivered vs. asked, then the one
-  most concrete next action — exactly once. No farewell features; scope stays closed. In
-  sequential form the next action is `T<n+1>`, run as its own `/iamlazy`.
+  most concrete next action — exactly once. No farewell features; scope stays closed. With steps
+  left in the Plan, that next action is the next unmarked one, run as its own `/iamlazy`.
 
 ---
 
@@ -120,8 +120,7 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
 
 What crosses between artifacts is a short note (~5–10 lines): decisions, open questions, and
 **pointers** to artifacts on disk — never reasoning, never certainties. Each stage re-reads its
-primary sources from disk: *prior certainties are not evidence; only the baton and the sources
-are.*
+sources from disk: *prior certainties are not evidence; only the baton and the sources are.*
 
 ---
 
@@ -151,12 +150,11 @@ False positives escalate — they cost tokens, never safety.
 
 ### The three modes
 
-- **`inline`** — a quick in-thread check. The verdict rule still applies.
-- **`same-thread-reset`** — discard the builder's certainties out loud, re-read the diff and
-  artifact files from disk, then review as if arriving fresh.
+- **`inline`** — a quick in-thread check; the verdict rule still applies.
+- **`same-thread-reset`** — discard the builder's certainties out loud, re-read diff and
+  artifacts from disk, then review as if arriving fresh.
 - **`subagent`** — launch **iamlazy-critic** (read-only, fresh context); declare whether the
-  **security lens** applies — sensitive surface (auth, data, external input, secrets, new
-  dependencies, public exposure, IaC/deploy).
+  **security lens** applies: auth, data, external input, secrets, new deps, exposure, IaC.
 
 ---
 
@@ -169,10 +167,10 @@ On **medium/low** reversibility:
 2. Compose A2 and A3 as text inside plan mode, honoring shapes and caps.
 3. Present A3 as the plan to approve — steps, alternatives, claims with real outputs.
 4. On approval, the **first action** is persisting `.iamlazy/ground.md`, `.iamlazy/plan.md`
-   (plus `steps.md` in sequential form) **verbatim as approved**. Then, and only then, build.
+   **verbatim as approved**. Then, and only then, build.
 
 `.iamlazy/` lives at the target project's root, belongs in its `.gitignore` (A5 proposes it),
-survives the close, and is overwritten at the next gate — except `steps.md` mid-sequence.
+survives the close, and is overwritten at the next gate — unless its Plan still has unmarked steps.
 
 On **high** reversibility the gate is a **diff preview** before applying. Record the gate
 outcome for the log: `approved` / `edited` / `rejected` / `n/a`. Do not run under a
@@ -196,7 +194,8 @@ run) and remove it. Then write a fresh one with `"outcome": "incomplete"`, `"sta
 
 At A5, flush — self-report, not telemetry; write your own failures in. **Derive what a command
 can give**: `timestamp` (`date -u +%Y-%m-%dT%H:%M:%SZ`), `human_interventions` (count `Request
-interrupted by user` in the transcript), `files_changed`/`lines_changed` (`git diff --stat`).
+interrupted by user` in the transcript), `files_changed`/`lines_changed` (`git diff --stat`),
+`critic_model` (the Critic subagent's frontmatter `model:`, else the one the thread ran on).
 `outcome` is `success` only with validation passed and a Critic verdict — else `escalated`.
 **No `jq`.** Build the JSON yourself: collapse newlines/tabs in `task_summary`, escape `"` and
 `\`, write the temp with the file tool and **no trailing newline**, then:
@@ -208,12 +207,13 @@ interrupted by user` in the transcript), `files_changed`/`lines_changed` (`git d
 Shape (one line when flushed):
 
 ```json
-{"timestamp":"2026-07-04T14:03:00Z","task_summary":"add rate limit to /login","reversibility":"low","reversibility_corrected":false,"reversibility_final":"low","artifacts_produced":["A1","A2","A3","A4","A5"],"critic_mode":"subagent","floor_triggered":"globs","critic_findings_count":1,"gate_verdict":"approved","retries":0,"human_interventions":0,"files_changed":3,"lines_changed":42,"validation_result":"passed","duration_seconds":1847,"session_id":"b2e0dc63-870e-45e9-b22b-cdc6282663c4","outcome":"success","project_md":"updated"}
+{"timestamp":"2026-07-04T14:03:00Z","task_summary":"add rate limit to /login","reversibility":"low","reversibility_corrected":false,"reversibility_final":"low","artifacts_produced":["A1","A2","A3","A4","A5"],"critic_mode":"subagent","critic_model":"claude-opus-5","floor_triggered":"globs","critic_findings_count":1,"gate_verdict":"approved","retries":0,"human_interventions":0,"files_changed":3,"lines_changed":42,"validation_result":"passed","duration_seconds":1847,"session_id":"b2e0dc63-870e-45e9-b22b-cdc6282663c4","outcome":"success","project_md":"updated"}
 ```
 
 Field values: `reversibility`/`reversibility_final` high|medium|low · `reversibility_corrected`
 true|false · `artifacts_produced` subset A1–A5 · `critic_mode` inline|same-thread-reset|subagent
-· `floor_triggered` globs|size|none · `critic_findings_count` int, `0` valid · `gate_verdict`
+· `critic_model` model id that reviewed · `floor_triggered` globs|size|none ·
+`critic_findings_count` int, `0` valid · `gate_verdict`
 approved|edited|rejected|n/a · `retries` int 0-2 · `validation_result` passed|failed|not_run|n/a
 · `duration_seconds` int, flush minus `start_epoch` · `session_id` uuid · `outcome`
 success|escalated|abandoned|incomplete · `project_md` read|created|updated|absent.

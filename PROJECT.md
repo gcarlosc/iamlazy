@@ -72,7 +72,7 @@ prompt instructions.
   the structural floor fires.
 - **Per-tool models, strongest for both roles** (2026-07-02; updated 2026-07-04;
   **superseded 2026-08-22**, see below). Claude Code:
-  `claude-opus-4-8` (main + critic). OpenCode: `deepseek/deepseek-v4-pro` (main + critic).
+  `claude-opus-5` (main + critic). OpenCode: `deepseek/deepseek-v4-pro` (main + critic).
   Rationale: the Critic subagent only runs on the least reversible work — rare enough that
   sharpness beats cost — **a premise the run log refutes: 12 of 28 runs escalated it.**
   Ids verified against `opencode models` on 2026-07-04. OpenCode needs a
@@ -114,7 +114,8 @@ prompt instructions.
   DELTAS.md Candidate 4's "5 baseline runs" checkpoint is met but deliberately not auto-adopted
   — see DELTAS.md for why.
 - **Sequential steps persist to `.iamlazy/steps.md`; cut test is verification, not size**
-  (2026-08-19). The sequential form was prose that could not execute: it told the next step to
+  (2026-08-19; **`steps.md` superseded 2026-08-22** — the cut test survives, the separate ledger
+  does not; see below). The sequential form was prose that could not execute: it told the next step to
   read "the prior step's result" with nowhere to write it, so it would have fallen back to the
   conversation — destroying the mechanism's whole purpose. Added `steps.md` as the ledger,
   appended at each step's close and **exempt from the next-gate overwrite** while a sequence is
@@ -157,6 +158,44 @@ prompt instructions.
   Open and deliberately not decided: whether the Critic should run a model decorrelated from
   the builder rather than the strongest one — `DELTAS.md` Candidate 10, gated on adding a
   derivable `critic_model` field to `runs.jsonl` first.
+- **Derivable beats self-reported; the log was silently losing records** (2026-08-22).
+  `runs.jsonl` held 28 JSON objects on 23 physical lines: `cat tmp >> log` does not guarantee a
+  trailing newline, so 5 records were fused into their predecessor and unparseable as JSONL.
+  Fixed by writing the temp with no trailing newline and appending an explicit one; the existing
+  file was repaired in place (backup `runs.jsonl.bak-20260822`). Applying the field audit's own
+  rule, three more fields moved off introspection: `timestamp` (was self-estimated — 21 of 28
+  had round `:00` seconds, one in local offset instead of UTC) now comes from `date -u`;
+  `human_interventions` from counting the literal transcript marker; `outcome` is constrained to
+  `success` only with validation passed and a Critic verdict, after 28 of 28 runs reported
+  `success` and the field carried no information at all.
+- **The backlog checks itself** (2026-08-22). `/iamlazy-review` now sweeps every DELTAS trigger
+  against the run log and reports only the ones that fired, naming the runs that fired them. The
+  evidence-gating was real but depended on the human remembering to check. The installer mirrors
+  `DELTAS.md` into `~/.iamlazy/` so the sweep works from any project; the repo copy stays source
+  of truth. A fired trigger still prompts evaluation, never adoption.
+- **Model determinism is a settings concern; no phase-split command** (2026-08-22). A two-command
+  plan/build split was evaluated and rejected: it buys nothing the `opusplan` session setting does
+  not already give, and a second command is a second thing to keep in sync. The durable scope for
+  a model is the session — `"model"` in user or project `.claude/settings.json` — so that is
+  where the harness points people, and the installer now reports whether one is pinned.
+- **`steps.md` superseded: the Plan is its own ledger** (2026-08-22). The separate sequential
+  ledger is removed. Not by Candidate 8's eviction trigger, which never fired — by supersession:
+  a step's progress belongs in the artifact that already lists the steps. A step is marked done
+  in `.iamlazy/plan.md` with its result appended under it, so one artifact carries plan and
+  progress and the next-gate overwrite exception collapses to "the Plan survives while it has
+  unmarked steps". The cut test (can one command verify the whole job?) is unchanged; only the
+  `T01…TN` naming and the second file are gone. Freed lines went back to the 250 budget.
+- **`critic_model` recorded; A3 names its expected Critic mode** (2026-08-22). Two additions,
+  paid for by evictions — the core stayed at 250. `runs.jsonl` now carries a derived
+  `critic_model`: the subagent's frontmatter `model:` when the review ran fresh, otherwise the
+  model the thread itself ran on. Without it, DELTAS Candidate 10 (a Critic decorrelated from
+  the builder) was unmeasurable — there was no record of which model did the reviewing. It still
+  cannot fire until runs accumulate under more than one value: a field has to vary before it can
+  discriminate. Separately, A3 now declares the Critic mode it expects, by checking the steps'
+  paths against the sensitive globs. This is deliberately **not** structure — there is no diff
+  yet, so it is a judgment, and it is stated as an expectation. Its value is timing: the human
+  learns the review will escalate before approving the plan, not after the code exists. The
+  post-diff floor is untouched and still decides.
 
 ## Principles
 
@@ -180,7 +219,8 @@ finding, in every Critic mode.
 - `PROJECT.md` is **never** edited without showing the diff and getting approval.
 - On medium/low reversibility, **no code is written before the human approves the plan.**
 - `.iamlazy/ground.md` and `.iamlazy/plan.md` are persisted **verbatim as approved at the
-  gate** — never re-worded on the way to disk.
+  gate** — never re-worded on the way to disk. Marking a Plan step done and appending its result
+  under it is not re-wording: no approved line is ever rewritten.
 - The post-diff structural floor (globs + size cap) is **never skipped or negotiated**.
 - iamlazy installs **no hooks** and must not be run under `--dangerously-skip-permissions`.
 - `uninstall.sh` **never** deletes `~/.iamlazy/runs.jsonl` or any `PROJECT.md`.
@@ -212,7 +252,11 @@ finding, in every Critic mode.
   ambiguous**, and holds when the model **counts discrete artifacts it produced**. Still prefer
   command-derivable fields (`git diff --stat`); for `human_interventions` the derivable
   replacement is the literal `[Request interrupted by user for tool use]` transcript marker.
-  See DELTAS.md "Field audit" for the per-field evidence.
+  See DELTAS.md "Field audit" for the per-field evidence. **Largely closed 2026-08-22**:
+  `timestamp` and `human_interventions` are now command-derived and `outcome` is constrained.
+  Still self-reported by design: `critic_findings_count`, `retries`, `gate_verdict`,
+  `reversibility` — the audit found the first two reliable and the last two are judgments no
+  command can produce.
 - **`.iamlazy/` is untracked by convention but was tracked in this repo's own git history**
   until 2026-08-19. A prior session had already deleted `ground.md`/`plan.md` from disk and
   half-edited `.gitignore`, but left both uncommitted — the fix was started, not finished.

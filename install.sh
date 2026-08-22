@@ -208,7 +208,7 @@ if [ "$do_claude" -eq 1 ]; then
   else
     echo "  No session model is pinned in ~/.claude/settings.json, so the build runs on"
     echo "  whatever the session happens to default to. To pin it, add one of:"
-    echo "    \"model\": \"claude-opus-4-8\"   one model the whole way"
+    echo "    \"model\": \"claude-opus-5\"   one model the whole way"
     echo "    \"model\": \"opusplan\"          Opus in plan mode, Sonnet on execution"
     echo "  A project .claude/settings.json works too, and takes precedence."
   fi

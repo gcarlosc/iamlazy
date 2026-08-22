@@ -42,18 +42,18 @@ Status: checkpoint met (2026-08-19) — 7 real runs recorded post-Step-1, exceed
 baseline. Evaluated, not auto-adopted: `files_changed`/`lines_changed` (computed via
 `git diff --stat`, not self-reported — trustworthy) show 6/7 runs at 760–2034 changed lines,
 past the 400-line floor. That's evidence real tasks routinely don't fit one Plan, which is what
-motivated the **sequential A3 form** (adopted, see PROJECT.md 2026-08-19) — not this block
-directly. Once large work decomposes into `T01…TN`, each step's own diff is the unit "scope"
+motivated **decomposition into per-step delivery** (see PROJECT.md 2026-08-19, revised 08-22) — not this block
+directly. Once large work decomposes into per-step delivery, each step's own diff is the unit "scope"
 should be checked against; evaluating a scope-drift mechanism before that existed would have
-measured the wrong thing. Re-evaluate after a few sequential-form runs land.
+measured the wrong thing. Re-evaluate after a few decomposed runs land.
 
 ## Candidate 5 — Scope drift comparator (origin: metrics-instrumentation session, Step 3)
 
 Idea: compare A3's declared scope (Candidate 4) against A4's actual diff paths; report drift.
 Trigger: written in observable terms only in the second measurement window, after Candidate 4
 lands — the Step 1 baseline cannot measure scope drift (no declared scope exists yet).
-Status: blocked on Candidate 4, which is itself now deferred behind the sequential A3 form
-(2026-08-19) — see Candidate 4.
+Status: blocked on Candidate 4, which is itself now deferred behind per-step delivery
+(2026-08-19, revised 08-22) — see Candidate 4.
 
 ## Candidate 6 — Dynamic reversibility recalculation from the real diff
 
@@ -71,30 +71,19 @@ Trigger: 2+ runs where `floor_triggered: none` but the Critic still reported a `
 finding on a surface the current globs don't cover.
 Status: 0 runs recorded.
 
-## Candidate 8 — Evict the sequential `steps.md` ledger
+## Candidate 8 — Evict the sequential `steps.md` ledger — RESOLVED 2026-08-22
 
-Idea: remove the `T01…TN` sequential form and its `.iamlazy/steps.md` ledger from the core,
-reclaiming lines from the ≤250 budget. Adopted 2026-08-19 on the strength of 6/7 runs tripping
-the 400-line floor — and not exercised once since.
-Evidence (2026-08-21): V2.4 in git-diff-viewer was an 11-slice task where the model itself
-proposed splitting ("this session = Slices 1-6, next session = Slices 7-11"). Two runs followed,
-`e52bc9dd` (1-6) and `335de855` (7-11), and `.iamlazy/steps.md` was never created in either. The
-handoff still worked — through the target project's `PROJECT.md` (`## Delivery status — V2.4
-Slices 1-6 DONE`) plus a hand-written continuation prompt. Measured effect: the second session
-averaged 163k context per turn against 188k, ~13% cheaper per changed line. So the model
-resolves decomposition as a **scope cut**, not as the designed sequential form, and the ledger's
-stated problem (nowhere to write a step's result) was already solved by an artifact that existed.
-Sampling caveat (do not skip): both observations came from a task the HUMAN had already
-decomposed — A1 records "11 slices explícitas". The sequential form exists for the opposite
-case, where the model must decompose because no single command verifies the whole job. With
-pre-numbered slices the human's numbering already IS the ledger, so non-activation is the
-expected outcome, not evidence against the mechanism.
-Trigger to evict: 1 run where the task is handed over as an OBJECTIVE with no slices or
-numbering, needs several independent verifications, and the model still splits work without
-writing `steps.md`.
-Trigger to keep: any run where `steps.md` is created AND a later step reads it.
-Status: 2 non-activations recorded (2026-08-21), both on pre-decomposed input — not counted
-toward the evict trigger.
+Outcome: **superseded, not evicted.** Neither trigger ever fired. The 2 recorded non-activations
+(2026-08-21, runs `e52bc9dd` and `335de855`) both came from input the human had already
+decomposed into 11 numbered slices, where that numbering *was* the ledger — so they never
+counted toward the evict trigger, and the record should not pretend otherwise.
+What removed the file was a design change, not the evidence: the Plan already lists the steps,
+so a step's progress belongs there. Marking a step done in `.iamlazy/plan.md` and appending its
+result under it collapses two artifacts into one and dissolves the next-gate overwrite
+exception. The cut test survives unchanged. See PROJECT.md 2026-08-22.
+Worth keeping from the old evidence: the second of those two runs averaged 163k context per turn
+against 188k, ~13% cheaper per changed line. The handoff-by-file saving is real regardless of
+which file carries it.
 
 ## Candidate 9 — Reinstate one delegated builder sub-agent
 
@@ -148,32 +137,27 @@ contradicts the fact that it produces 2–6 findings per run.
 Also corrects a stale premise: the ADR justified one model with "the Critic only fires on the
 least reversible work — rare enough". It is not rare. 12 of 28 logged runs escalated it to a
 subagent, because the post-diff size floor fires far more often than the declared tier does.
-Prerequisite to measure anything: `runs.jsonl` has no `critic_model` field. It is derivable
-(the installer wrote it into the frontmatter), so it should be added before the trigger below
-can be evaluated.
+Prerequisite resolved 2026-08-22: `runs.jsonl` now records a derived `critic_model`, so both
+triggers below became measurable. Until runs accumulate under more than one value, neither can
+fire — the field has to vary before it can discriminate.
 Trigger A: 2+ runs where a `[HIGH]` or `[MEDIUM]` finding lands on code a previous Critic
 already reviewed and passed — a shared blind spot, observable as a regression the review missed.
 Trigger B (cheaper, deliberate): one controlled pair — the same diff reviewed twice, once by a
 Critic sharing the builder's model and once by a different one — comparing unique findings.
 Status: 0 occurrences. No `critic_model` recorded yet.
+## Rejected — lower the auto-compact window (evaluated 2026-08-22, not adopted)
 
-## Candidate 11 — Lower the auto-compact window (origin: cross-model review round, 2026-08-22)
-
-Idea: compaction attacks the dominant cost directly — ~97.6% of spend is `cache_read` over
-accumulated context. Claude Code compacts on its own once the window fills; the threshold is a
-host setting (`/autocompact 500k`, `autoCompactWindow`, or `CLAUDE_CODE_AUTO_COMPACT_WINDOW`),
-so this needs no prompt lines and no runtime — the same shape as the `opusplan` adoption.
-Why it fits here specifically: iamlazy is unusually safe to compact. Its state lives on disk
-(`PROJECT.md`, `.iamlazy/ground.md`, `.iamlazy/plan.md`) and the baton already orders each stage
-to re-read primary sources, treating prior certainties as non-evidence. Most harnesses lose the
-plan to a compaction; this one is designed not to.
-Risk, and the reason it is not adopted outright: that safety rests on the baton rule, which is
-prose, not structure. If compaction drops the approved A3 and the model builds from a
-half-remembered plan instead of re-reading `.iamlazy/plan.md`, the failure is silent — the diff
-looks plausible and nothing flags the drift.
-Note the overlap: whatever ends sessions earlier reduces the need for this. It matters most on
-long builds, and 12 of 28 logged runs changed 760-2100 lines.
-Trigger: 2+ runs whose transcript shows a compaction event, compared against runs of similar
-`lines_changed` without one — measuring cost per changed line, and whether the post-compaction
-run shows plan drift (an A4 deviating from `.iamlazy/plan.md` without a declared deviation note).
-Status: 0 occurrences. No compaction event has been observed in a logged run.
+Recorded so it is not re-proposed. Idea: shrink the host's auto-compact threshold so long
+sessions compact themselves, attacking the ~97.6% of spend that is `cache_read`.
+Rejected on three counts, in order of weight:
+- **Compaction invalidates the prompt cache.** The turns after it pay `cache_write` (1.25x)
+  instead of `cache_read` (0.1x) to rebuild — roughly 12x per token — so it only amortizes if
+  many turns follow. Ending the session does the same thing and restarts from a genuinely small
+  context (`PROJECT.md` + Plan), not from a 40-50k summary. The cheaper lever already exists.
+- **Its failure mode is silent, and this harness exists to make drift loud.** If compaction
+  drops the approved A3 and the model builds from a half-remembered plan instead of re-reading
+  `.iamlazy/plan.md`, the diff still looks plausible and nothing flags it. The safety net is the
+  baton rule — prose, not structure.
+- **No evidence of the problem.** Zero compaction events across 28 logged runs.
+Reconsider only if a run is observed where compaction fired and the handoff-by-file alternative
+was not available.
