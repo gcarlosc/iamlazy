@@ -156,3 +156,24 @@ already reviewed and passed — a shared blind spot, observable as a regression 
 Trigger B (cheaper, deliberate): one controlled pair — the same diff reviewed twice, once by a
 Critic sharing the builder's model and once by a different one — comparing unique findings.
 Status: 0 occurrences. No `critic_model` recorded yet.
+
+## Candidate 11 — Lower the auto-compact window (origin: cross-model review round, 2026-08-22)
+
+Idea: compaction attacks the dominant cost directly — ~97.6% of spend is `cache_read` over
+accumulated context. Claude Code compacts on its own once the window fills; the threshold is a
+host setting (`/autocompact 500k`, `autoCompactWindow`, or `CLAUDE_CODE_AUTO_COMPACT_WINDOW`),
+so this needs no prompt lines and no runtime — the same shape as the `opusplan` adoption.
+Why it fits here specifically: iamlazy is unusually safe to compact. Its state lives on disk
+(`PROJECT.md`, `.iamlazy/ground.md`, `.iamlazy/plan.md`) and the baton already orders each stage
+to re-read primary sources, treating prior certainties as non-evidence. Most harnesses lose the
+plan to a compaction; this one is designed not to.
+Risk, and the reason it is not adopted outright: that safety rests on the baton rule, which is
+prose, not structure. If compaction drops the approved A3 and the model builds from a
+half-remembered plan instead of re-reading `.iamlazy/plan.md`, the failure is silent — the diff
+looks plausible and nothing flags the drift.
+Note the overlap: whatever ends sessions earlier reduces the need for this. It matters most on
+long builds, and 12 of 28 logged runs changed 760-2100 lines.
+Trigger: 2+ runs whose transcript shows a compaction event, compared against runs of similar
+`lines_changed` without one — measuring cost per changed line, and whether the post-compaction
+run shows plan drift (an A4 deviating from `.iamlazy/plan.md` without a declared deviation note).
+Status: 0 occurrences. No compaction event has been observed in a logged run.

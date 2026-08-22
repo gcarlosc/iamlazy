@@ -190,17 +190,19 @@ permission-bypass mode; the gate is structural, not decorative.
 
 ## Session log (invisible to the human)
 
-At session start: if `~/.iamlazy/run.tmp.json` exists, append it as-is to `~/.iamlazy/runs.jsonl`
-(it is an `incomplete` run) and remove the temp. Then write a fresh `run.tmp.json` with
-`"outcome": "incomplete"`, `"start_epoch"` from `date +%s`, and `"session_id"` resolved **once,
-now** from the newest `~/.claude/projects/<cwd-slug>/*.jsonl` — never re-derived at flush.
+At session start: if `~/.iamlazy/run.tmp.json` exists, append it to `runs.jsonl` (an `incomplete`
+run) and remove it. Then write a fresh one with `"outcome": "incomplete"`, `"start_epoch"` from
+`date +%s`, and `"session_id"` resolved **once, now** from the newest transcript — not at flush.
 
-At A5, flush — self-report, not telemetry; write it as honestly as the harness demands, your
-own failures included. **No `jq`.** Build the JSON yourself: collapse newlines/tabs in
-`task_summary`, escape `"` and `\`, write the temp with the file tool (never `echo`), then:
+At A5, flush — self-report, not telemetry; write your own failures in. **Derive what a command
+can give**: `timestamp` (`date -u +%Y-%m-%dT%H:%M:%SZ`), `human_interventions` (count `Request
+interrupted by user` in the transcript), `files_changed`/`lines_changed` (`git diff --stat`).
+`outcome` is `success` only with validation passed and a Critic verdict — else `escalated`.
+**No `jq`.** Build the JSON yourself: collapse newlines/tabs in `task_summary`, escape `"` and
+`\`, write the temp with the file tool and **no trailing newline**, then:
 
 ```
-cat ~/.iamlazy/run.tmp.json >> ~/.iamlazy/runs.jsonl && rm -f ~/.iamlazy/run.tmp.json
+{ cat ~/.iamlazy/run.tmp.json; printf '\n'; } >> ~/.iamlazy/runs.jsonl && rm -f ~/.iamlazy/run.tmp.json
 ```
 
 Shape (one line when flushed):
@@ -212,10 +214,9 @@ Shape (one line when flushed):
 Field values: `reversibility`/`reversibility_final` high|medium|low · `reversibility_corrected`
 true|false · `artifacts_produced` subset A1–A5 · `critic_mode` inline|same-thread-reset|subagent
 · `floor_triggered` globs|size|none · `critic_findings_count` int, `0` valid · `gate_verdict`
-approved|edited|rejected|n/a · `retries` int 0-2 · `human_interventions` int · `files_changed`/
-`lines_changed` int, `git diff --stat` · `validation_result` passed|failed|not_run|n/a ·
-`duration_seconds` int, flush minus `start_epoch` · `session_id` uuid (see *Session log*) ·
-`outcome` success|escalated|abandoned|incomplete · `project_md` read|created|updated|absent.
+approved|edited|rejected|n/a · `retries` int 0-2 · `validation_result` passed|failed|not_run|n/a
+· `duration_seconds` int, flush minus `start_epoch` · `session_id` uuid · `outcome`
+success|escalated|abandoned|incomplete · `project_md` read|created|updated|absent.
 
 ---
 
@@ -239,8 +240,7 @@ banner: `── A5 — CIERRE (crítico: sub-agente) ──…`.
 - **`.iamlazy/` persistence** — silent; the human already approved that exact content.
 - **Code delivery** — never tool confirmations or line counts. One clean line per file:
   `→ path — what it is and why it exists`, with aligned continuation lines for a batch.
-- **Diffs** — suppressed by default; a minimal fragment only for a Critic finding or
-  explicit approval. Never raw line-number dumps.
+- **Diffs** — suppressed; minimal fragments only, for a Critic finding or on request. No dumps.
 
 ### Always visible — and how to speak
 

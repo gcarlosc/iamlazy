@@ -21,7 +21,7 @@ templates/opencode/primary-iamlazy.frontmatter \
 templates/opencode/command-iamlazy.frontmatter \
 templates/opencode/command-review.frontmatter \
 templates/opencode/subagent-critic.frontmatter \
-models.conf"
+models.conf DELTAS.md"
 
 usage() {
   cat <<'EOF'
@@ -181,6 +181,9 @@ fi
 
 # ---------- install ----------
 mkdir -p "$LOG_DIR"
+# /iamlazy-review sweeps the backlog's triggers against the run log, so the candidates have to
+# be readable from any project. The repo copy stays the source of truth; this one is a mirror.
+if [ -f "$SRC/DELTAS.md" ]; then cp "$SRC/DELTAS.md" "$LOG_DIR/DELTAS.md"; fi
 echo "iamlazy installer  (source: $SRC)"
 if [ "$do_claude" -eq 1 ]; then
   echo "Claude Code -> $CC_MAIN_MODEL (main) / $CC_CRITIC_MODEL (critic)"
@@ -197,11 +200,18 @@ echo "  log dir:  $LOG_DIR"
 echo "  commands: /iamlazy  /iamlazy-review"
 if [ "$do_claude" -eq 1 ]; then
   echo
-  echo "  note: '$CC_MAIN_MODEL' covers the planner turn only — a command's model:"
-  echo "  frontmatter expires at your next prompt, and the gate is a prompt. To route"
-  echo "  the builder separately, set your SESSION model to 'opusplan' (/model opusplan):"
-  echo "  Opus in plan mode, Sonnet on execution. iamlazy's gate rides on plan mode, so"
-  echo "  the switch lands exactly on the plan/build boundary."
+  echo "  MODEL SCOPE: '$CC_MAIN_MODEL' covers the planner turn ONLY. A command's model:"
+  echo "  frontmatter expires at your next prompt -- and the gate IS a prompt -- so the"
+  echo "  builder (A4-A5) runs on your SESSION model, never on models.conf."
+  if grep -q '"model"' "$HOME/.claude/settings.json" 2>/dev/null; then
+    echo "  OK: ~/.claude/settings.json pins a session model, so the build is deterministic."
+  else
+    echo "  No session model is pinned in ~/.claude/settings.json, so the build runs on"
+    echo "  whatever the session happens to default to. To pin it, add one of:"
+    echo "    \"model\": \"claude-opus-4-8\"   one model the whole way"
+    echo "    \"model\": \"opusplan\"          Opus in plan mode, Sonnet on execution"
+    echo "  A project .claude/settings.json works too, and takes precedence."
+  fi
   if [ -n "${CLAUDE_CODE_SUBAGENT_MODEL:-}" ]; then
     echo "  WARNING: CLAUDE_CODE_SUBAGENT_MODEL='$CLAUDE_CODE_SUBAGENT_MODEL' is set and"
     echo "  overrides CC_CRITIC_MODEL ('$CC_CRITIC_MODEL'). Unset it to use the value above."

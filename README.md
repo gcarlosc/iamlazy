@@ -132,12 +132,22 @@ prompt, and the gate *is* a prompt. So `CC_MAIN_MODEL` covers the planner, and y
 model** covers the builder. `CC_CRITIC_MODEL` is the exception: a sub-agent's model holds for
 its whole run.
 
-**To route planner and builder separately, set your session model to `opusplan`** — `/model
-opusplan`, or `"model": "opusplan"` in `~/.claude/settings.json`. It runs Opus during plan mode
-and switches to Sonnet on execution; since iamlazy's gate rides on native plan mode, the switch
-lands exactly on the plan/build boundary. `CC_MAIN_MODEL` then acts as a floor: a strong
-planner even when the session is on something cheap. There is no equivalent on OpenCode — the
-primary agent's model is the session model and holds for the whole run.
+**Pin the model where it is durable: settings, not `models.conf`.** With no pinned session model
+the build runs on whatever the session happens to default to — the only real source of
+non-determinism here. Set `"model"` in `~/.claude/settings.json`, or in a project
+`.claude/settings.json`, which takes precedence and reapplies on every launch even over a
+`/model` switch:
+
+| You want | Set |
+|---|---|
+| One model the whole way | `"model": "claude-opus-4-8"` |
+| Strong planner, cheap builder | `"model": "opusplan"` |
+
+`opusplan` runs Opus during plan mode and switches to Sonnet on execution. Since iamlazy's gate
+rides on native plan mode, that switch lands exactly on the plan/build boundary — a declared
+policy, not a coin flip. `CC_MAIN_MODEL` then acts as a floor: a strong planner even when the
+session is on something cheap. There is no equivalent on OpenCode — the primary agent's model
+*is* the session model and holds for the whole run.
 
 The Critic stays on the strongest model, but **not** because it is rare: 12 of 28 logged runs
 escalated it to a sub-agent, since the structural floor fires on size far more often than the
