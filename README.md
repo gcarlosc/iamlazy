@@ -31,7 +31,10 @@ cap:
 4. **Diff + deviation note** — the code against the approved plan; a deviation that
    contradicts the plan stops and reports instead of improvising.
 5. **Close** — real-environment validation first (a failing build short-circuits the review:
-   fix, then review), then the Critic's verdict, then the proposed `PROJECT.md`
+   fix, then review), then the Critic's verdict, then a **closing report** on medium/low
+   reversibility: what you asked, what was delivered as a `✓`/`✗` checklist against the Plan's
+   steps, deviations, validation, findings by severity, token cost, and the one next action.
+   High reversibility gets a single line instead. Then the proposed `PROJECT.md`
    update (diff first, you approve), the run log line.
 
 Why artifacts instead of personas: an abandoned role is invisible, but **a missing or
@@ -177,12 +180,33 @@ imitating it. On OpenCode, the installed permission config is the backstop.
 **Do not run iamlazy under `--dangerously-skip-permissions` (or any bypass mode).** It
 removes the structural gate the harness is built on. iamlazy installs **no hooks**.
 
+## Tests
+
+```sh
+./test.sh
+```
+
+42 assertions over the installer and the declared invariants — file composition, model
+projection, idempotency, anti-clobber, `--model`, and that `uninstall.sh` never touches your
+run log. Runs in an isolated `HOME`, so it cannot disturb your setup. Bash and coreutils only,
+like everything else here.
+
+CI runs it on every push across Linux and macOS, plus one job that invokes it through `/bin/bash`
+specifically — that is the bash 3.2 this project claims to support, and `env bash` on a runner
+can quietly resolve to a newer one.
+
+What it does **not** cover: a live `/iamlazy` run. The five artifacts are correct by
+construction of the prompt, not by test — no automated check exercises the gate, the Critic,
+or the structural floor. Worth knowing before you trust a green run.
+
 ## Validation
 
 Don't take the harness on faith. During the first month, run a few comparable tasks both
 ways — with `/iamlazy`, and with the bare tool plus a good `CLAUDE.md` — and compare three
 questions: did the gate catch something real? did any work have to be undone? what was the
-total time? `runs.jsonl` + `/iamlazy-review` are half the instrumentation — and the review also
+total time? Each run logs a `tokens_weighted` figure derived from the session transcript, not
+estimated, so cost is comparable across runs. `runs.jsonl` + `/iamlazy-review` are half the
+instrumentation — and the review also
 sweeps `DELTAS.md`'s triggers against your runs, reporting which ones fired, so the backlog
 tells you when it has evidence instead of waiting to be asked. If iamlazy does not clearly win,
 the right conclusion is to cut it down, not to defend it.
@@ -205,8 +229,11 @@ iamlazy/
   templates/       per-tool frontmatter wrappers (claude-code/, opencode/)
   models.conf      per-tool model map (sourceable KEY="value")
   DELTAS.md        evidence-gated backlog of ideas deliberately not adopted (yet)
+  docs/            archived founding decisions (settled, not re-litigated)
   install.sh       idempotent installer (bash 3.2 compatible)
   uninstall.sh     marker-only removal, preserves your data
+  test.sh          42 assertions over the installer and the declared invariants
+  .github/         CI: the suite on Linux + macOS, and under /bin/bash for bash 3.2
 ```
 
 The prompt body is identical across tools; only the frontmatter differs, and the installer

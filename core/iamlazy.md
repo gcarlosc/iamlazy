@@ -64,13 +64,13 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
 ### A2 — Ground (cap ~40 lines) → `.iamlazy/ground.md`
 
 - Born from `PROJECT.md` plus exploring only what is missing or may have changed.
+- Cap the recon: ~10 files, ~15 tool calls. What is still unknown becomes an open question.
 - Every fact tagged `[observed: <source>]` / `[inferred]` / `[assumed]`.
 - Empty output = uncertain (rule 3): second independent method; if both come back empty, record
   "not found via methods X and Y". Two methods disagreeing → record the discrepancy.
-- Checklist before closing: mono-repo/multi-project, each part's purpose, and where new work
-  lands? Undocumented conventions — `PROJECT.md` Principle candidates for the human to confirm?
-  Ground truth outside the repo (`.env`, external services)? Tests — flag the risk if none?
-  Anything still "don't know" that affects the plan → ask the human, never leave it implicit.
+- Checklist before closing: mono-repo layout and where new work lands? Undocumented conventions
+  worth proposing as `PROJECT.md` Principles? Ground truth outside the repo (`.env`, services)?
+  Tests — flag the risk if none? Anything still unknown that affects the plan → ask, never imply.
 
 ### A3 — Plan (cap ~30 lines + the claims section) → `.iamlazy/plan.md`
 
@@ -98,21 +98,20 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
 ### A4 — Diff + deviation note
 
 - The code, built against the approved plan. Scope never expands here.
-- Deviation note: which Plan assumptions fell during construction. Cosmetic deviation →
-  resolve and note it. Deviation that contradicts the Plan → stop and report; never
-  improvise silently.
-- If construction reveals a more serious surface than declared → re-declare reversibility
-  (rule 1). The post-diff structural floor below runs regardless.
+- Deviation note: which Plan assumptions fell during construction. Cosmetic → resolve and note.
+  Contradicting the Plan → stop and report; never improvise silently.
+- A more serious surface than declared → re-declare reversibility (rule 1). The floor runs anyway.
 
 ### A5 — Close
 
 - Real-environment validation first when possible — server, test, build. A failure
   short-circuits the Critic: fix, then review. Only then the Critic's verdict.
 - Proposed `PROJECT.md` diff with what was learned, new Principles included (rule 5).
-- **Pruning:** past ~150 lines, propose consolidation (merge or drop the stale) — as a diff.
-- The log line (see *Session log*), then the closing summary — delivered vs. asked, then the one
-  most concrete next action — exactly once. No farewell features; scope stays closed. With steps
-  left in the Plan, that next action is the next unmarked one, run as its own `/iamlazy`.
+- **Prune `PROJECT.md`:** past ~150 lines, propose consolidation (merge or drop stale) as a diff.
+- The log line (see *Session log*), then close — **exactly once**, no farewell features. High
+  reversibility: one line. **Medium/low: the closing report** — asked · delivered as a `✓`/`✗`
+  checklist against A3's steps · deviations · validation · Critic verdict by severity · cost ·
+  next action (the most concrete one, or the next unmarked Plan step as its own `/iamlazy`).
 
 ---
 
@@ -139,9 +138,8 @@ post-diff floor: touched path matches a sensitive glob OR diff > 400 changed lin
 critic_mode = the heaviest floor that applies
 ```
 
-The **post-diff floor is structural and non-negotiable**: after A4, before any verdict, check
-the diff mechanically (`git diff --stat` or equivalent) against the globs and the size cap.
-When it fires, tell the human in one line why the review escalated. Never skip it or argue.
+**The post-diff floor is structural and non-negotiable.** After A4, before any verdict, check the
+diff mechanically (`git diff --stat`) against globs and size cap; when it fires, say why in one line.
 
 Sensitive globs: `*auth*`, `*login*`, `*session*`, `*token*`, `*secret*`, `*credential*`,
 `*password*`, `.env*`, `*.pem`, `*.key`, `migrations/`, `*.sql`, `*.tf`, `*.tfvars`,
@@ -172,17 +170,16 @@ On **medium/low** reversibility:
 `.iamlazy/` lives at the target project's root, belongs in its `.gitignore` (A5 proposes it),
 survives the close, and is overwritten at the next gate — unless its Plan still has unmarked steps.
 
-On **high** reversibility the gate is a **diff preview** before applying. Record the gate
-outcome for the log: `approved` / `edited` / `rejected` / `n/a`. Do not run under a
-permission-bypass mode; the gate is structural, not decorative.
+On **high** reversibility the gate is a **diff preview** before applying. Record the outcome for
+the log (`approved`/`edited`/`rejected`/`n/a`). Never run under a permission-bypass mode.
 
 ---
 
 ## Loop control (Critic ↔ build)
 
 - **Hard cap: 2 cycles** — escalate with the failure context; never "keep trying."
-- **Thrash:** two attempts with the same error signature or the same diff → abort early.
-- A retry must declare what it will do differently. If it cannot, escalate.
+- **Thrash:** same error signature or same diff twice → abort. A retry declares what it will do
+  differently, or it escalates.
 
 ---
 
@@ -197,6 +194,9 @@ can give**: `timestamp` (`date -u +%Y-%m-%dT%H:%M:%SZ`), `human_interventions` (
 interrupted by user` in the transcript), `files_changed`/`lines_changed` (`git diff --stat`),
 `critic_model` (the Critic subagent's frontmatter `model:`, else the one the thread ran on).
 `outcome` is `success` only with validation passed and a Critic verdict — else `escalated`.
+`tokens_weighted` — and A5's cost line — comes from that transcript, never your estimate: sum
+`output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens` (`grep -o '"F":[0-9]*' T
+| grep -o '[0-9]*$' | awk '{s+=$1} END {print s}'`), weight ×5 / ×1.25 / ×0.1. Omit if unreadable.
 **No `jq`.** Build the JSON yourself: collapse newlines/tabs in `task_summary`, escape `"` and
 `\`, write the temp with the file tool and **no trailing newline**, then:
 
@@ -207,7 +207,7 @@ interrupted by user` in the transcript), `files_changed`/`lines_changed` (`git d
 Shape (one line when flushed):
 
 ```json
-{"timestamp":"2026-07-04T14:03:00Z","task_summary":"add rate limit to /login","reversibility":"low","reversibility_corrected":false,"reversibility_final":"low","artifacts_produced":["A1","A2","A3","A4","A5"],"critic_mode":"subagent","critic_model":"claude-opus-5","floor_triggered":"globs","critic_findings_count":1,"gate_verdict":"approved","retries":0,"human_interventions":0,"files_changed":3,"lines_changed":42,"validation_result":"passed","duration_seconds":1847,"session_id":"b2e0dc63-870e-45e9-b22b-cdc6282663c4","outcome":"success","project_md":"updated"}
+{"timestamp":"2026-07-04T14:03:00Z","task_summary":"add rate limit to /login","reversibility":"low","reversibility_corrected":false,"reversibility_final":"low","artifacts_produced":["A1","A2","A3","A4","A5"],"critic_mode":"subagent","critic_model":"claude-opus-5","floor_triggered":"globs","critic_findings_count":1,"gate_verdict":"approved","retries":0,"human_interventions":0,"files_changed":3,"lines_changed":42,"validation_result":"passed","duration_seconds":1847,"tokens_weighted":22819458,"session_id":"b2e0dc63-870e-45e9-b22b-cdc6282663c4","outcome":"success","project_md":"updated"}
 ```
 
 Field values: `reversibility`/`reversibility_final` high|medium|low · `reversibility_corrected`
@@ -215,7 +215,8 @@ true|false · `artifacts_produced` subset A1–A5 · `critic_mode` inline|same-t
 · `critic_model` model id that reviewed · `floor_triggered` globs|size|none ·
 `critic_findings_count` int, `0` valid · `gate_verdict`
 approved|edited|rejected|n/a · `retries` int 0-2 · `validation_result` passed|failed|not_run|n/a
-· `duration_seconds` int, flush minus `start_epoch` · `session_id` uuid · `outcome`
+· `duration_seconds` int, flush minus `start_epoch` · `tokens_weighted` int, omitted if
+unreadable · `session_id` uuid · `outcome`
 success|escalated|abandoned|incomplete · `project_md` read|created|updated|absent.
 
 ---
@@ -230,14 +231,12 @@ Every artifact opens with one separator line — the only external signal of pro
 ── A3 — PLAN ────────────────────────────────────────────────────────────
 ```
 
-Artifact names in the human's language (EN: BRIEF, GROUND, PLAN, DIFF, CLOSE · ES: BRIEF,
-TERRENO, PLAN, DIFF, CIERRE). When the Critic runs in a non-default mode, qualify A5's
-banner: `── A5 — CIERRE (crítico: sub-agente) ──…`.
+Artifact names in the human's language (EN: BRIEF, GROUND, PLAN, DIFF, CLOSE · ES: BRIEF, TERRENO,
+PLAN, DIFF, CIERRE). In a non-default Critic mode qualify A5: `── A5 — CIERRE (crítico: sub-agente) ──…`.
 
 ### Silenced plumbing — never narrated
 
-- **Log writes** (`run.tmp.json`, `runs.jsonl`) — invisible: no filename, content, or confirmation.
-- **`.iamlazy/` persistence** — silent; the human already approved that exact content.
+- **Log writes and `.iamlazy/` persistence** — invisible: no filename, content, confirmation.
 - **Code delivery** — never tool confirmations or line counts. One clean line per file:
   `→ path — what it is and why it exists`, with aligned continuation lines for a batch.
 - **Diffs** — suppressed; minimal fragments only, for a Critic finding or on request. No dumps.

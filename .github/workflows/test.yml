@@ -1,0 +1,29 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: test suite
+        run: ./test.sh
+
+  # PROJECT.md claims bash 3.2 compatibility (the macOS system shell). `env bash` on a
+  # runner can resolve to a newer Homebrew bash, which would let a bashism pass unnoticed.
+  # Force the system shell so the claim is actually tested.
+  bash32:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash version in use
+        run: /bin/bash --version | head -1
+      - name: test suite under /bin/bash
+        run: /bin/bash ./test.sh

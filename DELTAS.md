@@ -145,6 +145,45 @@ already reviewed and passed — a shared blind spot, observable as a regression 
 Trigger B (cheaper, deliberate): one controlled pair — the same diff reviewed twice, once by a
 Critic sharing the builder's model and once by a different one — comparing unique findings.
 Status: 0 occurrences. No `critic_model` recorded yet.
+## Candidate 12 — The reversibility tier barely discriminates (origin: 28-run audit, 2026-08-22)
+
+Idea: reversibility is the harness's central dial — it sets artifacts, gate and Critic. Across 28
+logged runs it took `medium` 22 times, `high` 5, `low` 1, and of the 27 that record
+`reversibility_corrected` it is `false` in all 27 — never once did the human disagree with the
+estimate, and no run has ever recorded `true`. Worse for the
+dial's stated job, all 12 subagent reviews line up with `floor_triggered: size`, not with the
+tier — so the Critic is already being driven by the post-diff floor, and the tier's remaining
+real effect is the gate. A dial with one dominant value is a constant with extra steps.
+Two readings, and the log cannot separate them: either the tier is a poor discriminator, or the
+sample is homogeneous — these 28 runs are mostly medium-sized features in two projects, which is
+genuinely what `medium` means. Sampling caveat, same discipline as Candidate 8: a distribution
+concentrated on the correct value is not a broken dial.
+Do not act on the count alone. If it does turn out to be a poor discriminator, the fix is to
+sharpen the criterion or collapse the tier to what still has an effect (gate / no gate) — not to
+add a fourth level.
+Trigger A: 20 further runs in which `reversibility` takes at most 2 distinct values AND every
+`critic_mode: subagent` is explained by `floor_triggered`, i.e. the tier changed no outcome.
+Trigger B: 2+ runs with `reversibility_corrected: true` — the opposite evidence, that the human
+does disagree and the dial carries real signal worth keeping.
+Status: 0 runs recorded under either trigger (the 28 predate it).
+
+## Candidate 13 — The gate has never rejected anything (origin: 28-run audit, 2026-08-22)
+
+Idea: of the 27 runs recording `gate_verdict` (one omits the field), 22 are `approved`, 1
+`edited`, 4 `n/a`, and **0 are `rejected`**. The plan gate is the harness's main safety
+mechanism and it has never once stopped a plan.
+Three explanations fit the data equally well, which is exactly the problem: the plans really are
+good; the human approves without reading closely; or rejecting is expensive (it means redoing
+A1-A3) so editing-in-place wins by default. `gate_verdict` cannot tell these apart, and the
+field is self-reported besides — the model records its own gate as approved.
+Deliberately no proposed fix. "Add friction to the gate" would be a cure invented before the
+disease is identified, and A1's single-block rule exists precisely to avoid ceremony. What is
+needed first is a way to tell the three explanations apart.
+Trigger: 2+ runs where the Critic reports a `[HIGH]` finding whose cause was already visible in
+the approved Plan — a defect the gate could have caught by reading. That is the falsifiable
+version of "the human is not really reading", and it is checkable against `.iamlazy/plan.md`.
+Status: 0 occurrences recorded.
+
 ## Rejected — lower the auto-compact window (evaluated 2026-08-22, not adopted)
 
 Recorded so it is not re-proposed. Idea: shrink the host's auto-compact threshold so long
