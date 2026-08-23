@@ -151,7 +151,9 @@ non-determinism here. Set `"model"` in `~/.claude/settings.json`, or in a projec
 
 `opusplan` runs Opus during plan mode and switches to Sonnet on execution. Since iamlazy's gate
 rides on native plan mode, that switch lands exactly on the plan/build boundary — a declared
-policy, not a coin flip. `CC_MAIN_MODEL` then acts as a floor: a strong planner even when the
+policy, not a coin flip. **You will see which model is running**: iamlazy states it on the Brief
+and again whenever it changes mid-run, read from the session transcript rather than guessed. A
+switch you did not expect — or one you expected that never happened — is visible either way. `CC_MAIN_MODEL` then acts as a floor: a strong planner even when the
 session is on something cheap. There is no equivalent on OpenCode — the primary agent's model
 *is* the session model and holds for the whole run.
 

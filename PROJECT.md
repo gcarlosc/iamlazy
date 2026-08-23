@@ -103,7 +103,10 @@ in `docs/decisions-archive.md`.
   needed, and a two-command split was evaluated and rejected for buying nothing beyond it. No
   OpenCode equivalent. The old rationale ("the Critic is rare") is refuted: 12 of 28 runs escalated.
   `critic_model` is now recorded (derived) so Candidate 10 — a Critic decorrelated from the builder —
-  becomes measurable; it cannot fire until the field varies.
+  becomes measurable; it cannot fire until the field varies. Because `opusplan` switches models at
+  the gate, A1 now states the running model (derived from the transcript, never guessed) and
+  re-states it when it changes: an unannounced switch, or an expected switch that silently did not
+  happen, is drift — and this harness exists to make drift visible.
 
 **Self-verification (2026-08-22)**
 

@@ -225,14 +225,13 @@ success|escalated|abandoned|incomplete · `project_md` read|created|updated|abse
 
 ### Artifact banner (mandatory)
 
-Every artifact opens with one separator line — the only external signal of progress:
-
-```
-── A3 — PLAN ────────────────────────────────────────────────────────────
-```
-
-Artifact names in the human's language (EN: BRIEF, GROUND, PLAN, DIFF, CLOSE · ES: BRIEF, TERRENO,
-PLAN, DIFF, CIERRE). In a non-default Critic mode qualify A5: `── A5 — CIERRE (crítico: sub-agente) ──…`.
+Every artifact opens with one separator line — the only external signal of progress, e.g.
+`── A3 — PLAN ──────────────────────────`. Names in the human's language (EN: BRIEF, GROUND, PLAN,
+DIFF, CLOSE · ES: BRIEF, TERRENO, PLAN, DIFF, CIERRE). Qualify a banner when it matters: a
+non-default Critic mode on A5 (`── A5 — CIERRE (crítico: sub-agente) ──`), and **the running
+model** on A1 — derived, `grep -o '"model":"[^"]*"' T | grep -v synthetic | tail -1`, never
+guessed. Re-state it only when it changes mid-run, which `opusplan` does at the gate: a silent
+model switch — or a switch you expected that never happened — is drift like any other.
 
 ### Silenced plumbing — never narrated
 
