@@ -93,6 +93,10 @@ in `docs/decisions-archive.md`.
   away. Honest limit: prose, not structure — denying `Task` would also kill the Critic. Detection is
   the fallback: any sub-agent transcript other than the Critic's is evidence of a violation.
   Percentages are cost-weighted (`cache_read` × 0.1); raw sums overstate spend ~4x.
+  **Update 08-22:** the Agent Teams Lite block was removed from that global `CLAUDE.md` (archived
+  to `~/.claude/docs/`), so on this machine the conflict no longer exists and the clause is a plain
+  statement of the invariant rather than an override of a competing one. The honest limit still
+  applies to any other host that declares its own delegation rules.
 - **Model scope is the session, not `models.conf`** (08-22, supersedes "strongest for both roles",
   07-02/04). A command's `model:` frontmatter overrides for the **current turn only** — verified in
   the docs — and the gate IS a human turn, so `CC_MAIN_MODEL` covers the planner and the **session
