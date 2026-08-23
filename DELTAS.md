@@ -138,8 +138,19 @@ Also corrects a stale premise: the ADR justified one model with "the Critic only
 least reversible work — rare enough". It is not rare. 12 of 28 logged runs escalated it to a
 subagent, because the post-diff size floor fires far more often than the declared tier does.
 Prerequisite resolved 2026-08-22: `runs.jsonl` now records a derived `critic_model`, so both
-triggers below became measurable. Until runs accumulate under more than one value, neither can
-fire — the field has to vary before it can discriminate.
+triggers below became measurable.
+**First run with the field exposed a bigger problem (2026-08-23):** `critic_model` came back
+`claude-sonnet-5` on a run whose `CC_CRITIC_MODEL` is `claude-opus-5`. The value is correct —
+that review ran `same-thread-reset`, i.e. on the main thread, which `opusplan` had already
+switched to Sonnet at the gate. So **`CC_CRITIC_MODEL` only governs the `subagent` mode**, which
+is 12 of 29 logged runs; the other **58% review on whatever the main thread happens to be**.
+Two consequences. First, adopting `opusplan` silently downgraded the Critic from Opus to Sonnet
+in the majority of reviews — nobody chose that, and only the new field made it visible. Second,
+in those 17 runs builder and Critic were by construction the same model, which is the exact
+correlated-blind-spot scenario this candidate is about: it has been the default all along, not a
+hypothetical. Decorrelation cannot be configured today for inline or same-thread-reset — there is
+no knob, because those modes are the main thread. Any fix has to change that, not just pick a
+different id.
 Trigger A: 2+ runs where a `[HIGH]` or `[MEDIUM]` finding lands on code a previous Critic
 already reviewed and passed — a shared blind spot, observable as a regression the review missed.
 Trigger B (cheaper, deliberate): one controlled pair — the same diff reviewed twice, once by a
@@ -165,7 +176,8 @@ Trigger A: 20 further runs in which `reversibility` takes at most 2 distinct val
 `critic_mode: subagent` is explained by `floor_triggered`, i.e. the tier changed no outcome.
 Trigger B: 2+ runs with `reversibility_corrected: true` — the opposite evidence, that the human
 does disagree and the dial carries real signal worth keeping.
-Status: 0 runs recorded under either trigger (the 28 predate it).
+Status: **Trigger B has 1 of 2** (2026-08-23, run `b5b8d46c`) — the first correction ever
+recorded across 29 runs. One more and the dial is worth keeping rather than collapsing.
 
 ## Candidate 13 — The gate has never rejected anything (origin: 28-run audit, 2026-08-22)
 

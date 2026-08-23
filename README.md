@@ -29,7 +29,9 @@ cap:
    by conversation, which is where the token saving comes from: a long session costs about
    twice per turn what a short one does.
 4. **Diff + deviation note** — the code against the approved plan; a deviation that
-   contradicts the plan stops and reports instead of improvising.
+   contradicts the plan stops and reports instead of improvising. Edits are **surgical**: the
+   file's existing style is matched, adjacent code and comments are never "improved", and no
+   comments are added unless the file already uses them or you ask for them.
 5. **Close** — real-environment validation first (a failing build short-circuits the review:
    fix, then review), then the Critic's verdict, then a **closing report** on medium/low
    reversibility: what you asked, what was delivered as a `✓`/`✗` checklist against the Plan's
@@ -151,17 +153,19 @@ non-determinism here. Set `"model"` in `~/.claude/settings.json`, or in a projec
 
 `opusplan` runs Opus during plan mode and switches to Sonnet on execution. Since iamlazy's gate
 rides on native plan mode, that switch lands exactly on the plan/build boundary — a declared
-policy, not a coin flip. **You will see which model is running**: iamlazy states it on the Brief
-and again whenever it changes mid-run, read from the session transcript rather than guessed. A
-switch you did not expect — or one you expected that never happened — is visible either way. `CC_MAIN_MODEL` then acts as a floor: a strong planner even when the
+policy, not a coin flip. **You will see which model is running**: every artifact banner carries
+the model and effort that produced it — `── A3 — PLAN · opus-5 · high ──` — read from the session
+transcript, never guessed. So the switch at the gate is visible exactly where it happens, and a
+switch you expected that never happened is just as visible. `CC_MAIN_MODEL` then acts as a floor: a strong planner even when the
 session is on something cheap. There is no equivalent on OpenCode — the primary agent's model
 *is* the session model and holds for the whole run.
 
-The Critic stays on the strongest model, but **not** because it is rare: 12 of 28 logged runs
-escalated it to a sub-agent, since the structural floor fires on size far more often than the
-tier does. It is the review of record. Whether it should instead run a model *decorrelated*
-from the builder — different blind spots, genuinely independent review — is an open question
-tracked in `DELTAS.md`.
+**`*_CRITIC_MODEL` only covers the sub-agent mode.** The `inline` and `same-thread-reset` reviews
+run *on the main thread*, so they use your session model — 17 of 29 logged runs, 58%. With
+`opusplan` that means most reviews happen on Sonnet after the gate, regardless of what you set
+here. If you want a strong Critic everywhere, pin a strong session model; `opusplan` trades that
+away for a cheaper builder. Whether the Critic should instead be *decorrelated* from the builder —
+different blind spots, genuinely independent review — is tracked in `DELTAS.md`.
 
 > **Heads up:** the `CLAUDE_CODE_SUBAGENT_MODEL` environment variable, when set, silently
 > overrides `CC_CRITIC_MODEL`. Unset it if you want `models.conf` to apply.

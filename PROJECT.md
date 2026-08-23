@@ -126,7 +126,18 @@ in `docs/decisions-archive.md`.
   the reversibility tier is `medium` in 22 of 28 runs and was never corrected; the gate has
   produced 0 `rejected` verdicts ever — recorded as falsifiable triggers rather than fixes,
   since two readings fit each and the log cannot separate them.
-- Implementation the same day, listed not argued: validation now precedes the Critic in A5 (never
+- **Prose instructions get skipped; banners do not** (08-22, from the first real run of these
+  changes). A 6-round task ignored two new instructions — declaring the running model, and the
+  `cost` line in the closing report — while obeying every structural one, including the banner's
+  Critic-mode qualifier. Both skipped items sat in prose inside a bullet and required an extra
+  command to produce a datum the human had not asked for. This is the founding ADR's claim
+  observed in the wild: prose discipline decays with session length, a required shape does not.
+  Fix: the model and effort now ride **in every banner** (`── A3 — PLAN · opus-5 · high ──`),
+  which also puts an `opusplan` switch exactly where it happens, and `cost` is marked never
+  omitted. Anything else that gets skipped should move into a shape rather than be re-worded.
+- Implementation the same day, listed not argued: A4 edits are surgical — match the file's style,
+  never "improve" adjacent code or comments, add none of your own unless the file already uses
+  them; validation now precedes the Critic in A5 (never
   spend a subagent on code that does not build); A3 names the Critic mode it expects by checking
   paths against the globs; A5 emits a `✓`/`✗` closing report on medium/low; A2 caps recon at ~10
   files / ~15 tool calls; founding decisions moved to `docs/decisions-archive.md`. Details live in

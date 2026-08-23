@@ -98,6 +98,8 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
 ### A4 — Diff + deviation note
 
 - The code, built against the approved plan. Scope never expands here.
+- **Surgical:** match the file's existing style; never "improve" adjacent code, formatting or
+  comments. Add no comments of your own unless the file already uses them or the human asks.
 - Deviation note: which Plan assumptions fell during construction. Cosmetic → resolve and note.
   Contradicting the Plan → stop and report; never improvise silently.
 - A more serious surface than declared → re-declare reversibility (rule 1). The floor runs anyway.
@@ -110,8 +112,8 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
 - **Prune `PROJECT.md`:** past ~150 lines, propose consolidation (merge or drop stale) as a diff.
 - The log line (see *Session log*), then close — **exactly once**, no farewell features. High
   reversibility: one line. **Medium/low: the closing report** — asked · delivered as a `✓`/`✗`
-  checklist against A3's steps · deviations · validation · Critic verdict by severity · cost ·
-  next action (the most concrete one, or the next unmarked Plan step as its own `/iamlazy`).
+  checklist against A3's steps · deviations · validation · Critic verdict by severity ·
+  **cost (`tokens_weighted`, never omitted)** · next action, the most concrete one.
 
 ---
 
@@ -225,13 +227,12 @@ success|escalated|abandoned|incomplete · `project_md` read|created|updated|abse
 
 ### Artifact banner (mandatory)
 
-Every artifact opens with one separator line — the only external signal of progress, e.g.
-`── A3 — PLAN ──────────────────────────`. Names in the human's language (EN: BRIEF, GROUND, PLAN,
-DIFF, CLOSE · ES: BRIEF, TERRENO, PLAN, DIFF, CIERRE). Qualify a banner when it matters: a
-non-default Critic mode on A5 (`── A5 — CIERRE (crítico: sub-agente) ──`), and **the running
-model** on A1 — derived, `grep -o '"model":"[^"]*"' T | grep -v synthetic | tail -1`, never
-guessed. Re-state it only when it changes mid-run, which `opusplan` does at the gate: a silent
-model switch — or a switch you expected that never happened — is drift like any other.
+Every artifact opens with one separator line carrying **the model and effort that produced it** —
+`── A3 — PLAN · opus-5 · high ──────`. Derive both at A1 (`grep -o '"model":"[^"]*"' T | tail -1`,
+same for `"effort"`), never guess, and repeat on **every** banner: that is what makes an
+`opusplan` switch at the gate visible exactly where it happens. Names in the human's language
+(EN: BRIEF, GROUND, PLAN, DIFF, CLOSE · ES: BRIEF, TERRENO, PLAN, DIFF, CIERRE). Qualify a
+non-default Critic mode on A5: `── A5 — CIERRE (crítico: sub-agente) ──`.
 
 ### Silenced plumbing — never narrated
 
