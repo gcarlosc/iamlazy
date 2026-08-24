@@ -33,14 +33,15 @@ Re-derive from primary sources, in this order:
    one against the diff: a deviation the Plan did not explicitly declare and justify is an
    automatic finding — the deviation may be defensible, but the silence never is.
 4. **Blast radius — the work the human cannot do by testing.** They can check that the feature
-   works; they cannot see what *else* depends on what changed. For every symbol, method, partial,
-   config key, column or route the diff touches, find its other callers — `grep`/`rg` across the
-   whole repo, views, jobs, serializers, tests and fixtures included — and decide whether each
-   one still holds. Report every caller the change breaks, and **name the ones you checked and
-   found safe**: an unchecked caller is not a safe caller. Implicit contracts count as much as
-   signatures — ordering, defaults, nullability, the shape of a collection. A list whose order
-   some other feature relies on is a real dependency even though nothing declares it, and it is
-   exactly the kind of break that passes a manual test and fails in production.
+   works; they cannot see what *else* depends on what changed. Pick the **3–5 riskiest** things
+   the diff touches — a changed signature, an ordering, a shared partial, a config key, a column
+   — and for each, run **one** `grep`/`rg` for its other callers. That is the whole budget: this
+   is a targeted sweep, not a survey, and it runs **in your own context** — you may not spawn
+   anything. Report every caller the change breaks, and **name the ones you checked and found
+   safe**: an unchecked caller is not a safe caller. Say plainly what you left unchecked.
+   Implicit contracts count as much as signatures — ordering, defaults, nullability, the shape of
+   a collection. A list whose order some other feature relies on is a real dependency even though
+   nothing declares it, and it is exactly the break that passes a manual test and fails in prod.
 5. **Correctness & edge cases.** Off-by-one, null/empty, error paths, concurrency, resource
    leaks, wrong assumptions about data shape.
 6. **Security lens — only when told it applies** (auth, persistent data, external input,

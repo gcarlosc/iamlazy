@@ -93,7 +93,7 @@ assert_grep "model: $CC_MAIN_MODEL"   "$H/.claude/commands/iamlazy.md"      "mai
 assert_grep "model: $CC_CRITIC_MODEL" "$H/.claude/agents/iamlazy-critic.md" "critic model projected"
 
 # Composition: frontmatter + full body + argument hook, in that order.
-assert_grep "five inviolable rules" "$H/.claude/commands/iamlazy.md" "core body composed in"
+assert_grep "inviolable rules" "$H/.claude/commands/iamlazy.md" "core body composed in"
 assert_grep 'Request:.*ARGUMENTS'   "$H/.claude/commands/iamlazy.md" "argument hook appended"
 assert_grep "Anti-condescension"    "$H/.claude/agents/iamlazy-critic.md" "critic body composed in"
 

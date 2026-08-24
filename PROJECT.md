@@ -26,13 +26,13 @@ each artifact's demands, not as prompt instructions.
 
 ## Architecture in 10 lines
 
-1. `core/iamlazy.md` — the main prompt: 5 inviolable rules + 5 artifacts (**hard budget ≤250
+1. `core/iamlazy.md` — the main prompt: 6 inviolable rules + 5 artifacts (**hard budget ≤250
    lines**; a new rule must evict another or become structure).
 2. `core/iamlazy-review.md` — the `/iamlazy-review` body: reads the run log, sweeps DELTAS triggers.
 3. `critic/iamlazy-critic.md` — the Critic sub-agent (read-only, fresh context; reads `.iamlazy/`
    artifacts from disk, re-runs the Plan's claim commands).
 4. `templates/claude-code/*` and `templates/opencode/*` — frontmatter wrappers only.
-5. The Critic is the **only** real sub-agent — low reversibility, or when the post-diff floor fires.
+5. The Critic is the **only** sub-agent any run may spawn (rule 6) — low reversibility, or when the post-diff floor fires.
 6. Everything else runs in one thread; artifacts hand off via a baton + re-reading disk sources.
 7. Ground truth is each target project's `PROJECT.md`; per-task Ground/Plan live in `.iamlazy/`.
 8. Ceremony is calibrated by **reversibility** (high/medium/low), not size or greenfield.
@@ -86,7 +86,7 @@ in `docs/decisions-archive.md`.
 **Models and delegation (2026-08)**
 
 - **iamlazy is out of scope for the host's delegation rules** (08-20). The single-thread model was
-  fiction under Claude Code: a global `CLAUDE.md` "Agent Teams Lite" block declares delegation
+  fiction under Claude Code: a global `CLAUDE.md` "Agent Teams Lite" block declared delegation
   triggers non-skippable, and a global file outranks a command prompt. Measured on 3 sessions,
   delegated *builder* agents cost 113% and 122% of their main session and never reach `runs.jsonl`.
   Resolution: a precedence clause outside the `gentle-ai:*` markers so a sync cannot regenerate it
@@ -142,6 +142,34 @@ in `docs/decisions-archive.md`.
   paths against the globs; A5 emits a `✓`/`✗` closing report on medium/low; A2 caps recon at ~10
   files / ~15 tool calls; founding decisions moved to `docs/decisions-archive.md`. Details live in
   the core prompt and the README.
+
+**Delegation is a sixth law, not guidance (2026-08-23)**
+
+- **The 08-20 diagnosis was wrong about the cause.** That entry blamed a global `CLAUDE.md`
+  "Agent Teams Lite" block for delegated builders. ATL was removed on 08-22 — and two runs the
+  next day spawned **7 sub-agents, none of them the Critic**, with ATL provably absent from both
+  transcripts. The model delegates on its own; the host's rules were an aggravator, not the cause.
+  The real hole was in this project: the prohibition lived in the core's *introduction*, and the
+  core states that everything outside the numbered rules is guidance. The single most-violated
+  invariant was the one declared as advice. It is now **rule 6**, and it names the escapes
+  explicitly — exploration, blast-radius sweeps, "just reading" — because those were the actual
+  descriptions used. Measured cost of the two runs: 1.59M and 15.5M weighted, of which 18% and
+  21% lived in sub-agents that `runs.jsonl` never sees.
+- **A prompt change with no budget invites delegation.** The blast-radius axis added on 08-23
+  said "grep across the whole repo, views, jobs, serializers, tests and fixtures included" — and
+  the model read that as work worth farming out, spawning five agents named after it. Rewritten
+  with a hard budget: the 3–5 riskiest touches, one grep each, in its own context, and say what
+  was left unchecked. An instruction that describes unbounded work will get unbounded work.
+- **Structure guarantees the shape, not the content.** The banner change worked — `A1 — BRIEF ·
+  opus-4.8 · alto esfuerzo` appeared exactly as specified. The value was invented: that session's
+  transcript says `claude-opus-5`, 71 times. Moving a datum into a required shape forces it to
+  appear; deriving it correctly is a separate problem. Now the command's literal output is pasted
+  and `?` is required when it was not run, tied to rule 3 — an invented id is a false evidence tag.
+- **The log never wrote.** Both runs closed A5 and neither appended to `runs.jsonl`; no Bash call
+  in either transcript touched it, and no orphan `run.tmp.json` was left for the recovery path.
+  The flush is the last bullet of the last artifact, in prose, after hours of session. Fix: the
+  closing report ends with a bare `log: ok`, which deliberately breaks the "log writes are
+  invisible" rule. One visible token is the price of the record existing at all.
 
 **The Critic's job, sharpened (2026-08-23)**
 

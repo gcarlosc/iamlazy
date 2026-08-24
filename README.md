@@ -65,11 +65,16 @@ claim commands itself — captured output is never trusted. The Critic must prod
 finding or show its adversarial hunt; a bare "looks good" is an invalid verdict.
 
 **What the Critic is for.** You can test whether the feature works. What you cannot see is *what
-else depended on what changed* — so that is the Critic's main job: for every symbol, partial,
-config key, column or route the diff touches, it finds the other callers and names which ones it
-checked. Implicit contracts count as much as signatures. A list whose order some other feature
-relies on is a real dependency even though nothing declares it, and that is precisely the break
-that survives a manual test and fails in production.
+else depended on what changed* — so that is the Critic's main job: it picks the **3–5 riskiest**
+things the diff touches, runs one search each for their other callers, and names which ones it
+checked and which it left alone. Implicit contracts count as much as signatures. A list whose
+order some other feature relies on is a real dependency even though nothing declares it, and that
+is precisely the break that survives a manual test and fails in production.
+
+**One sub-agent, ever.** The Critic is the only process a run may spawn — it is rule 6, not
+advice. Not for exploration, not for a blast-radius sweep, not for "just reading". Delegated work
+hides its token cost from the run log: two runs that ignored this spent 18% and 21% of their
+budget in agents the log never saw.
 
 **Ground truth lives in `PROJECT.md`** at the repo root, versioned with your code. iamlazy
 reads it at the start of every session, proposes creating it if it's missing, and **never
