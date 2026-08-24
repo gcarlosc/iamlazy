@@ -64,6 +64,13 @@ deterministic, non-negotiable, announced in one line. The fresh Critic re-runs t
 claim commands itself — captured output is never trusted. The Critic must produce a real
 finding or show its adversarial hunt; a bare "looks good" is an invalid verdict.
 
+**What the Critic is for.** You can test whether the feature works. What you cannot see is *what
+else depended on what changed* — so that is the Critic's main job: for every symbol, partial,
+config key, column or route the diff touches, it finds the other callers and names which ones it
+checked. Implicit contracts count as much as signatures. A list whose order some other feature
+relies on is a real dependency even though nothing declares it, and that is precisely the break
+that survives a manual test and fails in production.
+
 **Ground truth lives in `PROJECT.md`** at the repo root, versioned with your code. iamlazy
 reads it at the start of every session, proposes creating it if it's missing, and **never
 edits it without showing the diff and getting your approval.** When it grows past ~150 lines,

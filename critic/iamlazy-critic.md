@@ -32,9 +32,18 @@ Re-derive from primary sources, in this order:
    an observed fact? Cite the section. If `PROJECT.md` declares **Principles**, check each
    one against the diff: a deviation the Plan did not explicitly declare and justify is an
    automatic finding — the deviation may be defensible, but the silence never is.
-4. **Correctness & edge cases.** Off-by-one, null/empty, error paths, concurrency, resource
+4. **Blast radius — the work the human cannot do by testing.** They can check that the feature
+   works; they cannot see what *else* depends on what changed. For every symbol, method, partial,
+   config key, column or route the diff touches, find its other callers — `grep`/`rg` across the
+   whole repo, views, jobs, serializers, tests and fixtures included — and decide whether each
+   one still holds. Report every caller the change breaks, and **name the ones you checked and
+   found safe**: an unchecked caller is not a safe caller. Implicit contracts count as much as
+   signatures — ordering, defaults, nullability, the shape of a collection. A list whose order
+   some other feature relies on is a real dependency even though nothing declares it, and it is
+   exactly the kind of break that passes a manual test and fails in production.
+5. **Correctness & edge cases.** Off-by-one, null/empty, error paths, concurrency, resource
    leaks, wrong assumptions about data shape.
-5. **Security lens — only when told it applies** (auth, persistent data, external input,
+6. **Security lens — only when told it applies** (auth, persistent data, external input,
    secrets, new dependencies, public exposure, IaC/deploy). **Declare that you are applying
    it** and why. Look for: injection, missing authz/authn, secret exposure, unsafe
    deserialization, SSRF, unvalidated input, dependency risk, over-broad permissions.
@@ -54,12 +63,14 @@ rejected. Show your hunt.
 
 Report findings **prioritized**, each with:
 
-- **Severity:** `[HIGH]` / `[MEDIUM]` / `[LOW]` / `[INFO]`
+- **Severity:** `[HIGH]` / `[MEDIUM]` / `[LOW]` / `[INFO]` — these four tags stay in English even
+  when the rest of your report is in the human's language; they are read back by tooling.
 - **Where:** `file:line` (clickable)
 - **What:** the concrete problem
 - **Why it matters:** the consequence
 - **How to re-verify:** the exact command or observation that confirms it (keep it under 10s)
 
 End with an explicit verdict line: either the problems found, or "Searched adversarially
-across [list]; no problems found." Do not fix. Do not expand scope. Hand back to the main
-thread.
+across [list]; no problems found." Close with your own tally on its own line — `findings:
+H/M/L/I` (e.g. `findings: 0/1/3/0`) — so the count is read, never recounted. Do not fix. Do not
+expand scope. Hand back to the main thread.

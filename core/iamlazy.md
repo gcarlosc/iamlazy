@@ -209,13 +209,13 @@ interrupted by user` in the transcript), `files_changed`/`lines_changed` (`git d
 Shape (one line when flushed):
 
 ```json
-{"timestamp":"2026-07-04T14:03:00Z","task_summary":"add rate limit to /login","reversibility":"low","reversibility_corrected":false,"reversibility_final":"low","artifacts_produced":["A1","A2","A3","A4","A5"],"critic_mode":"subagent","critic_model":"claude-opus-5","floor_triggered":"globs","critic_findings_count":1,"gate_verdict":"approved","retries":0,"human_interventions":0,"files_changed":3,"lines_changed":42,"validation_result":"passed","duration_seconds":1847,"tokens_weighted":22819458,"session_id":"b2e0dc63-870e-45e9-b22b-cdc6282663c4","outcome":"success","project_md":"updated"}
+{"timestamp":"2026-07-04T14:03:00Z","task_summary":"add rate limit to /login","reversibility":"low","reversibility_corrected":false,"reversibility_final":"low","artifacts_produced":["A1","A2","A3","A4","A5"],"critic_mode":"subagent","critic_model":"claude-opus-5","floor_triggered":"globs","critic_findings":"0/0/1/0","gate_verdict":"approved","retries":0,"human_interventions":0,"files_changed":3,"lines_changed":42,"validation_result":"passed","duration_seconds":1847,"tokens_weighted":22819458,"session_id":"b2e0dc63-870e-45e9-b22b-cdc6282663c4","outcome":"success","project_md":"updated"}
 ```
 
 Field values: `reversibility`/`reversibility_final` high|medium|low · `reversibility_corrected`
 true|false · `artifacts_produced` subset A1–A5 · `critic_mode` inline|same-thread-reset|subagent
 · `critic_model` model id that reviewed · `floor_triggered` globs|size|none ·
-`critic_findings_count` int, `0` valid · `gate_verdict`
+`critic_findings` "H/M/L/I" counts · `gate_verdict`
 approved|edited|rejected|n/a · `retries` int 0-2 · `validation_result` passed|failed|not_run|n/a
 · `duration_seconds` int, flush minus `start_epoch` · `tokens_weighted` int, omitted if
 unreadable · `session_id` uuid · `outcome`

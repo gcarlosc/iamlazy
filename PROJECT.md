@@ -143,6 +143,23 @@ in `docs/decisions-archive.md`.
   files / ~15 tool calls; founding decisions moved to `docs/decisions-archive.md`. Details live in
   the core prompt and the README.
 
+**The Critic's job, sharpened (2026-08-23)**
+
+- **Blast radius is the Critic's distinctive work.** The human can test whether a feature works;
+  they cannot see what else depends on what changed. That is now an explicit review axis: for
+  every symbol, partial, config key, column or route the diff touches, find its other callers
+  across the repo and name which were checked — an unchecked caller is not a safe one. Implicit
+  contracts count, and that is the point: run `b5b8d46c` changed `<option>` ordering that
+  `WspPhoneNumber#next_responsible_id` silently depended on, and it cost the human six rounds to
+  find, because a manual test passes right up until production. Axis 1 ("does it do what was
+  asked?") duplicates what the human already verified by testing — known, deliberately left.
+- **`critic_findings_count` → `critic_findings` "H/M/L/I".** The log recorded how many findings a
+  review produced, never whether they were worth anything, so "does the Critic earn its cost?"
+  was unanswerable. The one run ever audited was 4 LOW + 2 INFO — zero HIGH, zero MEDIUM:
+  suggestive, not conclusive. The Critic now emits its own tally and keeps the four severity tags
+  in English whatever the reply language, so the count is read rather than recounted. Prerequisite
+  for calibrating the anti-condescension rule, which across 29 runs has never produced zero.
+
 ## Principles
 
 Normative preferences that govern decisions — distinct from Invariants: an invariant states
