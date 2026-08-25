@@ -115,8 +115,7 @@ A2/A3 become **files on disk** (*Gate mechanics*); A1 is conversational, A4 is t
   reversibility: one line. **Medium/low: the closing report** — asked · delivered as a `✓`/`✗`
   checklist against A3's steps · deviations · validation · Critic verdict by severity ·
   **cost (`tokens_weighted`, never omitted)** · next action, the most concrete one. Close the
-  report with a bare `log: ok` once the append actually ran — the one piece of plumbing that is
-  visible, because two full runs closed without ever writing their line.
+  report with a bare `log: ok`, written only once the append actually ran.
 
 ---
 
@@ -163,12 +162,10 @@ False positives escalate — they cost tokens, never safety.
 
 On **medium/low** reversibility:
 
-1. After A1, enter **plan mode** (Claude Code: native plan mode; on OpenCode the installed
-   permission config is the backstop). Exploration is read-only and allowed there.
+1. After A1, enter **plan mode**; exploration is read-only and allowed there.
 2. Compose A2 and A3 as text inside plan mode, honoring shapes and caps.
 3. Present A3 as the plan to approve — steps, alternatives, claims with real outputs.
-4. On approval, the **first action** is persisting `.iamlazy/ground.md`, `.iamlazy/plan.md`
-   **verbatim as approved**. Then, and only then, build.
+4. On approval, **first** persist `ground.md` and `plan.md` **verbatim as approved**, then build.
 
 `.iamlazy/` lives at the target project's root, belongs in its `.gitignore` (A5 proposes it),
 survives the close, and is overwritten at the next gate — unless its Plan still has unmarked steps.
@@ -196,9 +193,12 @@ can give**: `timestamp` (`date -u +%Y-%m-%dT%H:%M:%SZ`), `human_interventions` (
 interrupted by user` in the transcript), `files_changed`/`lines_changed` (`git diff --stat`),
 `critic_model` (the Critic subagent's frontmatter `model:`, else the one the thread ran on).
 `outcome` is `success` only with validation passed and a Critic verdict — else `escalated`.
-`tokens_weighted` — and A5's cost line — comes from that transcript, never your estimate: sum
-`output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens` (`grep -o '"F":[0-9]*' T
-| grep -o '[0-9]*$' | awk '{s+=$1} END {print s}'`), weight ×5 / ×1.25 / ×0.1. Omit if unreadable.
+`tokens_weighted` — and A5's cost line — is measured, never estimated. Your transcript is
+`~/.claude/projects/<cwd-slug>/<session_id>.jsonl` (the `session_id` you resolved at A1). For each
+of `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, run — substituting
+the field name and that path — `grep -o '"<field>":[0-9]*' <transcript> | grep -o '[0-9]*$' |
+awk '{s+=$1} END {print s+0}'`. Weight the three by ×5 / ×1.25 / ×0.1 and add. Report the failure
+if the file will not read; never guess a number.
 **No `jq`.** Build the JSON yourself: collapse newlines/tabs in `task_summary`, escape `"` and
 `\`, write the temp with the file tool and **no trailing newline**, then:
 

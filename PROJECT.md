@@ -160,11 +160,21 @@ in `docs/decisions-archive.md`.
   the model read that as work worth farming out, spawning five agents named after it. Rewritten
   with a hard budget: the 3–5 riskiest touches, one grep each, in its own context, and say what
   was left unchecked. An instruction that describes unbounded work will get unbounded work.
-- **Structure guarantees the shape, not the content.** The banner change worked — `A1 — BRIEF ·
-  opus-4.8 · alto esfuerzo` appeared exactly as specified. The value was invented: that session's
-  transcript says `claude-opus-5`, 71 times. Moving a datum into a required shape forces it to
-  appear; deriving it correctly is a separate problem. Now the command's literal output is pasted
-  and `?` is required when it was not run, tied to rule 3 — an invented id is a false evidence tag.
+- **The banner works, and the "it lied" finding was my own measurement error** (corrected 08-24).
+  `A1 — BRIEF · opus-4.8 · alto esfuerzo` appeared exactly as specified, and 08-23 recorded that
+  the value was invented because the transcript "says claude-opus-5, 71 times". That grep hit a
+  **sub-agent** file, not the main thread. The main thread of that session logged
+  `claude-opus-4-8` 17 times: the banner was right. Lesson worth more than the original claim —
+  under `opusplan` a session legitimately holds three model ids at once (Opus in plan mode, Sonnet
+  after the gate, and whatever sub-agents run), so any check must name which file it read. The
+  literal-output-or-`?` wording was kept anyway: cheap, and it makes an underived value visible.
+- **A compressed command is a broken command.** `tokens_weighted` was absent from run `d6924031`
+  even though the instruction was installed. Cause: while fighting the 250-line budget the command
+  had been squeezed to `grep -o '"F":[0-9]*' T`, with `F` and `T` as placeholders that were never
+  defined anywhere. The model did the honest thing and reported "costo: no disponible para
+  reportar con precisión" rather than inventing a figure. Rewritten with the real transcript path
+  and an explicit substitution note. Line pressure is real, but a rule compressed past
+  comprehension costs more than the lines it saved.
 - **The log never wrote.** Both runs closed A5 and neither appended to `runs.jsonl`; no Bash call
   in either transcript touched it, and no orphan `run.tmp.json` was left for the recovery path.
   The flush is the last bullet of the last artifact, in prose, after hours of session. Fix: the
