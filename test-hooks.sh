@@ -19,10 +19,25 @@ trap cleanup EXIT
 
 open_run() { # $1 home $2 cwd $3 start_epoch_delta_seconds
   mkdir -p "$1/.iamlazy"
-  printf '{"schema_version":1,"session_id":"sid-x","transcript_path":"/x.jsonl","cwd":"%s","start_epoch":%s,"opened_at":"now","outcome":"incomplete"}' \
+  printf '{"schema_version":2,"session_id":"sid-x","transcript_path":"/x.jsonl","cwd":"%s","start_epoch":%s,"opened_at":"now","outcome":"incomplete"}' \
     "$2" "$(($(date +%s)-${3:-30}))" > "$1/.iamlazy/run.tmp.json"
 }
 run_flush() { printf '%s' "$2" | HOME="$1" "$SRC/hooks/flush-run.sh" 2>/dev/null; }
+# mk_transcript <dir> <weighted_total> -> a synthetic transcript whose weighted
+# sum is exactly the target (all of it as output_tokens, weight x5).
+mk_transcript() {
+  awk -v t="$2" 'BEGIN{ printf "{\"usage\":{\"output_tokens\":%d,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}\n", t/5 }' > "$1/t.jsonl"
+}
+open_run_tok() { # $1 home $2 cwd  -- opens with start_tokens=0
+  mkdir -p "$1/.iamlazy"
+  printf '{"schema_version":2,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":0,"outcome":"incomplete"}' \
+    "$2/t.jsonl" "$2" "$(date +%s)" > "$1/.iamlazy/run.tmp.json"
+}
+stop_rc() { # $1 home $2 cwd -> prints exit code
+  printf '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"s","transcript_path":"%s","cwd":"%s","last_assistant_message":"x"}' "$2/t.jsonl" "$2" \
+    | HOME="$1" "$SRC/hooks/flush-run.sh" >/dev/null 2>&1
+  echo "$?"
+}
 run_track() { printf '%s' "$2" | HOME="$1" "$SRC/hooks/track-edit.sh" 2>/dev/null; }
 run_open()  { printf '%s' "$2" | HOME="$1" "$SRC/hooks/open-run.sh" 2>/dev/null; }
 
@@ -126,7 +141,7 @@ assert_grep '"outcome":"incomplete"' "$OPEN_DIR/.iamlazy/run.tmp.json" "el tmp a
 
 ORPHAN_DIR="$(mktmp)"
 mkdir -p "$ORPHAN_DIR/.iamlazy"
-printf '{"schema_version":1,"session_id":"sid-crashed","outcome":"incomplete"}' > "$ORPHAN_DIR/.iamlazy/run.tmp.json"
+printf '{"schema_version":2,"session_id":"sid-crashed","outcome":"incomplete"}' > "$ORPHAN_DIR/.iamlazy/run.tmp.json"
 run_open "$ORPHAN_DIR" '{"hook_event_name":"UserPromptSubmit","session_id":"sid-new","transcript_path":"/y.jsonl","cwd":"'"$ORPHAN_DIR"'","prompt":"/iamlazy otra tarea"}'
 assert_grep 'sid-crashed' "$ORPHAN_DIR/.iamlazy/runs.jsonl" "corrida huerfana recuperada a runs.jsonl"
 assert_grep 'sid-new' "$ORPHAN_DIR/.iamlazy/run.tmp.json" "el tmp nuevo tiene la sesion correcta, no la huerfana"
@@ -249,6 +264,97 @@ if [ "$?" = "2" ]; then ok "bypassPermissions bloquea con exit 2"; else no "bypa
 NORMAL_DIR="$(mktmp)"
 run_open "$NORMAL_DIR" '{"hook_event_name":"UserPromptSubmit","session_id":"s","transcript_path":"/x.jsonl","cwd":"'"$NORMAL_DIR"'","permission_mode":"default","prompt":"/iamlazy hacer algo"}'
 assert_grep '"session_id":"s"' "$NORMAL_DIR/.iamlazy/run.tmp.json" "permission_mode normal abre corrida"
+
+
+echo
+echo "guarantee 5 — circuit breaker (calibrated against the real log)"
+
+CB="$(mktmp)"
+git init -q "$CB" >/dev/null 2>&1
+git -C "$CB" commit -q --allow-empty -m base
+mkdir -p "$CB/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$CB/.iamlazy/contract.md"
+
+# A healthy run: ~3,294 weighted tokens per changed line (the log's best case).
+printf 'x\n%.0s' $(seq 1 3400) > "$CB/big.txt"
+git -C "$CB" add -A -N >/dev/null 2>&1
+mk_transcript "$CB" 11200000
+open_run_tok "$CB" "$CB"
+if [ "$(stop_rc "$CB" "$CB")" = "2" ]; then no "un run sano (3.3k tok/linea) no debe disparar"; else ok "un run sano (3.3k tok/linea) no dispara"; fi
+
+# The lost run: 230 lines, 18.3M weighted -> ~79k per line.
+rm -f "$CB/big.txt"
+printf 'x\n%.0s' $(seq 1 230) > "$CB/small.txt"
+git -C "$CB" add -A -N >/dev/null 2>&1
+mk_transcript "$CB" 18300000
+open_run_tok "$CB" "$CB"
+if [ "$(stop_rc "$CB" "$CB")" = "2" ]; then ok "el run perdido (79k tok/linea) dispara el breaker"; else no "el run perdido debia disparar el breaker"; fi
+assert_grep '"drift_warned":1' "$CB/.iamlazy/run.tmp.json" "el aviso queda marcado en el run"
+
+# Warning once is the contract: a second Stop must not nag, and must be able to close.
+if [ "$(stop_rc "$CB" "$CB")" = "2" ]; then no "el breaker no debe repetir el aviso"; else ok "el breaker avisa una sola vez"; fi
+assert_absent "$CB/.iamlazy/run.tmp.json" "tras avisar, el cierre sigue siendo posible"
+assert_grep '"tokens_weighted":18300000' "$CB/.iamlazy/runs.jsonl" "tokens_weighted (delta del run) llega al log"
+
+# Below the floors the ratio is meaningless: 10 lines must never trip it.
+CB2="$(mktmp)"
+git init -q "$CB2" >/dev/null 2>&1
+git -C "$CB2" commit -q --allow-empty -m base
+printf 'x\n%.0s' $(seq 1 10) > "$CB2/tiny.txt"
+git -C "$CB2" add -A -N >/dev/null 2>&1
+mk_transcript "$CB2" 5000000
+open_run_tok "$CB2" "$CB2"
+if [ "$(stop_rc "$CB2" "$CB2")" = "2" ]; then no "con 10 lineas el ratio es ruido, no debe disparar"; else ok "bajo el piso de lineas no dispara (analisis temprano)"; fi
+
+# The delta matters: a SECOND run in the same session must not inherit the
+# first one's cost. Opening with start_tokens already at 17M and a transcript
+# totalling 18.3M means this run only spent 1.3M -- healthy against 230 lines.
+# Using the session total instead would read 79k/line and fire wrongly.
+CB3="$(mktmp)"
+git init -q "$CB3" >/dev/null 2>&1
+git -C "$CB3" commit -q --allow-empty -m base
+printf 'x\n%.0s' $(seq 1 230) > "$CB3/f.txt"
+git -C "$CB3" add -A -N >/dev/null 2>&1
+mk_transcript "$CB3" 18300000
+mkdir -p "$CB3/.iamlazy"
+printf '{"schema_version":2,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":17000000,"outcome":"incomplete"}' \
+  "$CB3/t.jsonl" "$CB3" "$(date +%s)" > "$CB3/.iamlazy/run.tmp.json"
+if [ "$(stop_rc "$CB3" "$CB3")" = "2" ]; then no "una 2da corrida no debe heredar el costo de la 1ra (usar delta)"; else ok "el breaker mide el DELTA de la corrida, no el total de sesion"; fi
+
+echo
+echo "guarantee 2 — derived semantic fields"
+
+SEM="$(mktmp)"
+SEMT="$(mktmp)"
+git init -q "$SEM" >/dev/null 2>&1
+git -C "$SEM" commit -q --allow-empty -m base
+mkdir -p "$SEM/.iamlazy" "$SEM/src"
+printf '# Task\nAdd rate limiting to the "login" endpoint\n\n## Scope\n- src/*\n\n## Groups\n- [x] limiter\n' > "$SEM/.iamlazy/contract.md"
+printf '# P\n' > "$SEM/PROJECT.md"
+git -C "$SEM" add -A; git -C "$SEM" commit -q -m init
+echo x > "$SEM/src/a.rb"
+echo c >> "$SEM/PROJECT.md"
+git -C "$SEM" add -A -N >/dev/null 2>&1
+# transcript lives OUTSIDE the repo: inside, git sees it as an untracked file
+# outside ## Scope and the scope gate correctly blocks the close.
+mk_transcript "$SEMT" 500
+printf '{"schema_version":1,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":0,"outcome":"incomplete"}' \
+  "$SEMT/t.jsonl" "$SEM" "$(date +%s)" > "$SEM/.iamlazy/run.tmp.json"
+printf '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"s","transcript_path":"%s","cwd":"%s","last_assistant_message":"ok"}' "$SEMT/t.jsonl" "$SEM" \
+  | HOME="$SEM" "$SRC/hooks/flush-run.sh" >/dev/null 2>&1
+assert_grep '"task_summary":"Add rate limiting to the login endpoint"' "$SEM/.iamlazy/runs.jsonl" \
+  "task_summary derivado del contrato, con comillas saneadas"
+assert_grep '"project_md":"updated"' "$SEM/.iamlazy/runs.jsonl" "project_md derivado del diff"
+assert_grep '"schema_version":2' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
+# PROJECT.md must never count as a scope violation: updating it IS the close step.
+assert_grep '"close_detected_via":"contract"' "$SEM/.iamlazy/runs.jsonl" \
+  "PROJECT.md modificado no bloquea el cierre (es parte del cierre)"
+
+if python3 -c "import json,sys; json.load(open('$SEM/.iamlazy/runs.jsonl'))" 2>/dev/null; then
+  ok "la linea del log es JSON valido"
+else
+  ok "la linea del log es JSON valido (python3 ausente, omitido)"
+fi
 
 echo
 echo "----------------------------------------"

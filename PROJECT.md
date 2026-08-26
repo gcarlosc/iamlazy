@@ -36,7 +36,7 @@ cannot bypass. Five scripts, ~230 lines:
 | `guard-agent.sh` | `PreToolUse` on `Agent`\|`Task` | only `iamlazy-critic` may be spawned |
 | `open-run.sh` | `UserPromptSubmit` | run identity from the real payload; orphan recovery; refuses a permission bypass |
 | `track-edit.sh` | `PostToolUse` on `Edit`\|`Write` | every edit appended to `.iamlazy/journal.md` |
-| `flush-run.sh` | `Stop` | the log line is written, derived, never self-reported |
+| `flush-run.sh` | `Stop` | the log line is written, derived, never self-reported; **circuit breaker** on cost per changed line |
 
 **Layer 1 — asked** (`core/iamlazy.md`, ≤200 lines). Judgement: analysis, questions, the contract,
 surgical edits, what the reviewer receives, the close. Prose here is acceptable *because the task
@@ -96,18 +96,28 @@ finding.
   unexercised is a real `/iamlazy` run: the contract, the gate and the review remain correct by
   construction of the prompt. Layer 0 closed part of this debt — a script reading JSON on stdin is
   testable in a way a prompt never was — but not all of it.
-- **Guarantee 5 (circuit breaker) is not built.** The trigger the log supports is cost per changed
-  line (79,542 tokens/line on the run that got lost, against 3,287–5,504 normally). It needs the
-  contract to exist first, which is why it was deferred rather than rushed.
+- **The circuit breaker's threshold is calibrated on one lost run.** 20,000 weighted tokens per
+  changed line sits above the worst healthy run (5,504) and well below the lost one (79,542), with
+  floors at 50 lines and 1M tokens so early analysis cannot trip it. One data point is one data
+  point: if it fires on a run that was actually fine, the threshold is wrong, not the run.
 - **Hooks can be switched off.** `disableAllHooks` exists. Layer 0 is proof against forgetting,
   not proof against a decision.
 - **`settings.json` is the human's to edit.** `--with-hooks` installs the scripts and prints the
   block; merging JSON without `jq` over someone's own config is not a risk worth taking.
 - **OpenCode has no Layer 0.** It keeps the permission-based gate and loses every guarantee above.
   Whether it stays a supported target is an open question.
-- **Semantic log fields are not written yet.** `flush-run.sh` writes the mechanical skeleton;
-  `task_summary`, `critic_findings` and `gate_verdict` still need a place on disk for the model to
-  leave them. Until then the log line is guaranteed to exist but is incomplete.
+- **Two log fields stay underived, on purpose.** `flush-run.sh` writes identity, timing,
+  interventions, files/lines, `tokens_weighted`, and derives `task_summary` (from the contract's
+  own `# Task`) and `project_md` (from the diff). `critic_findings` and `gate_verdict` are NOT
+  derived: the Critic's `findings: H/M/L/I` tally lives inside a sub-agent tool result, and a
+  plain transcript grep also matches the **example in the Critic's own prompt** — verified
+  2026-08-25, it returned `0/1/3/0` from documentation rather than from a review. `gate_verdict`
+  would come from `ExitPlanMode`, whose payload shape is still unconfirmed. This project already
+  shipped a token count that was wrong in 7 of 7 runs; an absent field is honest, a confidently
+  wrong one is not.
+- **`runs.jsonl` carries two schema generations.** Pre-Layer-0 lines are self-reported; lines with
+  `"schema_version": 2` are derived. `/iamlazy-review` is instructed to report what each line
+  actually has and never to infer across generations.
 - **OpenCode directory + frontmatter conventions are trusted from this machine.**
 - **`curl | bash` requires `IAMLAZY_RAW_BASE`** pointing at a raw base URL; offline is clone+run.
 - **The Critic's Bash is a discipline hole**: frontmatter denies write/edit, but Bash can write via

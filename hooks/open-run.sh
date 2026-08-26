@@ -64,7 +64,13 @@ fi
 now_epoch=$(date +%s)
 now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-printf '{"schema_version":1,"session_id":"%s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"opened_at":"%s","outcome":"incomplete"}' \
-  "$sid" "$tpath" "$cwd" "$now_epoch" "$now_iso" > "$TMP"
+# The transcript accumulates the WHOLE session, not this run. Recording the
+# weighted total at open lets the close measure the delta -- otherwise a
+# second /iamlazy in the same session would inherit the first one's cost and
+# the drift check would fire on the wrong run.
+start_tokens=$(hk_weighted_tokens "$tpath") || start_tokens=0
+
+printf '{"schema_version":1,"session_id":"%s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":%s,"opened_at":"%s","outcome":"incomplete"}' \
+  "$sid" "$tpath" "$cwd" "$now_epoch" "${start_tokens:-0}" "$now_iso" > "$TMP"
 
 hk_allow

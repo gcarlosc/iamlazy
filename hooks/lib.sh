@@ -129,15 +129,54 @@ hk_scope_violations() {
   cwd="$1"; contract="$2"
   patterns=$(hk_scope_patterns "$contract") || return 0
   [ -n "$patterns" ] || return 0
-  changed=$(cd "$cwd" && git diff --name-only -- . ':!.iamlazy' 2>/dev/null)
+  # PROJECT.md is excluded alongside .iamlazy/: updating the project model is
+  # part of the CLOSE protocol, not a deviation from the task's scope. Without
+  # this, every run that does what the close step asks would block its own
+  # close -- a structural false positive found by running the real flow, not by
+  # reading the code. PROJECT.md has its own protection: it is never edited
+  # without showing the diff and getting approval.
+  changed=$(cd "$cwd" && git diff --name-only -- . ':!.iamlazy' ':!PROJECT.md' 2>/dev/null)
   [ -n "$changed" ] || return 0
-  printf '%s\n' "$changed" | while IFS= read -r f; do
-    matched=0
-    printf '%s\n' "$patterns" | while IFS= read -r pat; do
+
+  # Plain nested `for` loops, splitting on newlines only so paths with spaces
+  # survive. Deliberately not `printf | while read`: that puts the match flag
+  # inside a pipeline, i.e. a subshell, where assignments to it are discarded.
+  #
+  # Note for anyone testing this by hand: `case $f in $pat)` glob-matches in
+  # bash but NOT in zsh, which needs ${~pat}. The hooks always run under bash;
+  # sourcing this file into an interactive zsh will make every path look like
+  # a violation and send you hunting a bug that is not there.
+  oldifs="$IFS"
+  IFS='
+'
+  for f in $changed; do
+    ok=0
+    for pat in $patterns; do
       case "$f" in
-        $pat) echo matched; break ;;
+        $pat) ok=1; break ;;
       esac
-    done | grep -q matched && matched=1
-    [ "$matched" = 0 ] && printf '%s\n' "$f"
+    done
+    [ "$ok" = 0 ] && printf '%s\n' "$f"
   done
+  IFS="$oldifs"
+  return 0
+}
+
+# hk_weighted_tokens <transcript_path> -> weighted token total, or empty.
+# Weights follow the project's cost model: output x5, cache_creation x1.25,
+# cache_read x0.1. Raw sums overstate spend by roughly 4x, which is why the
+# weighting is not optional. Empty output means "could not read" -- callers
+# must skip the check rather than treat it as zero.
+hk_weighted_tokens() {
+  t="$1"
+  [ -n "$t" ] && [ -f "$t" ] || return 1
+  o=$(grep -o '"output_tokens":[0-9]*' "$t" 2>/dev/null | grep -o '[0-9]*$' | awk '{s+=$1} END {print s+0}')
+  c=$(grep -o '"cache_creation_input_tokens":[0-9]*' "$t" 2>/dev/null | grep -o '[0-9]*$' | awk '{s+=$1} END {print s+0}')
+  r=$(grep -o '"cache_read_input_tokens":[0-9]*' "$t" 2>/dev/null | grep -o '[0-9]*$' | awk '{s+=$1} END {print s+0}')
+  awk -v o="${o:-0}" -v c="${c:-0}" -v r="${r:-0}" 'BEGIN{printf "%d", o*5 + c*1.25 + r*0.1}'
+}
+
+# hk_json_num <file> <key> -> integer value of a numeric JSON field.
+hk_json_num() {
+  grep -o "\"$2\":[0-9]*" "$1" 2>/dev/null | head -1 | grep -o '[0-9]*$'
 }
