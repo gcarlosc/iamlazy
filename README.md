@@ -1,93 +1,82 @@
 # iamlazy
 
-A software-development harness for **Claude Code** and **OpenCode**. It covers the full loop —
-understand the request → grounding → plan → implement → post-validation — on both existing and
-new projects. No MCP, no plugins, no external dependencies. Just bash and files.
+A software-development harness for **Claude Code**. It runs **one task end to end** — analyse,
+ask, contract, approve, execute, review — in a single thread. No MCP, no plugins, no external
+dependencies. Just bash and files.
 
 ## The mental model (one page)
 
-iamlazy is **not** a pipeline of separate agents, and it does not role-play personas either.
-It is one thread that must produce **five artifacts**, each with a required shape and a size
-cap:
+iamlazy is not a pipeline of agents and it does not role-play personas. It is one senior engineer
+working one task, with a **contract** in the middle: what you agreed to do, signed before any code
+is written, and checked against reality at the end.
 
-1. **Brief** — what is actually being asked; declared assumptions; the questions that would
-   change the plan, each with a recommendation — asked only **after** a quick reconnaissance,
-   never from ignorance.
-2. **Ground** (`.iamlazy/ground.md`) — facts about the system, each tagged
-   `[observed] / [inferred] / [assumed]`; empty tool output counts as *uncertain*, never as a
-   confirmed negative.
-3. **Plan** (`.iamlazy/plan.md`) — verifiable steps, discarded alternatives, and the
-   **load-bearing claims**: the 2–3 claims that would invalidate the plan if wrong, each with
-   its <10s command **and the command's real output, captured while composing the Plan**.
-   The Plan also names the **Critic mode it expects**, so you know before approving whether the
-   review will escalate — an expectation, not a promise; the post-diff floor still decides.
-   **Your approval gate runs on this artifact** — you read verified evidence and decide;
-   re-running the commands is your option, not your duty. When **one command can't verify the
-   whole job**, the steps become the unit of delivery — each leaving the repo valid on its own,
-   each run as its own `/iamlazy` — and **the Plan is its own ledger**: a step is marked done in
-   `.iamlazy/plan.md` with its result appended under it. Runs hand off by written result, never
-   by conversation, which is where the token saving comes from: a long session costs about
-   twice per turn what a short one does.
-4. **Diff + deviation note** — the code against the approved plan; a deviation that
-   contradicts the plan stops and reports instead of improvising. Edits are **surgical**: the
-   file's existing style is matched, adjacent code and comments are never "improved", and no
-   comments are added unless the file already uses them or you ask for them.
-5. **Close** — real-environment validation first (a failing build short-circuits the review:
-   fix, then review), then the Critic's verdict, then a **closing report** on medium/low
-   reversibility: what you asked, what was delivered as a `✓`/`✗` checklist against the Plan's
-   steps, deviations, validation, findings by severity, token cost, and the one next action.
-   High reversibility gets a single line instead. Then the proposed `PROJECT.md`
-   update (diff first, you approve), the run log line.
+It is deliberately **not** built for multi-hour sessions. A long run is a symptom. The worst run in
+the log took nearly two hours to produce 230 lines across 3 files, after seven different attempts —
+**24x worse per line** than a normal run. Making that visible, and stopping it, is the point.
 
-Why artifacts instead of personas: an abandoned role is invisible, but **a missing or
-malformed artifact is visible drift** — to you and to the model. Discipline in prose degrades
-over a long session; a required file with a required shape does not. The classic six postures
-(receiver, cartographer, designer, builder, critic, validator) still exist conceptually — as
-the *consequence* of demanding each artifact, not as prompt instructions.
+### Two layers, and the difference matters
 
-**Ceremony is calibrated by reversibility**, not by size:
+The harness separates what it **guarantees** from what it **asks** — because five of its six old
+"inviolable rules" were prose, and the single most-violated one was the one declared as law.
 
-| Reversibility | Example | Artifacts | Gate | Critic |
-|---|---|---|---|---|
-| **High** (~30s to undo) | typo, log line, copy | Diff only | diff preview | inline check |
-| **Medium** (undo with git) | scoped feature, local refactor | all five | plan mode on the Plan | same-thread reset |
-| **Low** (not easily undone) | architecture, migration, auth, prod | all five | plan mode + claim review | **fresh-context sub-agent** |
+| Layer 0 — guaranteed | Layer 1 — asked |
+|---|---|
+| Hook scripts you cannot bypass | The prompt: judgement |
+| Only the reviewer may be spawned | How to analyse, what to ask |
+| Run identity, timing and the log line | How to write the contract |
+| Every edit traced automatically | Surgical edits, what the reviewer gets |
+| No close while a file sits outside the declared scope | Tone, order, conclusions first |
+| Refuses to start under a permission bypass | |
 
-iamlazy declares its reversibility estimate in one line up front — **that's the first thing
-you can correct**, and it recalibrates without argument.
+The rule that decides where something goes: **can a command tell whether it was honoured?** If yes
+and it can be prevented, it is a guarantee. If yes but only afterwards, it is protocol. If no, it is
+style — and it is not called law. **Nothing is promoted by being important.**
 
-**The structural floor.** After the code is written, the touched paths are checked
-mechanically (`git diff --stat`) against a sensitive-glob list (`*auth*`, `migrations/`,
-`*.tf`, `.env*`, `*secret*`, …) and a size cap (**>400 changed lines**). Either match
-escalates the Critic to a **fresh-context sub-agent regardless of the declared tier** —
-deterministic, non-negotiable, announced in one line. The fresh Critic re-runs the Plan's
-claim commands itself — captured output is never trusted. The Critic must produce a real
-finding or show its adversarial hunt; a bare "looks good" is an invalid verdict.
+Prose is not the enemy; *length* is. The short run in the log obeyed every prose instruction,
+banner and all. The long ones dropped the log, the banner and the cost line. So Layer 0 does not
+police every rule — it guards the **perimeter** that keeps the task bounded, and lets judgement be
+judgement.
 
-**What the Critic is for.** You can test whether the feature works. What you cannot see is *what
-else depended on what changed* — so that is the Critic's main job: it picks the **3–5 riskiest**
-things the diff touches, runs one search each for their other callers, and names which ones it
-checked and which it left alone. Implicit contracts count as much as signatures. A list whose
-order some other feature relies on is a real dependency even though nothing declares it, and that
-is precisely the break that survives a manual test and fails in production.
+### The three files
 
-**One sub-agent, ever.** The Critic is the only process a run may spawn — it is rule 6, not
-advice. Not for exploration, not for a blast-radius sweep, not for "just reading". Delegated work
-hides its token cost from the run log: two runs that ignored this spent 18% and 21% of their
-budget in agents the log never saw.
+- **`PROJECT.md`** (repo root, versioned) — what the harness knows about your project: where things
+  live, which commands work, the constraints, and **what to review here**, which grows with each
+  finding. Only what would have shortened reconnaissance, avoided a question, or changed a step gets
+  in; anything else is a diary, not memory. Never edited without showing you the diff.
+- **`.iamlazy/contract.md`** — the task: ground, resolved questions, discarded options, the declared
+  **scope**, the **groups** (each with the command that proves it done), and the load-bearing
+  **claims** with their real output. **This is what you approve.**
+- **`.iamlazy/journal.md`** — append-only, written as the work happens, never redacted at the end.
+  Includes what was tried and **abandoned** — the thing a reviewer can never reconstruct from a diff.
 
-**Ground truth lives in `PROJECT.md`** at the repo root, versioned with your code. iamlazy
-reads it at the start of every session, proposes creating it if it's missing, and **never
-edits it without showing the diff and getting your approval.** When it grows past ~150 lines,
-iamlazy proposes a consolidation — also as a diff.
+### The flow
 
-`PROJECT.md` may declare a **`## Principles`** section — normative preferences ("composition
-over inheritance", "no new dependencies without justification"), distinct from invariants
-(facts). The Plan treats them as design constraints: deviating is allowed only by declaring
-the deviation and its justification, and an undeclared deviation is an automatic Critic
-finding. When iamlazy proposes creating `PROJECT.md` on an existing codebase, it may propose
-principles inferred from observed patterns — tagged as inferences for you to confirm, because
-only you know what is deliberate convention and what is historical accident.
+1. **Analysis** — reads `PROJECT.md`, explores what is missing, then decides **how the work splits
+   into groups**. A group shares a working context, has its own acceptance command, and leaves the
+   repo valid alone. If your request is really several tasks, it says so instead of accepting an
+   epic as a task.
+2. **Questions** — one single block, never rounds, each with a recommendation, and only after
+   reconnaissance. **No grey areas:** every step must trace to an observed fact, an answered
+   question, or `PROJECT.md`. No step may rest on an assumption.
+3. **Contract** — written to disk, in the shape above.
+4. **Approval** — your gate, on native plan mode. You read **commands, not paragraphs** — which is
+   the answer to why the old gate never once rejected a plan in 27 runs: reading prose is tiring,
+   reading `rspec spec/services/rate_limiter_spec.rb` takes three seconds.
+5. **Execution** — group by group, re-reading the contract from disk. A path outside the declared
+   scope stops the work instead of being absorbed. **Two attempts, then stop:** a second attempt
+   must declare what changes in the hypothesis; a third means the hypothesis is wrong.
+6. **Review** — always a **separate** read-only sub-agent, never a "reset" of the same thread. It
+   gets the contract and journal **as claims to be tested, not context to be trusted**, and
+   **derives its own diff** from paths — you do not get to choose what your auditor sees.
+7. **Close** — the report, plus the proposed `PROJECT.md` update as a diff.
+
+**What the reviewer is for.** You can test whether the feature works. What you cannot see is *what
+else depended on what changed* — so that is its main job: it picks the 3–5 riskiest things the diff
+touches, searches for their other callers, and names which it checked and which it left alone.
+Implicit contracts count as much as signatures. A list whose order some other feature relies on is a
+real dependency even though nothing declares it, and that is precisely the break that survives a
+manual test and fails in production. It must produce a real finding or show its adversarial hunt;
+a bare "looks good" is an invalid verdict.
 
 ## Install
 
@@ -124,13 +113,13 @@ The installer:
 /iamlazy-review           # shows the last 20 runs, readable
 ```
 
-You never see internal mechanics — no session ids, no states, no protocol chatter. You see
-the reversibility call, one block of questions (each with its recommendation), the Plan with
-its load-bearing claims (at the gate), the delivery, and the close. Each stage opens with an
-artifact banner so you always know where the work stands.
+You never see internal mechanics — no session ids, no states, no protocol chatter. You see one
+block of questions (each with its recommendation), the contract with its acceptance commands and
+claims (at the gate), the delivery, and the close. Each stage opens with a banner carrying the
+model and effort that produced it, so a model switch is visible exactly where it happens.
 
-During a task, `.iamlazy/` at your project root holds the approved Ground and Plan —
-persisted **verbatim as you approved them** — for the Critic to review against and for you to
+During a task, `.iamlazy/` at your project root holds the approved contract — persisted
+**verbatim as you approved it** — and the journal, for the reviewer to work against and for you to
 inspect afterwards. Add `.iamlazy/` to your `.gitignore` (iamlazy proposes it if missing).
 
 ## Models and credentials
@@ -172,12 +161,13 @@ switch you expected that never happened is just as visible. `CC_MAIN_MODEL` then
 session is on something cheap. There is no equivalent on OpenCode — the primary agent's model
 *is* the session model and holds for the whole run.
 
-**`*_CRITIC_MODEL` only covers the sub-agent mode.** The `inline` and `same-thread-reset` reviews
-run *on the main thread*, so they use your session model — 17 of 29 logged runs, 58%. With
-`opusplan` that means most reviews happen on Sonnet after the gate, regardless of what you set
-here. If you want a strong Critic everywhere, pin a strong session model; `opusplan` trades that
-away for a cheaper builder. Whether the Critic should instead be *decorrelated* from the builder —
-different blind spots, genuinely independent review — is tracked in `DELTAS.md`.
+**`*_CRITIC_MODEL` now covers every review.** This used to be the exception rather than the rule:
+with three review modes, `inline` and `same-thread-reset` ran *on the main thread* — 17 of 29 logged
+runs, 58% — so under `opusplan` most reviews silently happened on Sonnet after the gate, and nobody
+chose that. Making the reviewer **always a sub-agent** fixed it as a side effect: a sub-agent's model
+holds for its whole run, so what you set here is what reviews your code. It also means reviewer and
+builder can be **decorrelated** on purpose — different models have different blind spots, and a
+reviewer that shares the builder's cannot see what the builder could not.
 
 > **Heads up:** the `CLAUDE_CODE_SUBAGENT_MODEL` environment variable, when set, silently
 > overrides `CC_CRITIC_MODEL`. Unset it if you want `models.conf` to apply.
@@ -191,12 +181,27 @@ Code takes bare Anthropic model ids.
 
 ## The gate is not optional
 
-On medium/low reversibility, iamlazy does **not** write code until you approve the Plan. On
-Claude Code the gate rides the **native plan mode** — platform-enforced structure, not prose
-imitating it. On OpenCode, the installed permission config is the backstop.
+iamlazy does **not** write code until you approve the contract, except on trivially reversible
+changes. On Claude Code the gate rides the **native plan mode** — platform-enforced structure, not
+prose imitating it.
 
-**Do not run iamlazy under `--dangerously-skip-permissions` (or any bypass mode).** It
-removes the structural gate the harness is built on. iamlazy installs **no hooks**.
+**Do not run iamlazy under `--dangerously-skip-permissions` (or any bypass mode).** It removes the
+structural gate the harness is built on. With Layer 0 installed this is no longer a request: the
+harness **refuses to start** under a permission bypass.
+
+## Layer 0 (opt-in)
+
+```sh
+./install.sh --tool=claude --with-hooks
+```
+
+This installs the hook scripts and **prints** the `hooks` block for you to paste into
+`~/.claude/settings.json`. It deliberately does **not** edit that file: merging JSON without `jq`
+over your own config is not a risk worth taking, and this project has no `jq`.
+
+Without the block the harness still runs — but its guarantees go back to being prose, which is the
+failure mode the hooks exist to remove. `./uninstall.sh` reclaims the scripts; the settings block is
+yours to remove, since it was yours to add.
 
 ## Tests
 
@@ -204,18 +209,20 @@ removes the structural gate the harness is built on. iamlazy installs **no hooks
 ./test.sh
 ```
 
-42 assertions over the installer and the declared invariants — file composition, model
-projection, idempotency, anti-clobber, `--model`, and that `uninstall.sh` never touches your
-run log. Runs in an isolated `HOME`, so it cannot disturb your setup. Bash and coreutils only,
-like everything else here.
+50 assertions over the installer and the declared invariants — file composition, model projection,
+idempotency, anti-clobber, `--model`, `--with-hooks`, and that `uninstall.sh` never touches your run
+log. It delegates to `./test-hooks.sh`, a further **39 assertions** over Layer 0's runtime decisions,
+fed real captured payloads and validated by mutation rather than by going green. Runs in an isolated
+`HOME`, so it cannot disturb your setup. Bash and coreutils only, like everything else here.
 
 CI runs it on every push across Linux and macOS, plus one job that invokes it through `/bin/bash`
 specifically — that is the bash 3.2 this project claims to support, and `env bash` on a runner
 can quietly resolve to a newer one.
 
-What it does **not** cover: a live `/iamlazy` run. The five artifacts are correct by
-construction of the prompt, not by test — no automated check exercises the gate, the Critic,
-or the structural floor. Worth knowing before you trust a green run.
+What it does **not** cover: a live `/iamlazy` run. The contract, the gate and the review are still
+correct by construction of the prompt. Layer 0 closed part of that debt — a hook script reading JSON
+on stdin is testable in a way a prompt never was — but the end-to-end path stays unexercised. Worth
+knowing before you trust a green run.
 
 ## Validation
 
@@ -250,7 +257,9 @@ iamlazy/
   docs/            archived founding decisions (settled, not re-litigated)
   install.sh       idempotent installer (bash 3.2 compatible)
   uninstall.sh     marker-only removal, preserves your data
-  test.sh          42 assertions over the installer and the declared invariants
+  hooks/           Layer 0: the guarantees, as bash reading JSON on stdin
+  test.sh          50 assertions over the installer and the declared invariants
+  test-hooks.sh    39 assertions over Layer 0, validated by mutation
   .github/         CI: the suite on Linux + macOS, and under /bin/bash for bash 3.2
 ```
 

@@ -3,9 +3,12 @@
 # Same constraints as the rest of the project: bash 3.2, coreutils only, zero deps.
 #
 # Scope, stated honestly: this covers install/uninstall mechanics, model projection,
-# anti-clobber, idempotency and the file-level invariants from PROJECT.md. It does NOT
-# execute a live /iamlazy run, so the five artifacts remain correct by construction of
-# the prompt, not by test. That debt stays open.
+# anti-clobber, idempotency and the file-level invariants from PROJECT.md, and it
+# delegates to test-hooks.sh for the Layer 0 runtime decisions. What it still does NOT
+# do is execute a live /iamlazy run: the contract, the gate and the review remain
+# correct by construction of the prompt. Layer 0 closed part of that debt -- a hook
+# script reading JSON on stdin is testable in a way a prompt never was -- but the
+# end-to-end path is still unexercised.
 #
 #   usage: ./test.sh
 #   exit 0 = all passed, 1 = at least one failure
@@ -52,9 +55,12 @@ done
 # ------------------------------------------------------- source invariants
 echo
 echo "source invariants"
+# The budget applies to prose-of-judgement only: mechanical accounting moved to
+# hooks/, which is why this dropped from 250 to 200. Design pressure, not a number
+# to negotiate -- a new rule must evict another or become structure.
 core_lines="$(wc -l < "$SRC/core/iamlazy.md" | tr -d ' ')"
-if [ "$core_lines" -le 250 ]; then ok "core budget: $core_lines <= 250"
-else no "core budget exceeded: $core_lines > 250"; fi
+if [ "$core_lines" -le 200 ]; then ok "core budget: $core_lines <= 200"
+else no "core budget exceeded: $core_lines > 200"; fi
 
 # Every template must declare the idempotency marker, or uninstall can never reclaim it.
 for f in "$SRC"/templates/*/*.frontmatter; do
@@ -93,7 +99,8 @@ assert_grep "model: $CC_MAIN_MODEL"   "$H/.claude/commands/iamlazy.md"      "mai
 assert_grep "model: $CC_CRITIC_MODEL" "$H/.claude/agents/iamlazy-critic.md" "critic model projected"
 
 # Composition: frontmatter + full body + argument hook, in that order.
-assert_grep "inviolable rules" "$H/.claude/commands/iamlazy.md" "core body composed in"
+assert_grep "What is guaranteed vs what is asked" \
+  "$H/.claude/commands/iamlazy.md" "core body composed in"
 assert_grep 'Request:.*ARGUMENTS'   "$H/.claude/commands/iamlazy.md" "argument hook appended"
 assert_grep "Anti-condescension"    "$H/.claude/agents/iamlazy-critic.md" "critic body composed in"
 
@@ -152,6 +159,47 @@ assert_grep "user data" "$H/.iamlazy/runs.jsonl"    "runs.jsonl preserved (invar
 # Uninstall must refuse to remove a file that is not ours.
 HOME="$H2" "$SRC/uninstall.sh" >/dev/null 2>&1
 assert_grep "SOMEONE ELSE'S FILE" "$H2/.claude/commands/iamlazy.md" "unmarked file survives uninstall"
+
+# ------------------------------------------------------- layer 0 (hooks)
+# The hook suite is a separate file because it tests runtime decisions, not
+# install mechanics. Running it here means one command still covers everything.
+echo
+echo "layer 0 (delegating to test-hooks.sh)"
+if [ -x "$SRC/test-hooks.sh" ]; then
+  if "$SRC/test-hooks.sh" >/dev/null 2>&1; then
+    ok "test-hooks.sh passes"
+  else
+    no "test-hooks.sh has failures (run ./test-hooks.sh for detail)"
+  fi
+else
+  no "test-hooks.sh missing or not executable"
+fi
+
+# ---------------------------------------------------- install --with-hooks
+echo
+echo "install --with-hooks"
+H5="$(mktmp)"
+HOME="$H5" "$SRC/install.sh" --tool=claude --with-hooks >/dev/null 2>&1
+assert_file "$H5/.claude/iamlazy-hooks/guard-agent.sh" "hooks: guard installed"
+assert_file "$H5/.claude/iamlazy-hooks/lib.sh"         "hooks: lib installed"
+assert_file "$H5/.claude/iamlazy-hooks/flush-run.sh"   "hooks: flush installed"
+if [ -x "$H5/.claude/iamlazy-hooks/guard-agent.sh" ]; then ok "hooks are executable"
+else no "hooks are executable"; fi
+
+# opt-in must be real: a plain install leaves no hooks behind
+H6="$(mktmp)"
+HOME="$H6" "$SRC/install.sh" --tool=claude >/dev/null 2>&1
+if [ -d "$H6/.claude/iamlazy-hooks" ]; then no "hooks are opt-in (installed without the flag)"
+else ok "hooks are opt-in (absent without the flag)"; fi
+
+# the installer must never edit settings.json
+if [ -f "$H5/.claude/settings.json" ]; then no "installer left settings.json alone"
+else ok "installer left settings.json alone"; fi
+
+# uninstall reclaims the hook dir
+HOME="$H5" "$SRC/uninstall.sh" >/dev/null 2>&1
+if [ -d "$H5/.claude/iamlazy-hooks" ]; then no "uninstall removes the hook dir"
+else ok "uninstall removes the hook dir"; fi
 
 # ------------------------------------------------------------------ report
 echo

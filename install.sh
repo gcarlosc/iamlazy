@@ -11,9 +11,11 @@ CC_AGENT_DIR="${HOME}/.claude/agents"
 OC_CMD_DIR="${HOME}/.config/opencode/commands"
 OC_AGENT_DIR="${HOME}/.config/opencode/agents"
 LOG_DIR="${HOME}/.iamlazy"
+CC_HOOK_DIR="${HOME}/.claude/iamlazy-hooks"
 
 # Files that make up the payload (relative to the repo root).
 PAYLOAD="core/iamlazy.md core/iamlazy-review.md critic/iamlazy-critic.md \
+hooks/lib.sh hooks/guard-agent.sh hooks/open-run.sh hooks/track-edit.sh hooks/flush-run.sh \
 templates/claude-code/command-iamlazy.frontmatter \
 templates/claude-code/command-review.frontmatter \
 templates/claude-code/agent-critic.frontmatter \
@@ -26,11 +28,14 @@ models.conf DELTAS.md"
 usage() {
   cat <<'EOF'
 iamlazy installer
-  usage: install.sh [--tool=claude|opencode|both] [--model=<id>]
+  usage: install.sh [--tool=claude|opencode|both] [--model=<id>] [--with-hooks]
   Auto-detects installed tools when --tool is omitted.
   --model=<id> sets BOTH roles (main + critic) for a single tool, persists the
     choice to models.conf, and reinstalls. Requires a single --tool (claude or
     opencode) because their model-id namespaces differ.
+  --with-hooks installs the Layer 0 hook scripts (Claude Code only) and prints
+    the settings.json block to paste. It never edits settings.json itself:
+    merging JSON without jq over your own config is not a risk worth taking.
   For curl|bash installs, set IAMLAZY_RAW_BASE to the raw file base URL.
 EOF
 }
@@ -93,13 +98,59 @@ install_opencode() {
   } | write_file "$OC_AGENT_DIR/iamlazy-critic.md"
 }
 
+
+install_hooks() {
+  mkdir -p "$CC_HOOK_DIR"
+  for h in lib.sh guard-agent.sh open-run.sh track-edit.sh flush-run.sh; do
+    if [ -f "$SRC/hooks/$h" ]; then
+      cp "$SRC/hooks/$h" "$CC_HOOK_DIR/$h"
+      chmod +x "$CC_HOOK_DIR/$h"
+      echo "  wrote $CC_HOOK_DIR/$h"
+    fi
+  done
+}
+
+print_hook_block() {
+  cat <<EOF
+
+  LAYER 0 INSTALLED at $CC_HOOK_DIR
+  These scripts enforce what the prompt used to merely ask for. To activate
+  them, merge this "hooks" block into ~/.claude/settings.json (or a project
+  .claude/settings.json). This installer does NOT edit that file for you.
+
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/open-run.sh" } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Agent|Task",
+        "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/guard-agent.sh" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write",
+        "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/track-edit.sh" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/flush-run.sh" } ] }
+    ]
+  }
+}
+
+  Without this block the harness still runs -- but the guarantees go back to
+  being prose, which is the failure mode the hooks exist to remove.
+EOF
+}
+
 # ---------- parse args ----------
 TOOL="auto"
 MODEL_OVERRIDE=""
+WITH_HOOKS=0
 for arg in "$@"; do
   case "$arg" in
     --tool=*) TOOL="${arg#--tool=}" ;;
     --model=*) MODEL_OVERRIDE="${arg#--model=}" ;;
+    --with-hooks) WITH_HOOKS=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "iamlazy: unknown arg: $arg" >&2; usage; exit 1 ;;
   esac
@@ -192,6 +243,13 @@ fi
 if [ "$do_opencode" -eq 1 ]; then
   echo "OpenCode -> $OC_MAIN_MODEL (main) / $OC_CRITIC_MODEL (critic)"
   install_opencode
+fi
+if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_claude" -eq 1 ]; then
+  install_hooks
+fi
+
+if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_claude" -eq 1 ]; then
+  print_hook_block
 fi
 
 echo
