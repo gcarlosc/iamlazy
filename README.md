@@ -189,19 +189,22 @@ prose imitating it.
 structural gate the harness is built on. With Layer 0 installed this is no longer a request: the
 harness **refuses to start** under a permission bypass.
 
-## Layer 0 (opt-in)
+## Layer 0
+
+Installed and registered **by default**. There is no extra step, and that is on purpose: a
+guarantee you have to remember to switch on is not a guarantee, and the failure is silent — two
+installs look identical while only one enforces anything.
+
+The installer backs up your `settings.json`, validates the result before replacing it, restores the
+backup if anything goes wrong, and **never touches your own hooks or settings**. `./uninstall.sh`
+unregisters them again, just as carefully.
 
 ```sh
-./install.sh --tool=claude --with-hooks
+./install.sh --tool=claude --no-hooks   # opt OUT, if you really want to
 ```
 
-This installs the hook scripts and **prints** the `hooks` block for you to paste into
-`~/.claude/settings.json`. It deliberately does **not** edit that file: merging JSON without `jq`
-over your own config is not a risk worth taking, and this project has no `jq`.
-
-Without the block the harness still runs — but its guarantees go back to being prose, which is the
-failure mode the hooks exist to remove. `./uninstall.sh` reclaims the scripts; the settings block is
-yours to remove, since it was yours to add.
+Without them the harness still runs, but every guarantee degrades back to prose — the exact failure
+mode Layer 0 exists to remove.
 
 ## Tests
 

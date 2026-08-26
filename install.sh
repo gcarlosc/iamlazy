@@ -16,6 +16,7 @@ CC_HOOK_DIR="${HOME}/.claude/iamlazy-hooks"
 # Files that make up the payload (relative to the repo root).
 PAYLOAD="core/iamlazy.md core/iamlazy-review.md critic/iamlazy-critic.md \
 hooks/lib.sh hooks/guard-agent.sh hooks/open-run.sh hooks/track-edit.sh hooks/flush-run.sh \
+hooks/merge-settings.sh \
 templates/claude-code/command-iamlazy.frontmatter \
 templates/claude-code/command-review.frontmatter \
 templates/claude-code/agent-critic.frontmatter \
@@ -28,14 +29,17 @@ models.conf DELTAS.md"
 usage() {
   cat <<'EOF'
 iamlazy installer
-  usage: install.sh [--tool=claude|opencode|both] [--model=<id>] [--with-hooks]
+  usage: install.sh [--tool=claude|opencode|both] [--model=<id>] [--no-hooks]
   Auto-detects installed tools when --tool is omitted.
   --model=<id> sets BOTH roles (main + critic) for a single tool, persists the
     choice to models.conf, and reinstalls. Requires a single --tool (claude or
     opencode) because their model-id namespaces differ.
-  --with-hooks installs the Layer 0 hook scripts (Claude Code only) and prints
-    the settings.json block to paste. It never edits settings.json itself:
-    merging JSON without jq over your own config is not a risk worth taking.
+  Layer 0 hooks are installed and registered BY DEFAULT (Claude Code only).
+    They are what makes the harness's guarantees actual guarantees rather than
+    requests, so they are not an optional extra. Your settings.json is backed
+    up first, validated after, and your own hooks are left untouched.
+  --no-hooks skips them. The harness still runs, but every guarantee degrades
+    back to prose -- which is the failure mode Layer 0 exists to remove.
   For curl|bash installs, set IAMLAZY_RAW_BASE to the raw file base URL.
 EOF
 }
@@ -101,24 +105,42 @@ install_opencode() {
 
 install_hooks() {
   mkdir -p "$CC_HOOK_DIR"
-  for h in lib.sh guard-agent.sh open-run.sh track-edit.sh flush-run.sh; do
+  for h in lib.sh guard-agent.sh open-run.sh track-edit.sh flush-run.sh merge-settings.sh; do
     if [ -f "$SRC/hooks/$h" ]; then
       cp "$SRC/hooks/$h" "$CC_HOOK_DIR/$h"
       chmod +x "$CC_HOOK_DIR/$h"
       echo "  wrote $CC_HOOK_DIR/$h"
     fi
   done
+  # Registering is part of installing. A hook script nobody invokes is a file,
+  # not a guarantee.
+  if "$CC_HOOK_DIR/merge-settings.sh" "$HOME/.claude/settings.json" "$CC_HOOK_DIR"; then
+    HOOKS_REGISTERED=1
+  else
+    HOOKS_REGISTERED=0
+  fi
 }
 
 print_hook_block() {
-  cat <<EOF
+  if [ "$HOOKS_REGISTERED" -eq 1 ]; then
+    cat <<EOF
 
-  LAYER 0 INSTALLED at $CC_HOOK_DIR
-  These scripts enforce what the prompt used to merely ask for. To activate
-  them, merge this "hooks" block into ~/.claude/settings.json (or a project
-  .claude/settings.json). This installer does NOT edit that file for you.
+  LAYER 0 ACTIVE. These run for you now, not on your discipline:
+    - only the Critic may be spawned as a sub-agent
+    - the run log is written, derived, at every close
+    - every edit is traced to .iamlazy/journal.md
+    - a run cannot close with a file outside its declared Scope
+    - the harness refuses to start under a permission bypass
+    - a run burning tokens without progress gets stopped and told to re-plan
+EOF
+  else
+    cat <<EOF
 
-{
+  LAYER 0 SCRIPTS INSTALLED, BUT NOT REGISTERED.
+  No JSON parser (python3/python) was found, so settings.json was left alone.
+  Add this "hooks" block to ~/.claude/settings.json by hand, or the harness
+  runs with its guarantees degraded back to prose:
+
   "hooks": {
     "UserPromptSubmit": [
       { "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/open-run.sh" } ] }
@@ -135,22 +157,21 @@ print_hook_block() {
       { "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/flush-run.sh" } ] }
     ]
   }
-}
-
-  Without this block the harness still runs -- but the guarantees go back to
-  being prose, which is the failure mode the hooks exist to remove.
 EOF
+  fi
 }
 
 # ---------- parse args ----------
 TOOL="auto"
 MODEL_OVERRIDE=""
-WITH_HOOKS=0
+WITH_HOOKS=1
+HOOKS_REGISTERED=0
 for arg in "$@"; do
   case "$arg" in
     --tool=*) TOOL="${arg#--tool=}" ;;
     --model=*) MODEL_OVERRIDE="${arg#--model=}" ;;
     --with-hooks) WITH_HOOKS=1 ;;
+    --no-hooks) WITH_HOOKS=0 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "iamlazy: unknown arg: $arg" >&2; usage; exit 1 ;;
   esac

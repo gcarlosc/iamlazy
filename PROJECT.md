@@ -28,7 +28,7 @@ attempts, 24x worse per line than a normal run. The harness exists to make that 
 
 ## Architecture — two layers
 
-**Layer 0 — guaranteed** (`hooks/`, opt-in via `install.sh --with-hooks`). Executed code the model
+**Layer 0 — guaranteed** (`hooks/`, installed and registered by default). Executed code the model
 cannot bypass. Five scripts, ~230 lines:
 
 | Hook | Event | Guarantees |
@@ -85,8 +85,9 @@ finding.
   appending its result is not rewording.
 - A run **cannot close** while a changed file sits outside the declared `## Scope`.
 - iamlazy must not run under a permission bypass — enforced by `open-run.sh` (exit 2).
-- The installer **never** edits `settings.json`; `uninstall.sh` never deletes `runs.jsonl`
-  or any `PROJECT.md`.
+- The installer edits **only** its own `hooks` entries in `settings.json`, after a backup and
+  with validation; user settings and user hooks are never altered. `uninstall.sh` unregisters
+  them again and never deletes `runs.jsonl` or any `PROJECT.md`.
 - Empty tool output is never treated as a confirmed negative (second independent method required).
 
 ## Debt and known risks

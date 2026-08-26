@@ -175,29 +175,53 @@ else
   no "test-hooks.sh missing or not executable"
 fi
 
-# ---------------------------------------------------- install --with-hooks
+# ------------------------------------------------------ layer 0 by default
+# Hooks are NOT opt-in: a guarantee that is easy to skip gets skipped, and the
+# failure is silent. These assert that a plain install both installs AND
+# registers them, without damaging whatever the user already had.
 echo
-echo "install --with-hooks"
+echo "install: layer 0 is on by default"
 H5="$(mktmp)"
-HOME="$H5" "$SRC/install.sh" --tool=claude --with-hooks >/dev/null 2>&1
-assert_file "$H5/.claude/iamlazy-hooks/guard-agent.sh" "hooks: guard installed"
-assert_file "$H5/.claude/iamlazy-hooks/lib.sh"         "hooks: lib installed"
-assert_file "$H5/.claude/iamlazy-hooks/flush-run.sh"   "hooks: flush installed"
+mkdir -p "$H5/.claude"
+cat > "$H5/.claude/settings.json" <<'JSON'
+{"theme":"dark-ansi","permissions":{"defaultMode":"auto"},
+ "hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/user/own.sh"}]}]}}
+JSON
+HOME="$H5" "$SRC/install.sh" --tool=claude >/dev/null 2>&1
+
+assert_file "$H5/.claude/iamlazy-hooks/guard-agent.sh"   "hooks: guard installed"
+assert_file "$H5/.claude/iamlazy-hooks/flush-run.sh"     "hooks: flush installed"
+assert_file "$H5/.claude/iamlazy-hooks/merge-settings.sh" "hooks: merge helper installed"
 if [ -x "$H5/.claude/iamlazy-hooks/guard-agent.sh" ]; then ok "hooks are executable"
 else no "hooks are executable"; fi
 
-# opt-in must be real: a plain install leaves no hooks behind
+# Registered, not merely copied.
+assert_grep "iamlazy-hooks/open-run.sh"   "$H5/.claude/settings.json" "registered: UserPromptSubmit"
+assert_grep "iamlazy-hooks/guard-agent.sh" "$H5/.claude/settings.json" "registered: PreToolUse"
+assert_grep "iamlazy-hooks/track-edit.sh"  "$H5/.claude/settings.json" "registered: PostToolUse"
+assert_grep "iamlazy-hooks/flush-run.sh"   "$H5/.claude/settings.json" "registered: Stop"
+
+# The user's own configuration must survive untouched.
+assert_grep "/user/own.sh" "$H5/.claude/settings.json" "user's own hook survives install"
+assert_grep "dark-ansi"    "$H5/.claude/settings.json" "unrelated settings survive install"
+
+# Idempotent: installing twice must not duplicate entries.
+HOME="$H5" "$SRC/install.sh" --tool=claude >/dev/null 2>&1
+n_open="$(grep -c "iamlazy-hooks/open-run.sh" "$H5/.claude/settings.json")"
+if [ "$n_open" = "1" ]; then ok "re-install does not duplicate hook entries"
+else no "re-install duplicated hook entries (found $n_open)"; fi
+
+# --no-hooks is the escape hatch, and it must really skip.
 H6="$(mktmp)"
-HOME="$H6" "$SRC/install.sh" --tool=claude >/dev/null 2>&1
-if [ -d "$H6/.claude/iamlazy-hooks" ]; then no "hooks are opt-in (installed without the flag)"
-else ok "hooks are opt-in (absent without the flag)"; fi
+HOME="$H6" "$SRC/install.sh" --tool=claude --no-hooks >/dev/null 2>&1
+if [ -d "$H6/.claude/iamlazy-hooks" ]; then no "--no-hooks skips layer 0"
+else ok "--no-hooks skips layer 0"; fi
 
-# the installer must never edit settings.json
-if [ -f "$H5/.claude/settings.json" ]; then no "installer left settings.json alone"
-else ok "installer left settings.json alone"; fi
-
-# uninstall reclaims the hook dir
+# Uninstall unregisters, and again leaves the user's own hooks alone.
 HOME="$H5" "$SRC/uninstall.sh" >/dev/null 2>&1
+assert_no_grep "iamlazy-hooks" "$H5/.claude/settings.json" "uninstall unregisters the hooks"
+assert_grep "/user/own.sh"     "$H5/.claude/settings.json" "user's own hook survives uninstall"
+assert_grep "dark-ansi"        "$H5/.claude/settings.json" "unrelated settings survive uninstall"
 if [ -d "$H5/.claude/iamlazy-hooks" ]; then no "uninstall removes the hook dir"
 else ok "uninstall removes the hook dir"; fi
 
