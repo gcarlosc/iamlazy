@@ -56,6 +56,25 @@ Classify every rule by its **footprint**: can a command tell whether it was hono
 **Nothing is promoted by being important.** The sub-agent rule was called an inviolable law and
 violated 7 times in 2 runs, because importance is not a mechanism.
 
+## What we measure, and what we do not
+
+Exploration and review are **not** the waste. Reading the right files is cheaper than editing the
+wrong ones and redoing the work, and the reviewer costs ~2% of a run while having caught three
+`[HIGH]` bugs that passing test suites did not. The wrong question is *"how long before it started
+writing?"*; the right one is *"how much rework, repeated context and unnecessary code did it
+avoid?"*.
+
+What is actually waste, and what the harness targets:
+- exploring **without converging** — re-reading files, re-deriving what `PROJECT.md` already says
+- a **second review pass over an already-reviewed diff**, instead of only over the fix
+- **rework** from building on an assumption that was never checked
+- **deterministic work done by reasoning** — ids, paths, counts, thresholds, state transitions —
+  which is exactly what Layer 0 moved into code
+
+(This framing is convergent with what Gentle AI documents publicly about the same problem;
+the Layer 0 principle — delegate the deterministic to a binary rather than spend model
+reasoning on it — is the same conclusion reached independently here.)
+
 ## Principles
 
 Normative preferences that govern decisions — distinct from Invariants: an invariant states
@@ -119,6 +138,13 @@ finding.
   accept a number that "felt too big for the task" — the same instinct that killed `tokens_total`
   in 2026-08-19. Two wrong token counts in one project: any figure the harness reports about
   itself should be checked against an independent calculation before it is trusted.
+- **Cost per changed line penalises small tasks, and the floors are what save it.** A run has a
+  fixed cost — read, plan, contract, review — that does not scale with lines. The alphabetical
+  ordering run measured 395,048 weighted over 27 lines: a ratio of 14,631, above the 14,000
+  threshold, on a run that was entirely healthy (231s, closed by contract, three real findings).
+  It did not fire only because absolute spend stayed under the 1M floor. So the breaker is really
+  "expensive AND unproductive", not "unproductive" — and the floor is carrying more weight than
+  the ratio. Worth revisiting as a two-axis rule rather than one ratio with guards.
 - **The circuit breaker's threshold is calibrated on one lost run.** 20,000 weighted tokens per
   changed line sits above the worst healthy run (5,504) and well below the lost one (79,542), with
   floors at 50 lines and 1M tokens so early analysis cannot trip it. One data point is one data
