@@ -37,6 +37,13 @@ contract="${root}/.iamlazy/contract.md"
 # --- changed-file accounting (needed by the circuit breaker, so computed first)
 files_changed=""
 lines_changed=""
+if [ -n "$root" ] && [ ! -d "$root/.git" ]; then
+  # No repository: lines_changed, the scope ledger and any chance of undo are
+  # all unavailable. Verified on a real run -- a new project was built without
+  # `git init`, and the close reported 0 lines for 132 real ones while the
+  # scope gate passed everything. A guarantee that is off must say so.
+  printf '{"hookSpecificOutput":{"hookEventName":"Stop","systemMessage":"iamlazy: %s is not a git repository. lines_changed, the scope ledger and undo are all unavailable, so this run closed with its guarantees degraded. Run git init and commit before continuing."}}\n' "$root"
+fi
 if [ -n "$root" ] && [ -d "$root/.git" ]; then
   # -N stages untracked files as intent-to-add so `git diff --stat` sees them
   # too -- otherwise a brand-new file is invisible (verified 2026-08-25: the

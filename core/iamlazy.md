@@ -115,6 +115,11 @@ Rules for the sections that carry weight:
 - Deviating from a `PROJECT.md` **Principle** is allowed only by declaring it here with its
   justification. An undeclared deviation is an automatic reviewer finding.
 
+**On a new project, `git init` and an initial commit come first**, before any other file. Not
+housekeeping: without git there is no way to undo, the scope ledger has nothing to compare
+against, and the harness cannot measure what changed. A new project without a repository is a
+run with its guarantees switched off — and silently, which is worse.
+
 ## 4 · Approval — the gate
 
 Enter **plan mode** and present the contract. The human reads **commands, not paragraphs**:

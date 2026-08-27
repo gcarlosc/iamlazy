@@ -411,6 +411,22 @@ run_flush "$BAN" '{"hook_event_name":"Stop","stop_hook_active":false,"session_id
 assert_absent "$BAN/.iamlazy/run.tmp.json" "el banner real si cierra"
 
 echo
+echo "no git — a switched-off guarantee must say so"
+
+NOGIT="$(mktmp)"
+mkdir -p "$NOGIT/.iamlazy" "$NOGIT/src"
+printf 'x\n%.0s' $(seq 1 40) > "$NOGIT/src/a.ts"
+printf '## Groups\n- [x] g1\n' > "$NOGIT/.iamlazy/contract.md"
+open_run "$NOGIT" "$NOGIT" 5
+out=$(printf '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"s","transcript_path":"/x.jsonl","cwd":"%s","last_assistant_message":"ok"}' "$NOGIT" \
+  | HOME="$NOGIT" "$SRC/hooks/flush-run.sh" 2>/dev/null)
+case "$out" in
+  *"not a git repository"*) ok "un proyecto sin git avisa que las garantias estan degradadas" ;;
+  *) no "un proyecto sin git debe avisar (obtuvo: ${out:-<vacio>})" ;;
+esac
+assert_grep '"lines_changed":0' "$NOGIT/.iamlazy/runs.jsonl" "sin git, lines_changed es 0 y no se inventa"
+
+echo
 echo "----------------------------------------"
 echo "  passed: $PASS   failed: $FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
