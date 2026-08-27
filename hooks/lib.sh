@@ -196,13 +196,40 @@ hk_scope_violations() {
 # cache_read x0.1. Raw sums overstate spend by roughly 4x, which is why the
 # weighting is not optional. Empty output means "could not read" -- callers
 # must skip the check rather than treat it as zero.
+#
+# Deduplicated by message id, and that is not a detail: a transcript records
+# the same assistant message several times (streaming plus final), so a plain
+# `grep | awk` over the token fields counts each usage block more than once.
+# Measured 2026-08-27 on a real run: 75 usage blocks for 40 unique messages,
+# reporting 1,176,836 weighted against an actual 561,234 -- a 2.1x
+# overstatement. That number feeds the circuit breaker's threshold and A5's
+# cost line, so an inflated count means false alarms and a lie in the log.
+# This project already shipped one wrong token count; not twice.
 hk_weighted_tokens() {
   t="$1"
   [ -n "$t" ] && [ -f "$t" ] || return 1
-  o=$(grep -o '"output_tokens":[0-9]*' "$t" 2>/dev/null | grep -o '[0-9]*$' | awk '{s+=$1} END {print s+0}')
-  c=$(grep -o '"cache_creation_input_tokens":[0-9]*' "$t" 2>/dev/null | grep -o '[0-9]*$' | awk '{s+=$1} END {print s+0}')
-  r=$(grep -o '"cache_read_input_tokens":[0-9]*' "$t" 2>/dev/null | grep -o '[0-9]*$' | awk '{s+=$1} END {print s+0}')
-  awk -v o="${o:-0}" -v c="${c:-0}" -v r="${r:-0}" 'BEGIN{printf "%d", o*5 + c*1.25 + r*0.1}'
+  awk '
+    # one JSON object per line; take the first usage block per message id
+    {
+      id = ""
+      if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) {
+        id = substr($0, RSTART, RLENGTH)
+      }
+      if (!match($0, /"usage":\{/)) next
+      if (id != "" && (id in seen)) next
+      if (id != "") seen[id] = 1
+
+      o = c = r = 0
+      if (match($0, /"output_tokens":[0-9]+/))
+        o = substr($0, RSTART + 16, RLENGTH - 16)
+      if (match($0, /"cache_creation_input_tokens":[0-9]+/))
+        c = substr($0, RSTART + 30, RLENGTH - 30)
+      if (match($0, /"cache_read_input_tokens":[0-9]+/))
+        r = substr($0, RSTART + 26, RLENGTH - 26)
+      total += o * 5 + c * 1.25 + r * 0.1
+    }
+    END { printf "%d", total + 0 }
+  ' "$t"
 }
 
 # hk_json_num <file> <key> -> integer value of a numeric JSON field.

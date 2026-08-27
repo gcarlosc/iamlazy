@@ -67,17 +67,24 @@ fi
 # ---------------------------------------------------------------- Guarantee 5
 # Circuit breaker. Persisting without a new hypothesis is the failure, not the
 # virtue. The signal is arithmetic, not judgement: weighted cost per changed
-# line. Calibrated against the log -- healthy runs sit at 3,287-5,504 tokens
-# per line; the run that got lost (7 attempts, 230 lines, ~2 hours) hit 79,542.
-# The threshold sits well above the worst healthy run and far below the lost
-# one. Two floors keep early analysis from tripping it: before code exists the
-# ratio is meaningless.
+# line.
+#
+# RECALIBRATED 2026-08-27 against de-duplicated counts. The first calibration
+# used a token sum that double-counted usage blocks (~4x high), so both the
+# healthy baseline and the threshold were inflated by the same error and the
+# ratio happened to look sane. Real figures, recomputed from the transcripts:
+#   iamlazy-stats   1,457,005 / 389 lines =  3,745
+#   rotaturno       955,723   / 132 lines =  7,240
+#   the lost run    4,751,120 / 230 lines = 20,657   <- 7 attempts, ~2 hours
+# 14,000 sits about 2x above the worst healthy run and comfortably below the
+# lost one. Three data points is thin: if this fires on a run that was fine,
+# the threshold is wrong, not the run.
 #
 # Note what this catches that an acceptance-command check cannot: that run
 # logged validation_result=passed on all seven attempts. The tests kept
 # passing; it was failing in the browser. "The command failed twice" would
 # never have fired. Cost per line did.
-DRIFT_RATIO=20000
+DRIFT_RATIO=14000
 DRIFT_MIN_LINES=50
 DRIFT_MIN_TOKENS=1000000
 

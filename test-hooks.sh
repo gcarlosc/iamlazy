@@ -278,23 +278,23 @@ printf '## Groups\n- [x] g1\n' > "$CB/.iamlazy/contract.md"
 # A healthy run: ~3,294 weighted tokens per changed line (the log's best case).
 printf 'x\n%.0s' $(seq 1 3400) > "$CB/big.txt"
 git -C "$CB" add -A -N >/dev/null 2>&1
-mk_transcript "$CB" 11200000
+mk_transcript "$CB" 1400000
 open_run_tok "$CB" "$CB"
-if [ "$(stop_rc "$CB" "$CB")" = "2" ]; then no "un run sano (3.3k tok/linea) no debe disparar"; else ok "un run sano (3.3k tok/linea) no dispara"; fi
+if [ "$(stop_rc "$CB" "$CB")" = "2" ]; then no "un run sano (~3.7k tok/linea) no debe disparar"; else ok "un run sano (~3.7k tok/linea) no dispara"; fi
 
 # The lost run: 230 lines, 18.3M weighted -> ~79k per line.
 rm -f "$CB/big.txt"
 printf 'x\n%.0s' $(seq 1 230) > "$CB/small.txt"
 git -C "$CB" add -A -N >/dev/null 2>&1
-mk_transcript "$CB" 18300000
+mk_transcript "$CB" 4800000
 open_run_tok "$CB" "$CB"
-if [ "$(stop_rc "$CB" "$CB")" = "2" ]; then ok "el run perdido (79k tok/linea) dispara el breaker"; else no "el run perdido debia disparar el breaker"; fi
+if [ "$(stop_rc "$CB" "$CB")" = "2" ]; then ok "el run perdido (~20k tok/linea) dispara el breaker"; else no "el run perdido debia disparar el breaker"; fi
 assert_grep '"drift_warned":1' "$CB/.iamlazy/run.tmp.json" "el aviso queda marcado en el run"
 
 # Warning once is the contract: a second Stop must not nag, and must be able to close.
 if [ "$(stop_rc "$CB" "$CB")" = "2" ]; then no "el breaker no debe repetir el aviso"; else ok "el breaker avisa una sola vez"; fi
 assert_absent "$CB/.iamlazy/run.tmp.json" "tras avisar, el cierre sigue siendo posible"
-assert_grep '"tokens_weighted":18300000' "$CB/.iamlazy/runs.jsonl" "tokens_weighted (delta del run) llega al log"
+assert_grep '"tokens_weighted":4800000' "$CB/.iamlazy/runs.jsonl" "tokens_weighted (delta del run) llega al log"
 
 # Below the floors the ratio is meaningless: 10 lines must never trip it.
 CB2="$(mktmp)"
@@ -302,7 +302,7 @@ git init -q "$CB2" >/dev/null 2>&1
 git -C "$CB2" commit -q --allow-empty -m base
 printf 'x\n%.0s' $(seq 1 10) > "$CB2/tiny.txt"
 git -C "$CB2" add -A -N >/dev/null 2>&1
-mk_transcript "$CB2" 5000000
+mk_transcript "$CB2" 1200000
 open_run_tok "$CB2" "$CB2"
 if [ "$(stop_rc "$CB2" "$CB2")" = "2" ]; then no "con 10 lineas el ratio es ruido, no debe disparar"; else ok "bajo el piso de lineas no dispara (analisis temprano)"; fi
 
@@ -315,9 +315,9 @@ git init -q "$CB3" >/dev/null 2>&1
 git -C "$CB3" commit -q --allow-empty -m base
 printf 'x\n%.0s' $(seq 1 230) > "$CB3/f.txt"
 git -C "$CB3" add -A -N >/dev/null 2>&1
-mk_transcript "$CB3" 18300000
+mk_transcript "$CB3" 4800000
 mkdir -p "$CB3/.iamlazy"
-printf '{"schema_version":2,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":17000000,"outcome":"incomplete"}' \
+printf '{"schema_version":2,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":4400000,"outcome":"incomplete"}' \
   "$CB3/t.jsonl" "$CB3" "$(date +%s)" > "$CB3/.iamlazy/run.tmp.json"
 if [ "$(stop_rc "$CB3" "$CB3")" = "2" ]; then no "una 2da corrida no debe heredar el costo de la 1ra (usar delta)"; else ok "el breaker mide el DELTA de la corrida, no el total de sesion"; fi
 
@@ -425,6 +425,35 @@ case "$out" in
   *) no "un proyecto sin git debe avisar (obtuvo: ${out:-<vacio>})" ;;
 esac
 assert_grep '"lines_changed":0' "$NOGIT/.iamlazy/runs.jsonl" "sin git, lines_changed es 0 y no se inventa"
+
+echo
+echo "token counting — usage blocks are deduplicated by message id"
+
+# Regression: a transcript records the same assistant message several times
+# (streaming plus final), so summing the token fields with grep counts each
+# usage block more than once. Measured on a real run: 1,176,836 reported
+# against 561,234 actual. That number drives the circuit breaker and the
+# closing cost line, so inflation means false alarms and a lie in the log.
+DEDUP="$(mktmp)"
+{
+  printf '{"type":"assistant","message":{"id":"msg_A","usage":{"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+  printf '{"type":"assistant","message":{"id":"msg_A","usage":{"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+  printf '{"type":"assistant","message":{"id":"msg_A","usage":{"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+  printf '{"type":"assistant","message":{"id":"msg_B","usage":{"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+} > "$DEDUP/t.jsonl"
+got=$(. "$SRC/hooks/lib.sh"; hk_weighted_tokens "$DEDUP/t.jsonl")
+# 2 unique messages x 100 output x5 = 1000. Counting all 4 lines would give 2000.
+if [ "$got" = "1000" ]; then ok "cuenta un usage por mensaje unico (obtuvo $got)"
+else no "duplicados no deduplicados: esperaba 1000, obtuvo $got"; fi
+
+# Weights must actually be applied, not a raw sum.
+{
+  printf '{"type":"assistant","message":{"id":"msg_W","usage":{"output_tokens":10,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000}}}\n'
+} > "$DEDUP/w.jsonl"
+gotw=$(. "$SRC/hooks/lib.sh"; hk_weighted_tokens "$DEDUP/w.jsonl")
+# 10*5 + 100*1.25 + 1000*0.1 = 50 + 125 + 100 = 275  (raw sum would be 1110)
+if [ "$gotw" = "275" ]; then ok "aplica las ponderaciones (x5/x1.25/x0.1)"
+else no "ponderacion incorrecta: esperaba 275, obtuvo $gotw"; fi
 
 echo
 echo "----------------------------------------"

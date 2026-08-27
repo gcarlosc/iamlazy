@@ -112,6 +112,13 @@ finding.
   unexercised is a real `/iamlazy` run: the contract, the gate and the review remain correct by
   construction of the prompt. Layer 0 closed part of this debt — a script reading JSON on stdin is
   testable in a way a prompt never was — but not all of it.
+- **The weighted token count was inflated ~4x until 2026-08-27.** A transcript records the same
+  assistant message several times (streaming plus final), and the `grep | awk` sum counted every
+  usage block. Real figures after de-duplicating by message id: 1,457,005 not 5,433,969 for
+  iamlazy-stats; 561,234 not 2,260,810 for a 4-line change. Caught by the human refusing to
+  accept a number that "felt too big for the task" — the same instinct that killed `tokens_total`
+  in 2026-08-19. Two wrong token counts in one project: any figure the harness reports about
+  itself should be checked against an independent calculation before it is trusted.
 - **The circuit breaker's threshold is calibrated on one lost run.** 20,000 weighted tokens per
   changed line sits above the worst healthy run (5,504) and well below the lost one (79,542), with
   floors at 50 lines and 1M tokens so early analysis cannot trip it. One data point is one data
