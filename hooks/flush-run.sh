@@ -30,12 +30,14 @@ hk_bool_true "$payload" "stop_hook_active" && exit 0
 sid=$(hk_field "$payload" "session_id")
 cwd=$(hk_field "$payload" "cwd")
 tpath=$(hk_field "$payload" "transcript_path")
-contract="${cwd}/.iamlazy/contract.md"
+# The work may live somewhere other than the session's cwd (see hk_project_root).
+root=$(hk_project_root "$TMP" "$cwd")
+contract="${root}/.iamlazy/contract.md"
 
 # --- changed-file accounting (needed by the circuit breaker, so computed first)
 files_changed=""
 lines_changed=""
-if [ -n "$cwd" ] && [ -d "$cwd/.git" ]; then
+if [ -n "$root" ] && [ -d "$root/.git" ]; then
   # -N stages untracked files as intent-to-add so `git diff --stat` sees them
   # too -- otherwise a brand-new file is invisible (verified 2026-08-25: the
   # old `git diff --stat` alone missed an 800-line new file).
@@ -43,7 +45,7 @@ if [ -n "$cwd" ] && [ -d "$cwd/.git" ]; then
   # .gitignore, but that is a prose requirement the hook cannot assume is
   # honored -- without it, the harness's own state file counts as the human's
   # change (verified: 3 files/52 lines instead of 2/51).
-  stat_out=$(cd "$cwd" && git add -A -N -- . ':!.iamlazy' >/dev/null 2>&1; git diff --stat -- . ':!.iamlazy' 2>/dev/null | tail -1)
+  stat_out=$(cd "$root" && git add -A -N -- . ':!.iamlazy' >/dev/null 2>&1; git diff --stat -- . ':!.iamlazy' 2>/dev/null | tail -1)
   files_changed=$(printf '%s' "$stat_out" | grep -o '[0-9]* file' | grep -o '[0-9]*')
   lines_changed=$(printf '%s' "$stat_out" | grep -o '[0-9]* insertion\|[0-9]* deletion' | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')
 fi
@@ -82,6 +84,10 @@ if ! grep -q '"drift_warned":1' "$TMP" 2>/dev/null \
     tmp_new="${TMP}.new"
     sed 's/"outcome":"incomplete"/"drift_warned":1,"outcome":"incomplete"/' "$TMP" > "$tmp_new" 2>/dev/null \
       && mv "$tmp_new" "$TMP"
+    # exit 2 blocks the stop but does NOT surface the text to the model --
+    # verified on the first real run: the warning fired and the transcript
+    # never saw it. systemMessage is the channel that actually reaches it.
+    printf '{"hookSpecificOutput":{"hookEventName":"Stop","systemMessage":"iamlazy: this run is spending %s weighted tokens per changed line (healthy runs sit near 3,000-5,500). Effort is going into attempts, not progress. Stop implementing and state plainly: what is the hypothesis, why did the last attempt fail, and what CHANGES now? If the honest answer is - try something else - the hypothesis is wrong: take it back to the human with what has been ruled out."}}\n' "$ratio"
     cat >&2 <<MSG
 iamlazy: this run is spending ${ratio} weighted tokens per changed line. Healthy runs sit
 around 3,000-5,500. That ratio means the effort is going into attempts, not progress.
@@ -96,7 +102,7 @@ MSG
 fi
 
 # ---------------------------------------------------------------- Guarantee 2
-signal=$(hk_close_signal "$payload" "$contract" "$cwd") || exit 0
+signal=$(hk_close_signal "$payload" "$contract" "$root") || exit 0
 
 start_epoch=$(hk_json_num "$TMP" "start_epoch")
 now_epoch=$(date +%s)
@@ -122,9 +128,9 @@ fi
 
 # project_md: absent / read / updated, decided by the diff, never by opinion.
 project_md="absent"
-if [ -f "${cwd}/PROJECT.md" ]; then
+if [ -f "${root}/PROJECT.md" ]; then
   project_md="read"
-  if (cd "$cwd" && git diff --name-only -- PROJECT.md 2>/dev/null | grep -q .); then
+  if (cd "$root" && git diff --name-only -- PROJECT.md 2>/dev/null | grep -q .); then
     project_md="updated"
   fi
 fi
@@ -141,7 +147,7 @@ fi
 now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 printf '{"schema_version":2,"timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"tokens_weighted":%s,"project_md":"%s","close_detected_via":"%s","outcome":"flushed"}\n' \
-  "$now_iso" "$task_summary" "$sid" "$tpath" "$cwd" "${duration:-null}" "$human_interventions" "${files_changed:-0}" "${lines_changed:-0}" "${run_tokens:-null}" "$project_md" "$signal" >> "$LOG"
+  "$now_iso" "$task_summary" "$sid" "$tpath" "$root" "${duration:-null}" "$human_interventions" "${files_changed:-0}" "${lines_changed:-0}" "${run_tokens:-null}" "$project_md" "$signal" >> "$LOG"
 
 rm -f "$TMP"
 exit 0

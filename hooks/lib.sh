@@ -41,6 +41,32 @@ hk_bool_true() {
   esac
 }
 
+# hk_project_root <tmp> <cwd> -> the directory the WORK is happening in.
+# NOT the same as cwd: a session started in ~/dev/foo can be told to build a
+# project in ~/dev/bar, and every hook that assumed cwd==project silently
+# accounted for the wrong repo. Found on the first real run: the journal landed
+# in one repo while the contract lived in another, the close looked for the
+# contract where it was not, and the circuit breaker divided by the line count
+# of an unrelated repo. Falls back to cwd, which is correct for the common case.
+hk_project_root() {
+  root=$(hk_field_file "$1" "project_root")
+  if [ -n "$root" ] && [ -d "$root" ]; then printf '%s' "$root"; else printf '%s' "$2"; fi
+}
+
+# hk_field_file <file> <field> -> string value of a field read from a FILE.
+hk_field_file() {
+  [ -f "$1" ] || return 0
+  grep -o "\"$2\":\"[^\"]*\"" "$1" 2>/dev/null | head -1 | sed 's/^[^:]*:"//; s/"$//'
+}
+
+# hk_set_project_root <tmp> <root> -> record it once, idempotently.
+hk_set_project_root() {
+  grep -q '"project_root"' "$1" 2>/dev/null && return 0
+  tmp_new="$1.new"
+  sed "s|\"outcome\":\"incomplete\"|\"project_root\":\"$2\",\"outcome\":\"incomplete\"|" "$1" > "$tmp_new" 2>/dev/null \
+    && mv "$tmp_new" "$1"
+}
+
 # hk_guard -> returns 0 when an iamlazy run is active, 1 otherwise.
 hk_guard() {
   [ -f "$HK_RUN_TMP" ]
@@ -66,10 +92,13 @@ hk_allow() { exit 0; }
 #      a checkbox. This is the Guarantee-4 scope gate: it does not undo the
 #      edit (PostToolUse cannot), it refuses to let the run call itself done
 #      until the deviation is declared (Scope updated) or reverted.
-#   2. no contract exists (the trivial/high-reversibility path has none) and
-#      the turn's own text carries the close banner (`A5` near `CLOSE`/`CIERRE`).
-#      Weaker than (1) -- it trusts a banner token, not free prose -- kept only
-#      as the floor for the path that has no ledger to check.
+#   2. no contract exists (the trivial path has none) and the turn's own text
+#      carries the CLOSE banner. Weaker than (1) -- it trusts a banner token,
+#      not free prose -- kept only as the floor for the path with no ledger.
+#      The pattern matches the banner's box-drawing rule next to the stage name,
+#      never the bare word, so prose mentioning "cierre" cannot close a run.
+#      It previously looked for `A5`, which the rewritten prompt stopped
+#      emitting -- the path was dead for a whole real run before that surfaced.
 hk_close_signal() {
   payload="$1"; contract="$2"; cwd="$3"
   if [ -f "$contract" ]; then
@@ -81,7 +110,7 @@ hk_close_signal() {
     fi
     echo "contract"; return 0
   fi
-  if printf '%s' "$payload" | grep -Eq 'A5.{0,12}(CLOSE|CIERRE)'; then
+  if printf '%s' "$payload" | grep -Eq '\xe2\x94\x80[^"]{0,60}(CLOSE|CIERRE)|(CLOSE|CIERRE)[^"]{0,60}\xe2\x94\x80'; then
     echo "banner"; return 0
   fi
   return 1

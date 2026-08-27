@@ -92,7 +92,22 @@ finding.
 
 ## Debt and known risks
 
-- **No live end-to-end run yet.** `test.sh` (50) + `test-hooks.sh` (39) cover install mechanics and
+- **First live run, 2026-08-26: the harness worked, the accounting did not.** It produced a
+  working project (tests, PROJECT.md) and the Critic found a real `[HIGH]` that got fixed —
+  a timestamp parse bug that silently dropped runs from the trend. Four Layer 0 bugs surfaced
+  that no fixture could have caught, all from one wrong assumption — **`cwd` is not the
+  project**. A session started in one repo can be told to build in another; the journal, the
+  close, the scope gate and the breaker all accounted against the wrong tree. Fixed by having
+  the contract's own location declare `project_root`. The lesson is about method, not code:
+  every fixture encoded the same assumption as the implementation, so the suite could only
+  confirm it.
+- **The close-by-banner path was dead for a whole run.** The regex still looked for `A5` after
+  the prompt was rewritten to emit `CIERRE`/`CLOSE`. Same Layer 0 / Layer 1 disconnect found
+  and fixed once before; it recurred because nothing checks that the two agree. A test now
+  pins the real banner, but the general problem stands.
+- **`exit 2` blocks a Stop without surfacing its reason.** The breaker fired and the model
+  never saw the message. `systemMessage` is the channel that reaches it; stderr is not.
+- **Still no clean end-to-end run.** `test.sh` (50) + `test-hooks.sh` (39) cover install mechanics and
   every Layer 0 runtime decision, with the hook suite validated by mutation. What is still
   unexercised is a real `/iamlazy` run: the contract, the gate and the review remain correct by
   construction of the prompt. Layer 0 closed part of this debt — a script reading JSON on stdin is

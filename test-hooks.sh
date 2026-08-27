@@ -156,9 +156,9 @@ if [ -f "$MID_DIR/.iamlazy/run.tmp.json" ]; then ok "turno intermedio no vuelca"
 
 BANNER_DIR="$(mktmp)"
 open_run "$BANNER_DIR" "$BANNER_DIR" 10
-run_flush "$BANNER_DIR" '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"sid-x","transcript_path":"/x.jsonl","cwd":"'"$BANNER_DIR"'","last_assistant_message":"good, todo listo. algo random que no es el cierre real"}' >/dev/null
+run_flush "$BANNER_DIR" '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"sid-x","transcript_path":"/x.jsonl","cwd":"'"$BANNER_DIR"'","last_assistant_message":"good, el cierre del tema quedo listo, sin banner"}' >/dev/null
 if [ -f "$BANNER_DIR/.iamlazy/run.tmp.json" ]; then ok "prosa parecida a un cierre, sin el token del banner, no vuelca"; else no "prosa parecida a un cierre no debia volcar"; fi
-run_flush "$BANNER_DIR" '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"sid-x","transcript_path":"/x.jsonl","cwd":"'"$BANNER_DIR"'","last_assistant_message":"-- A5 -- CIERRE --\ntodo listo"}' >/dev/null
+run_flush "$BANNER_DIR" '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"sid-x","transcript_path":"/x.jsonl","cwd":"'"$BANNER_DIR"'","last_assistant_message":"── CIERRE · claude-opus-5 · high ──\ntodo listo"}' >/dev/null
 assert_absent "$BANNER_DIR/.iamlazy/run.tmp.json" "cierre via banner borra el tmp"
 assert_grep '"close_detected_via":"banner"' "$BANNER_DIR/.iamlazy/runs.jsonl" "cierre via banner queda registrado"
 
@@ -175,7 +175,7 @@ assert_grep '"close_detected_via":"contract"' "$CONTRACT_DIR/.iamlazy/runs.jsonl
 
 LOOP_DIR="$(mktmp)"
 open_run "$LOOP_DIR" "$LOOP_DIR" 10
-run_flush "$LOOP_DIR" '{"hook_event_name":"Stop","stop_hook_active":true,"session_id":"sid-x","transcript_path":"/x.jsonl","cwd":"'"$LOOP_DIR"'","last_assistant_message":"-- A5 -- CLOSE --"}' >/dev/null
+run_flush "$LOOP_DIR" '{"hook_event_name":"Stop","stop_hook_active":true,"session_id":"sid-x","transcript_path":"/x.jsonl","cwd":"'"$LOOP_DIR"'","last_assistant_message":"── CLOSE · claude-opus-5 · high ──"}' >/dev/null
 if [ -f "$LOOP_DIR/.iamlazy/run.tmp.json" ]; then ok "stop_hook_active=true nunca vuelca (evita el loop)"; else no "stop_hook_active=true no debia volcar"; fi
 
 echo
@@ -194,7 +194,7 @@ echo "existente" > "$GITSTAT_DIR/a.txt"; git -C "$GITSTAT_DIR" add -A; git -C "$
 echo "cambio" >> "$GITSTAT_DIR/a.txt"
 printf 'x\n%.0s' $(seq 1 50) > "$GITSTAT_DIR/nuevo.txt"
 open_run "$GITSTAT_DIR" "$GITSTAT_DIR" 5
-run_flush "$GITSTAT_DIR" '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"sid-x","transcript_path":"/x.jsonl","cwd":"'"$GITSTAT_DIR"'","last_assistant_message":"-- A5 -- CLOSE --"}' >/dev/null
+run_flush "$GITSTAT_DIR" '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"sid-x","transcript_path":"/x.jsonl","cwd":"'"$GITSTAT_DIR"'","last_assistant_message":"── CLOSE · claude-opus-5 · high ──"}' >/dev/null
 assert_grep '"files_changed":2' "$GITSTAT_DIR/.iamlazy/runs.jsonl" "files_changed coincide con git diff --stat -N"
 assert_grep '"lines_changed":51' "$GITSTAT_DIR/.iamlazy/runs.jsonl" "lines_changed ve el archivo NUEVO (el piso viejo no podia)"
 
@@ -355,6 +355,60 @@ if python3 -c "import json,sys; json.load(open('$SEM/.iamlazy/runs.jsonl'))" 2>/
 else
   ok "la linea del log es JSON valido (python3 ausente, omitido)"
 fi
+
+echo
+echo "project_root — the session cwd is NOT always the project"
+
+# Regression for the first real run: /iamlazy was invoked from ~/dev/iamlazy
+# and told to build a project in ~/dev/iamlazy-stats. Every hook accounted
+# against the session cwd, so the journal landed in one repo while the contract
+# lived in another, the close looked for the contract where it was not, and the
+# breaker divided by an unrelated repo's line count. No fixture caught it
+# because every fixture assumed cwd == project.
+SESS="$(mktmp)"      # where the session started
+PROJ="$(mktmp)"      # where the work actually happens
+git init -q "$PROJ" >/dev/null 2>&1
+git -C "$PROJ" commit -q --allow-empty -m base
+mkdir -p "$PROJ/src" "$SESS/.iamlazy"
+printf '{"schema_version":1,"session_id":"s","transcript_path":"/x.jsonl","cwd":"%s","start_epoch":%s,"start_tokens":0,"outcome":"incomplete"}' \
+  "$SESS" "$(date +%s)" > "$SESS/.iamlazy/run.tmp.json"
+
+# Writing the contract into the OTHER directory teaches the run where it lives.
+run_track "$SESS" '{"hook_event_name":"PostToolUse","tool_name":"Write","cwd":"'"$SESS"'","tool_input":{"file_path":"'"$PROJ"'/.iamlazy/contract.md"}}'
+assert_grep '"project_root"' "$SESS/.iamlazy/run.tmp.json" "escribir el contrato registra el project_root"
+
+# A later edit must be traced in the PROJECT, not in the session's cwd.
+mkdir -p "$PROJ/.iamlazy"
+run_track "$SESS" '{"hook_event_name":"PostToolUse","tool_name":"Edit","cwd":"'"$SESS"'","tool_input":{"file_path":"'"$PROJ"'/src/a.py"}}'
+assert_grep 'Edit src/a.py' "$PROJ/.iamlazy/journal.md" "el journal va al proyecto, no al cwd de la sesion"
+assert_absent "$SESS/.iamlazy/journal.md" "no se escribe journal en el cwd de la sesion"
+
+# Host scratch files (plan mode) are not the human's change.
+run_track "$SESS" '{"hook_event_name":"PostToolUse","tool_name":"Write","cwd":"'"$SESS"'","tool_input":{"file_path":"'"$SESS"'/plans/scratch.md"}}'
+if grep -q 'scratch.md' "$PROJ/.iamlazy/journal.md" 2>/dev/null; then
+  no "archivos fuera del proyecto no deben trazarse"
+else
+  ok "archivos fuera del proyecto no se trazan"
+fi
+
+# And the close must account against the project too.
+printf '## Groups\n- [x] g1\n' > "$PROJ/.iamlazy/contract.md"
+printf 'x\n%.0s' $(seq 1 30) > "$PROJ/src/a.py"
+git -C "$PROJ" add -A -N >/dev/null 2>&1
+printf '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"s","transcript_path":"/x.jsonl","cwd":"%s","last_assistant_message":"listo"}' "$SESS" \
+  | HOME="$SESS" "$SRC/hooks/flush-run.sh" >/dev/null 2>&1
+assert_absent "$SESS/.iamlazy/run.tmp.json" "el cierre encuentra el contrato en el proyecto"
+assert_grep '"lines_changed":30' "$SESS/.iamlazy/runs.jsonl" "las lineas se cuentan del proyecto, no del cwd"
+
+echo
+echo "close banner — matches the real banner, not prose"
+
+BAN="$(mktmp)"
+open_run "$BAN" "$BAN" 5
+run_flush "$BAN" '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"s","transcript_path":"/x.jsonl","cwd":"'"$BAN"'","last_assistant_message":"el cierre del tema quedo listo"}' >/dev/null
+if [ -f "$BAN/.iamlazy/run.tmp.json" ]; then ok "la palabra suelta CIERRE en prosa no cierra"; else no "prosa suelta no debia cerrar"; fi
+run_flush "$BAN" '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"s","transcript_path":"/x.jsonl","cwd":"'"$BAN"'","last_assistant_message":"── CIERRE · claude-opus-5 · high ──"}' >/dev/null
+assert_absent "$BAN/.iamlazy/run.tmp.json" "el banner real si cierra"
 
 echo
 echo "----------------------------------------"

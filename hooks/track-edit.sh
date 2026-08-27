@@ -21,14 +21,33 @@ hk_guard || hk_allow
 cwd=$(hk_field "$payload" "cwd")
 tool=$(hk_field "$payload" "tool_name")
 fpath=$(hk_field "$payload" "file_path")
-[ -n "$cwd" ] && [ -n "$fpath" ] || hk_allow
+[ -n "$fpath" ] || hk_allow
 
+# Writing the contract is what declares where the project lives. It is the
+# first file the harness writes after the gate, so every later edit is
+# accounted against the right repo -- even when the session started elsewhere.
 case "$fpath" in
-  "$cwd"/.iamlazy/*) hk_allow ;;
+  */.iamlazy/contract.md)
+    proj="${fpath%/.iamlazy/contract.md}"
+    [ -d "$proj" ] && hk_set_project_root "$HK_RUN_TMP" "$proj"
+    hk_allow
+    ;;
 esac
 
-rel=$(hk_rel_path "$cwd" "$fpath")
+root=$(hk_project_root "$HK_RUN_TMP" "$cwd")
+[ -n "$root" ] || hk_allow
+
+# Only trace files inside the project. The harness's own state, and anything
+# the host writes elsewhere (plan-mode scratch files under ~/.claude/plans/),
+# are not the human's change and do not belong in the record.
+case "$fpath" in
+  "$root"/.iamlazy/*) hk_allow ;;
+  "$root"/*) ;;
+  *) hk_allow ;;
+esac
+
+rel=$(hk_rel_path "$root" "$fpath")
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-hk_journal_append "$cwd" "${now} ${tool} ${rel}"
+hk_journal_append "$root" "${now} ${tool} ${rel}"
 
 hk_allow
