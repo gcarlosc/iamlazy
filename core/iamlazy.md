@@ -8,8 +8,6 @@ document they approve at the gate, not an internal file. Only three things stay 
 they are parsed, not read: the contract's section headings, the severity tags, and code itself
 (identifiers, comments, commits follow the project's own language).
 
----
-
 ## What is guaranteed vs what is asked
 
 Hooks enforce five things for you. Deterministic work belongs in code, not in your reasoning:
@@ -22,8 +20,6 @@ Hooks enforce five things for you. Deterministic work belongs in code, not in yo
   you declare the deviation or revert it.
 - The harness refuses to start under a permission bypass.
 
----
-
 ## Three files
 
 - **`PROJECT.md`** (durable) — what the harness knows about this project. Read first, every
@@ -32,9 +28,13 @@ Hooks enforce five things for you. Deterministic work belongs in code, not in yo
 - **`.iamlazy/journal.md`** (append-only) — the harness writes the mechanical half; you add the
   decisions, and above all **what you tried and abandoned**.
 
----
-
 ## 1 · Analysis
+
+**Enter plan mode first, before reading anything.** Analysis is read-only by nature and plan
+mode makes that structural; and under a split-model session (`opusplan`) plan mode is what
+routes work to the stronger model. The judgement is in the analysis and the contract, not in
+typing the code — entering plan mode only to present the plan leaves reconnaissance on the
+cheap model, which is backwards.
 
 Read `PROJECT.md`, then explore only what is missing or may have changed. Budget: about 10
 files, and read ranges rather than whole files — everything you read stays in context and is
@@ -105,14 +105,13 @@ something assumed, either ask, or the step does not exist yet.
 
 Rules for the sections that carry weight:
 
-- **`## Scope`** — one path or glob per line. Be honest and slightly generous: too narrow and
-  you will block your own close; too wide and it stops meaning anything.
-- **`## Groups`** — one checkbox per group, each with the command that proves it done. A
-  group without a command is a group you have not thought through. Mark `- [x]` as you go.
-  **All boxes checked is how the harness knows the run is finished** — nothing else says it.
-- **New project:** `git init` and an initial commit come first, before any other file. Without
-  git there is no undo, the scope ledger has nothing to compare against, and nothing can be
-  measured — a repo-less project runs with its guarantees off, silently.
+- **`## Scope`** — one path or glob per line. Slightly generous: too narrow blocks your own
+  close, too wide means nothing.
+- **`## Groups`** — one checkbox per group with the command that proves it done; a group
+  without a command is one you have not thought through. Mark `- [x]` as you go: **all boxes
+  checked is how the harness knows the run is finished.**
+- **New project:** `git init` plus an initial commit come before any other file. Without git
+  there is no undo, the scope ledger has nothing to compare against, and nothing is measurable.
 - **`## Claims`** — the 2–3 claims that, if wrong, invalidate the whole plan, each with a
   <10s verification command **and its real output, executed by you now**. A claim with no
   verified evidence and no citation to `PROJECT.md` does not go in.
@@ -121,7 +120,7 @@ Rules for the sections that carry weight:
 
 ## 4 · Approval — the gate
 
-Enter **plan mode** and present the contract. The human reads **commands, not paragraphs**:
+You are already in plan mode. Present the contract. The human reads **commands, not paragraphs**:
 that is the point of an acceptance command per group.
 
 On approval, persist `contract.md` **verbatim as approved**. Never reword it on the way to
@@ -139,7 +138,7 @@ Work **group by group**, re-reading the contract from disk. Prior certainties ar
 - **Scope never expands here.** A path outside `## Scope` stops you: either propose adding it
   to `## Scope` and say why, or revert. Never absorb it silently.
 - **Append to the journal** what the harness cannot see: why you chose this over that, and
-  **what you tried and abandoned**. That is the single most useful thing the reviewer gets.
+  **what you tried and abandoned** — the most useful thing the reviewer gets.
 - **Two attempts, then stop.** A second attempt must declare *what changes in the hypothesis*,
   not just retry. A third means the hypothesis is wrong: stop, say so, and re-plan with the
   human. Persisting without a new hypothesis is the failure, not the virtue.
@@ -180,8 +179,6 @@ test additions with no behaviour change, skip the second cycle: there is nothing
   Past ~150 lines, propose consolidation.
 - The human's corrections are the most expensive signal to obtain and the cheapest to lose.
   Record them **literally**, and never ask that question again.
-
----
 
 ## Output contract
 
