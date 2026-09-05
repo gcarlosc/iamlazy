@@ -119,6 +119,54 @@ Cost, for the record: 596,757 weighted tokens over 66 changed lines — 9,042 pe
 3,000–5,500 band and below the 14,000 threshold, and excluding the Critic, which lives in its own
 transcript. The breaker never fired, so it remains unexercised in production.
 
+## Cost is reported in dollars, and the weighted unit is gone
+
+`tokens_weighted` was retired on 2026-09-05, not for being wrong — it was
+arithmetically exact, and an independent recomputation of a real run matched the logged figure to
+the digit — but for being **the wrong unit**, in a way that only showed up once the number was put
+in front of a person.
+
+The complaint was "1.21M for a simple task, that's exaggerating." It was not. That run really moved
+~6M tokens, 93% of them cache reads across 77 turns, and cost **$3.53**. The weighted figure was
+the *deflated* one; every reader took it for the inflated one. But investigating the complaint
+found two real defects that the stated reason had missed:
+
+| Defect | Measured |
+|---|---|
+| **Blind to the model.** The unit normalised everything to input-token-equivalents, so a Sonnet token and an Opus token counted the same while costing 2.5x apart. | That run was 86% Sonnet-weighted. Priced entirely at Opus rates the same figure reads $6.07; at Sonnet rates $2.43. The truth was $3.02. Two runs with an identical weighted number can differ by 2x in money — and ranking cost across runs was the field's only job. |
+| **Excluded the Critic.** Sub-agents run in their own transcript. | $0.50 of a $3.53 run: 14%, invisible, and the one part of the harness that has caught production bugs. |
+
+Dollars have neither problem. Three defences keep the price table from becoming the next stale
+number: it is **config** (`~/.iamlazy/prices.conf`, never clobbered by an install); an **unknown
+model reports `cost_usd: null` and names the model** rather than pricing the part it recognises;
+and the **raw token components are logged as deltas**, so any run can be repriced from the record
+after the table is corrected. Partial sums presented as totals are exactly the "confidently wrong
+field" this project has now shipped twice.
+
+The circuit breaker was recalibrated on four measured run deltas rather than converted from the old
+threshold by assumption. The data showed something worth keeping: **cost per line falls as a run
+grows** — $0.065 at 27 lines, $0.023 at 156 — because reading, planning, contracting and reviewing
+cost the same whatever the diff is. That is why the floors carry more weight than the ratio, and
+why a small task is dear per line without being sick. Threshold: $0.08/line, 2x the worst healthy
+run above the 50-line floor. The lost run computes to $0.103/line and still fires.
+
+## `/iamlazy-review` invented a cause for a broken field
+
+The same review that surfaced the cost complaint also reported that two runs "spent >1.1M tokens
+with 0 lines changed — probably exploration or discussion without a diff." Checked against the
+repository: the first of those runs produced a commit of **1,774 lines across 8 files**.
+
+Those lines are schema 2, before `base_ref`. Their `lines_changed: 0` is the bare-`git diff` defect
+described above, not a fact about the work. The prompt already told the reviewer to say plainly
+what the log cannot confirm — but only about `DELTAS.md` triggers, so it applied that discipline
+there and not to a numeric field. It now applies to both: **a line without `base_ref` has
+unmeasurable `files_changed` and `lines_changed`**, to be reported as absent rather than explained.
+
+Same review, second correction: it flagged all four measurable runs as outside the "healthy"
+3,000–5,500 band. When the whole sample falls outside a band, the band is what is miscalibrated.
+It now says so instead of reporting every run as unhealthy against a threshold the evidence no
+longer supports.
+
 ## What was deliberately not done
 
 - **A `PreToolUse` guard on the Critic's Bash.** Now possible, since hooks receive `agent_type`

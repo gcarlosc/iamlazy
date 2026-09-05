@@ -13,21 +13,37 @@ Show the human the last runs of the harness in a readable form.
 
 2. **You parse the JSON, not bash.** Each line is one JSON object.
 
-   **The file holds more than one schema generation, and that is expected.** Lines written before
-   Layer 0 landed carry self-reported fields (`reversibility`, `critic_mode`, `gate_verdict`,
-   `outcome: success`); lines with `"schema_version": 2` are derived by hooks and carry
-   `task_summary`, `duration_seconds`, `files_changed`, `lines_changed`, `tokens_weighted`,
-   `project_md` and `close_detected_via`. **Report what each line actually has. Never carry a
-   field across generations, and never infer a missing one** — a run that predates a field did not
-   score badly on it, it simply has no value, and those are different facts.
+   **The file holds four schema generations, and that is expected.** Pre-Layer-0 lines are
+   self-reported (`reversibility`, `critic_mode`, `gate_verdict`, `outcome: success`); `2` is
+   derived by hooks; `3` adds `base_ref`, `stage_reached`, `critic_findings`, the `abandoned`
+   outcome and a per-run `human_interventions`; `4` replaces `tokens_weighted` with `cost_usd`
+   plus the raw `tokens_output` / `tokens_cache_write` / `tokens_cache_read`. **Report what each
+   line actually has. Never carry a field across generations, and never infer a missing one** — a
+   run that predates a field did not score badly on it, it simply has no value, and those are
+   different facts.
+
+   **A line with no `base_ref` has UNRELIABLE `files_changed` and `lines_changed`.** Those runs
+   measured with a bare `git diff`, which shows only unstaged work, so anything staged or
+   committed during the run counted as zero. Two logged runs report `lines_changed: 0` over
+   commits that added 1,774 and 69 real lines. Treat those two fields as **unmeasurable** on
+   schema < 3, exactly as you would a field that does not exist — never compute cost per line
+   from them, and never explain the zero. "It probably explored without writing code" is a story
+   invented to fit a broken number, and it is the specific mistake this paragraph exists to stop.
 
    Present a compact, readable summary — a small table or tight list — with, per run: when it ran,
    what it was, how long it took, how much changed, and the cost when present.
 
 3. After the list, offer one or two honest observations if a pattern stands out. Two worth
    watching now that cost is derived rather than estimated:
-   - **cost per changed line** — healthy runs sit around 3,000–5,500 weighted tokens per line. A
-     run far above that spent its budget on attempts, not progress.
+   - **cost per changed line, in dollars.** Four measured runs sit between $0.023 and $0.065,
+     and the figure **falls as a run grows** — the fixed cost of reading, planning, contracting
+     and reviewing does not scale with lines, so a small task is dear per line and that is
+     normal, not a warning. Compare like with like before calling a run expensive.
+   - **`cost_usd: null` is not zero.** It means a model in that run was missing from
+     `prices.conf`; `cost_unpriced` names it. Say what is missing, never treat the run as free.
+     Runs before schema 4 carry `tokens_weighted` instead — a synthetic unit that priced Sonnet
+     and Opus tokens identically and excluded the Critic. **Do not compare it against `cost_usd`
+     and do not convert one to the other**; report each generation in its own unit.
    - **`close_detected_via`** — `contract` means the run closed against its own ledger;
      `banner` means it closed on the weaker text signal, which is the path with no contract to
      check. A run expected to have a contract that closed via `banner` is worth a question.

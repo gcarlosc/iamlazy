@@ -37,7 +37,7 @@ cannot bypass:
 | `open-run.sh` | `UserPromptSubmit` | run identity from the real payload; stale-run sweep; refuses a permission bypass; **injects the run's state into the model's context** |
 | `guard-agent.sh` | `PreToolUse` `^(Agent\|Task)$` | only `iamlazy-critic` may be spawned |
 | `track-edit.sh` | `PostToolUse` on edit tools | every edit appended to `.iamlazy/journal.md`; the contract's location fixes `project_root` and `base_ref` |
-| `flush-run.sh` | `Stop` | the log line is written, derived, never self-reported; **the scope gate speaks**; **circuit breaker** on cost per changed line |
+| `flush-run.sh` | `Stop` | the log line is written, derived, never self-reported; **the scope gate speaks**; **circuit breaker** on dollars per changed line |
 | `end-run.sh` | `SessionEnd` | a run that ends without closing is logged as `abandoned`, not lost |
 | `subagent-done.sh` | `SubagentStop` | the review actually returned, and its `findings: H/M/L/I` tally |
 
@@ -131,21 +131,25 @@ justification; an undeclared deviation is an automatic reviewer finding.
   `SubagentStop` is wrong the close falls back to the CLOSE banner — degraded accuracy, never a
   stuck run — but those fields stay silently empty. What **is** confirmed is `PreToolUse`'s
   `permissionDecisionReason`: the sub-agent denial reached the model, which read it and adapted.
-- **The breaker rests on three data points, and the floors carry more weight than the ratio.**
-  14,000 weighted tokens per changed line sits ~2x above the worst healthy run and below the lost
-  one — but a run has a fixed cost that does not scale with lines, and one healthy run measured
-  14,631, firing only because absolute spend stayed under the 1M floor. So it is really "expensive
-  AND unproductive". Worth revisiting as a two-axis rule. Hardcoded in `flush-run.sh`, so
-  recalibrating means reinstalling. If it fires on a run that was fine, the threshold is wrong.
+- **The breaker rests on four measured runs, and the floors carry more weight than the ratio.**
+  $0.08 per changed line is 2x the worst healthy run above the 50-line floor. Cost per line
+  **falls as a run grows** ($0.065 at 27 lines, $0.023 at 156) because reading, planning,
+  contracting and reviewing cost the same whatever the diff, so the rule is really "expensive AND
+  unproductive" and small tasks are protected by the floors, not by the ratio. Four points from
+  two projects is thin: if it fires on a run that was fine, the threshold is wrong, not the run.
+  Thresholds are still hardcoded in `flush-run.sh`; only prices live in config.
 - **Every number this harness reports about itself has been wrong once.** `tokens_total` (7/7 runs,
-  removed); the weighted count (~4x); `files_changed`/`lines_changed` (0 on real work whenever a
-  run staged or committed). All three were caught by a human refusing a figure that felt wrong,
-  never by a test.
+  removed); the weighted count (~4x, then again for being blind to the model — a Sonnet and an
+  Opus token priced the same while costing 2.5x apart); `files_changed`/`lines_changed` (0 on real
+  work whenever a run staged or committed). All four were caught by a human refusing a figure that
+  felt wrong, never by a test. Cost is now reported in **dollars** (`cost_usd`, Critic included,
+  `null` rather than partial when a model is missing from `prices.conf`), with the raw token
+  components kept so any run can be repriced from the record.
 - **`gate_verdict` stays underived** (it would come from `ExitPlanMode`, whose payload shape is
   unconfirmed). `runs.jsonl` carries three schema generations: `1` self-reported, `2` derived, `3`
   adds `base_ref`, `stage_reached`, `critic_findings`, the `abandoned` outcome and a per-run
-  `human_interventions`. `/iamlazy-review` reports what each line has, never inferring across
-  generations.
+  `human_interventions`; `4` swaps `tokens_weighted` for `cost_usd`. `/iamlazy-review` reports
+  what each line has, never inferring across generations or converting between the two cost units.
 - **Hooks can be switched off.** `disableAllHooks` exists. Layer 0 is proof against forgetting,
   not proof against a decision.
 - **OpenCode has no Layer 0**, no tests, and its conventions are trusted from one machine. It is
