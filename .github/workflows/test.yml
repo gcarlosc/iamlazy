@@ -13,12 +13,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # The suite runs its Layer 0 half under both a C and a UTF-8 locale, and
+      # discovers which UTF-8 locale exists rather than assuming en_US.UTF-8.
+      # Ubuntu runners do not always have it, and asking for a missing locale
+      # falls back to C silently -- which is exactly how the close-banner regex
+      # stayed green in CI while being dead in production.
+      - name: locales available
+        run: locale -a | grep -i utf | head -5 || true
       - name: test suite
         run: ./test.sh
 
-  # PROJECT.md claims bash 3.2 compatibility (the macOS system shell). `env bash` on a
-  # runner can resolve to a newer Homebrew bash, which would let a bashism pass unnoticed.
-  # Force the system shell so the claim is actually tested.
+  # PROJECT.md claims bash 3.2 compatibility (the macOS system shell). `env bash`
+  # on a runner can resolve to a newer Homebrew bash, which would let a bashism
+  # pass unnoticed. Force the system shell so the claim is actually tested.
   bash32:
     runs-on: macos-latest
     steps:

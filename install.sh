@@ -16,7 +16,7 @@ CC_HOOK_DIR="${HOME}/.claude/iamlazy-hooks"
 # Files that make up the payload (relative to the repo root).
 PAYLOAD="core/iamlazy.md core/iamlazy-review.md critic/iamlazy-critic.md \
 hooks/lib.sh hooks/guard-agent.sh hooks/open-run.sh hooks/track-edit.sh hooks/flush-run.sh \
-hooks/merge-settings.sh \
+hooks/end-run.sh hooks/merge-settings.sh \
 templates/claude-code/command-iamlazy.frontmatter \
 templates/claude-code/command-review.frontmatter \
 templates/claude-code/agent-critic.frontmatter \
@@ -105,7 +105,7 @@ install_opencode() {
 
 install_hooks() {
   mkdir -p "$CC_HOOK_DIR"
-  for h in lib.sh guard-agent.sh open-run.sh track-edit.sh flush-run.sh merge-settings.sh; do
+  for h in lib.sh guard-agent.sh open-run.sh track-edit.sh flush-run.sh end-run.sh merge-settings.sh; do
     if [ -f "$SRC/hooks/$h" ]; then
       cp "$SRC/hooks/$h" "$CC_HOOK_DIR/$h"
       chmod +x "$CC_HOOK_DIR/$h"
@@ -129,9 +129,12 @@ print_hook_block() {
     - only the Critic may be spawned as a sub-agent
     - the run log is written, derived, at every close
     - every edit is traced to .iamlazy/journal.md
-    - a run cannot close with a file outside its declared Scope
+    - a run cannot close with a file outside its declared Scope, and is TOLD so
+    - a run that ends without closing is logged as abandoned, not lost
     - the harness refuses to start under a permission bypass
     - a run burning tokens without progress gets stopped and told to re-plan
+  Run state is per SESSION, under ~/.iamlazy/active/ -- an open run in one
+  session no longer changes how any other session behaves.
 EOF
   else
     cat <<EOF
@@ -146,15 +149,18 @@ EOF
       { "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/open-run.sh" } ] }
     ],
     "PreToolUse": [
-      { "matcher": "Agent|Task",
+      { "matcher": "^(Agent|Task)$",
         "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/guard-agent.sh" } ] }
     ],
     "PostToolUse": [
-      { "matcher": "Edit|Write",
+      { "matcher": "^(Edit|Write|MultiEdit|NotebookEdit)\$",
         "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/track-edit.sh" } ] }
     ],
     "Stop": [
       { "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/flush-run.sh" } ] }
+    ],
+    "SessionEnd": [
+      { "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/end-run.sh" } ] }
     ]
   }
 EOF

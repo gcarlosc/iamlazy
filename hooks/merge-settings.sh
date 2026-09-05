@@ -53,11 +53,17 @@ for event in list(hooks.keys()):
         del hooks[event]
 
 if mode == "install":
+    # Matchers are anchored. Per the hooks reference a matcher is tested with
+    # RegExp.test, which matches anywhere in the value: bare `Agent|Task` also
+    # fires on `TaskOutput` and `TaskStop`, and `Edit|Write` on `NotebookEdit`.
+    # The edit matcher is widened DELIBERATELY rather than narrowed -- an edit
+    # the trace does not see is a hole in Guarantee 3, and MultiEdit was one.
     spec = [
-        ("UserPromptSubmit", None,           "open-run.sh"),
-        ("PreToolUse",       "Agent|Task",   "guard-agent.sh"),
-        ("PostToolUse",      "Edit|Write",   "track-edit.sh"),
-        ("Stop",             None,           "flush-run.sh"),
+        ("UserPromptSubmit", None,                                      "open-run.sh"),
+        ("PreToolUse",       "^(Agent|Task)$",                          "guard-agent.sh"),
+        ("PostToolUse",      "^(Edit|Write|MultiEdit|NotebookEdit)$",   "track-edit.sh"),
+        ("Stop",             None,                                      "flush-run.sh"),
+        ("SessionEnd",       None,                                      "end-run.sh"),
     ]
     for event, matcher, script in spec:
         entry = collections.OrderedDict()
@@ -97,13 +103,20 @@ mkdir -p "$(dirname "$SETTINGS")"
 BACKUP="${SETTINGS}.bak-$(date +%Y%m%d%H%M%S)"
 cp "$SETTINGS" "$BACKUP"
 
-if run_merge >/dev/null 2>&1 && [ -f "${SETTINGS}.ilznew" ]; then
+# The status has to be captured from run_merge ITSELF. Reading `$?` after an
+# `if` reads the status of the `if`, which is 0 whenever the else branch runs --
+# so the "no JSON parser" path below (exit 3) was unreachable, and an install
+# on a machine without python reported "merge failed" instead of telling the
+# human to paste the block by hand. Verified 2026-09-05 with a stubbed python3.
+rc=0
+run_merge >/dev/null 2>&1 || rc=$?
+
+if [ "$rc" -eq 0 ] && [ -f "${SETTINGS}.ilznew" ]; then
   mv "${SETTINGS}.ilznew" "$SETTINGS"
   echo "  updated $SETTINGS  (backup: $(basename "$BACKUP"))"
   exit 0
 fi
 
-rc=$?
 rm -f "${SETTINGS}.ilznew"
 cp "$BACKUP" "$SETTINGS"
 rm -f "$BACKUP"

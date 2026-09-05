@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# iamlazy — refuse to push a red suite.
+#
+# Why this exists: CI went red on 2026-08-27 and stayed red for nine days
+# across two pushes to `main`, because nothing between "the test fails" and
+# "someone happens to open the Actions tab" said anything. The suite already
+# caught the bug; the signal was what was missing.
+#
+# Enable it once per clone:   git config core.hooksPath .githooks
+# Skip it deliberately:       git push --no-verify
+set -eu
+
+repo="$(git rev-parse --show-toplevel)"
+echo "iamlazy pre-push: running ./test.sh"
+if "$repo/test.sh" > /tmp/iamlazy-prepush.log 2>&1; then
+  tail -2 /tmp/iamlazy-prepush.log
+  exit 0
+fi
+
+echo "PUSH BLOCKED — the suite is red:" >&2
+grep 'FAIL' /tmp/iamlazy-prepush.log >&2 || tail -20 /tmp/iamlazy-prepush.log >&2
+echo >&2
+echo "Full output: /tmp/iamlazy-prepush.log   ·   Push anyway: git push --no-verify" >&2
+exit 1

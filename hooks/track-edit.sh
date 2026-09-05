@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # iamlazy Layer 0 — Guarantee 3: an unbiased trace.
 #
-# Fires on PostToolUse for Edit/Write. Appends one mechanical line per edit to
-# .iamlazy/journal.md as a side effect of the edit itself -- never redacted
-# from memory at close time. A trace the builder writes about its own work
-# from memory has exactly the bias the separate revisor exists to remove; a
-# trace that accumulates while the work happens does not.
+# Fires on PostToolUse for Edit/Write/MultiEdit/NotebookEdit. Appends one
+# mechanical line per edit to .iamlazy/journal.md as a side effect of the edit
+# itself -- never redacted from memory at close time. A trace the builder
+# writes about its own work from memory has exactly the bias the separate
+# revisor exists to remove; a trace that accumulates while the work happens
+# does not.
 #
 # This hook writes only the mechanical half (what, when). The model's own
 # edits to journal.md -- decisions, and especially what was tried and
@@ -16,20 +17,25 @@ set -u
 . "$(dirname "$0")/lib.sh"
 
 payload=$(cat)
-hk_guard || hk_allow
+hk_guard "$payload" || hk_allow
 
 cwd=$(hk_field "$payload" "cwd")
 tool=$(hk_field "$payload" "tool_name")
 fpath=$(hk_field "$payload" "file_path")
 [ -n "$fpath" ] || hk_allow
 
-# Writing the contract is what declares where the project lives. It is the
-# first file the harness writes after the gate, so every later edit is
-# accounted against the right repo -- even when the session started elsewhere.
+# Writing the contract is what declares where the project lives, and what the
+# run is accountable for. It is the first file the harness writes after the
+# gate, so every later edit is accounted against the right repo -- even when
+# the session started elsewhere -- and base_ref pins the repository state the
+# close will diff against.
 case "$fpath" in
   */.iamlazy/contract.md)
     proj="${fpath%/.iamlazy/contract.md}"
-    [ -d "$proj" ] && hk_set_project_root "$HK_RUN_TMP" "$proj"
+    if [ -d "$proj" ]; then
+      hk_set_project_root "$HK_RUN_TMP" "$proj"
+      hk_set_base "$HK_RUN_TMP" "$proj"
+    fi
     hk_allow
     ;;
 esac

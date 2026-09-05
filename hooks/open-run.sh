@@ -1,35 +1,66 @@
 #!/usr/bin/env bash
 # iamlazy Layer 0 — Guarantee 7: the run is identified by real data, not by a
-# heuristic. Also lays the ground for Guarantee 2 (the log exists).
+# heuristic. Also lays the ground for Guarantee 2 (the log exists), and is the
+# one place the model is told what the harness currently knows about its run.
 #
 # Fires on UserPromptSubmit. SessionStart cannot do this job: it fires before
 # the human has typed anything, so it cannot know this session will invoke
 # /iamlazy. UserPromptSubmit sees the raw prompt (slash-command expansion is a
 # separate, later event per the hooks doc), so matching "/iamlazy" here is the
 # earliest point where "a run is starting" is a fact, not a guess.
-#
-# NOT YET VERIFIED empirically: this build's exact prompt shape for a real
-# /iamlazy invocation (only a plain-text UserPromptSubmit payload has been
-# captured so far). The match is intentionally loose (prefix OR mid-string)
-# to survive small format differences; tighten only after a real capture.
 set -u
 . "$(dirname "$0")/lib.sh"
-
-RUNS_DIR="${HOME}/.iamlazy"
-TMP="${RUNS_DIR}/run.tmp.json"
-LOG="${RUNS_DIR}/runs.jsonl"
 
 payload=$(cat)
 
 ev=$(hk_field "$payload" "hook_event_name")
 [ "$ev" = "UserPromptSubmit" ] || hk_allow
 
+sid=$(hk_field "$payload" "session_id")
+tpath=$(hk_field "$payload" "transcript_path")
+cwd=$(hk_field "$payload" "cwd")
+
 # Prefix check only -- never fully extract the free-text prompt field, it may
 # contain escaped quotes lib.sh's naive parser cannot handle safely.
+is_iamlazy=0
 case "$payload" in
-  *'"prompt":"/iamlazy '*|*'"prompt":"/iamlazy"'*) : ;;
-  *) hk_allow ;;
+  *'"prompt":"/iamlazy '*|*'"prompt":"/iamlazy"'*) is_iamlazy=1 ;;
 esac
+
+# Runs whose session died without SessionEnd, and the pre-2026-09-05 global
+# run file, are reclaimed here. Cheap: a listing of a small directory.
+mkdir -p "$HK_ACTIVE_DIR"
+hk_sweep_stale
+
+# ---------------------------------------------------------- active run status
+# During a run, one line of context per turn. This is the channel that was
+# missing: the scope gate and the group ledger could block a close, and the
+# model was never told -- flush-run.sh returned exit 0 with no output, so the
+# run simply would not end and nothing said why. UserPromptSubmit stdout is
+# added to the model's context (hooks reference), so this is where the state
+# stops being invisible. One line, and only while a run is open.
+if [ -n "$sid" ]; then
+  run_file=$(hk_run_file "$sid")
+  if [ -f "$run_file" ] && [ "$is_iamlazy" = "0" ]; then
+    root=$(hk_project_root "$run_file" "$cwd")
+    base=$(hk_field_file "$run_file" "base_ref")
+    ubase=$(hk_untracked_file "$run_file")
+    contract="${root}/.iamlazy/contract.md"
+    blockers=$(hk_close_blockers "$root" "$contract" "$base" "$ubase" | tr '\n' ';')
+    if [ -n "$blockers" ]; then
+      printf 'iamlazy: corrida activa en %s (base %s). NO puede cerrar todavia -- %s Declara el desvio en ## Scope del contrato o revierte el archivo.\n' \
+        "$root" "${base:-sin base}" "$blockers"
+    elif [ -f "$contract" ]; then
+      printf 'iamlazy: corrida activa en %s (base %s). El contrato esta completo y todo lo cambiado cae dentro del ## Scope declarado.\n' \
+        "$root" "${base:-sin base}"
+    else
+      printf 'iamlazy: corrida activa en %s. Todavia no hay contrato en disco.\n' "$root"
+    fi
+    hk_allow
+  fi
+fi
+
+[ "$is_iamlazy" = "1" ] || hk_allow
 
 # Guarantee 6: never under a permission bypass.
 # PROJECT.md declares "iamlazy must not be run under
@@ -45,21 +76,14 @@ if printf '%s' "$payload" | grep -q '"permission_mode":"bypassPermissions"'; the
   exit 2
 fi
 
-sid=$(hk_field "$payload" "session_id")
-tpath=$(hk_field "$payload" "transcript_path")
-cwd=$(hk_field "$payload" "cwd")
 [ -n "$sid" ] && [ -n "$tpath" ] || hk_allow  # malformed payload: do nothing, never guess
 
-mkdir -p "$RUNS_DIR"
+RUN_FILE=$(hk_run_file "$sid")
 
-# Orphan recovery: a leftover run.tmp.json means a previous run never reached
-# its close (the exact failure this project already paid for twice). Whatever
-# is in it, whoever's session it belongs to, it gets flushed as incomplete
-# before this run starts -- unconditionally, no guessing about whose it was.
-if [ -f "$TMP" ]; then
-  { cat "$TMP"; printf '\n'; } >> "$LOG"
-  rm -f "$TMP"
-fi
+# A second /iamlazy in the same session closes the book on the first one. It
+# never reached its own close, so it is abandoned, not incomplete -- and it
+# gets a real log line saying which stage it died at.
+[ -f "$RUN_FILE" ] && hk_flush_abandoned "$RUN_FILE"
 
 now_epoch=$(date +%s)
 now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -70,7 +94,17 @@ now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # the drift check would fire on the wrong run.
 start_tokens=$(hk_weighted_tokens "$tpath") || start_tokens=0
 
-printf '{"schema_version":1,"session_id":"%s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":%s,"opened_at":"%s","outcome":"incomplete"}' \
-  "$sid" "$tpath" "$cwd" "$now_epoch" "${start_tokens:-0}" "$now_iso" > "$TMP"
+# Same reasoning for interruptions: the marker accumulates over the session, so
+# the close subtracts this baseline instead of reporting the session's total.
+# The field audit of 2026-08-21 found human_interventions undercounting; it was
+# then derived from the transcript marker but never made a delta.
+start_interventions=0
+if [ -n "$tpath" ] && [ -f "$tpath" ]; then
+  start_interventions=$(grep -c 'Request interrupted by user' "$tpath" 2>/dev/null | tr -d ' ')
+fi
+
+printf '{"schema_version":3,"session_id":"%s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":%s,"start_interventions":%s,"opened_at":"%s","outcome":"incomplete"}' \
+  "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$cwd")" \
+  "$now_epoch" "${start_tokens:-0}" "${start_interventions:-0}" "$now_iso" > "$RUN_FILE"
 
 hk_allow

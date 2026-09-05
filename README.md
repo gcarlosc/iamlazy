@@ -1,5 +1,7 @@
 # iamlazy
 
+[![test](https://github.com/gcarlosc/iamlazy/actions/workflows/test.yml/badge.svg)](https://github.com/gcarlosc/iamlazy/actions/workflows/test.yml)
+
 A software-development harness for **Claude Code**. It runs **one task end to end** — analyse,
 ask, contract, approve, execute, review — in a single thread. No MCP, no plugins, no external
 dependencies. Just bash and files.
@@ -212,15 +214,21 @@ mode Layer 0 exists to remove.
 ./test.sh
 ```
 
-50 assertions over the installer and the declared invariants — file composition, model projection,
-idempotency, anti-clobber, `--model`, `--with-hooks`, and that `uninstall.sh` never touches your run
-log. It delegates to `./test-hooks.sh`, a further **39 assertions** over Layer 0's runtime decisions,
-fed real captured payloads and validated by mutation rather than by going green. Runs in an isolated
-`HOME`, so it cannot disturb your setup. Bash and coreutils only, like everything else here.
+Covers the installer and the declared invariants — file composition, model projection, idempotency,
+anti-clobber, `--model`, hook registration, and that `uninstall.sh` never touches your run log. It
+delegates to `./test-hooks.sh` for Layer 0's runtime decisions, fed real captured payloads and
+validated by mutation rather than by going green. Runs in an isolated `HOME`, so it cannot disturb
+your setup. Bash and coreutils only, like everything else here.
+
+The Layer 0 half runs **twice, under a C and a UTF-8 locale**, and discovers which UTF-8 locale the
+system actually has rather than assuming one. That is not ceremony: the close-by-banner regex was
+written with escaped bytes, which BSD grep honours under C and silently ignores under UTF-8, so it
+was dead wherever the hooks really run while CI went green for weeks.
 
 CI runs it on every push across Linux and macOS, plus one job that invokes it through `/bin/bash`
 specifically — that is the bash 3.2 this project claims to support, and `env bash` on a runner
-can quietly resolve to a newer one.
+can quietly resolve to a newer one. Locally, `git config core.hooksPath .githooks` installs a
+pre-push hook that refuses to push a red suite.
 
 What it does **not** cover: a live `/iamlazy` run. The contract, the gate and the review are still
 correct by construction of the prompt. Layer 0 closed part of that debt — a hook script reading JSON
@@ -261,8 +269,9 @@ iamlazy/
   install.sh       idempotent installer (bash 3.2 compatible)
   uninstall.sh     marker-only removal, preserves your data
   hooks/           Layer 0: the guarantees, as bash reading JSON on stdin
-  test.sh          50 assertions over the installer and the declared invariants
-  test-hooks.sh    39 assertions over Layer 0, validated by mutation
+  test.sh          the installer and the declared invariants
+  test-hooks.sh    Layer 0's runtime decisions, validated by mutation, in two locales
+  .githooks/       pre-push: refuses to push a red suite
   .github/         CI: the suite on Linux + macOS, and under /bin/bash for bash 3.2
 ```
 

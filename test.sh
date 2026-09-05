@@ -48,8 +48,17 @@ trap cleanup EXIT
 
 # ---------------------------------------------------------------- syntax
 echo "syntax"
-for s in install.sh uninstall.sh test.sh; do
+for s in install.sh uninstall.sh test.sh test-hooks.sh \
+         hooks/lib.sh hooks/guard-agent.sh hooks/open-run.sh hooks/track-edit.sh \
+         hooks/flush-run.sh hooks/end-run.sh hooks/merge-settings.sh; do
   if bash -n "$SRC/$s" 2>/dev/null; then ok "$s parses"; else no "$s parses"; fi
+done
+
+# Every hook has to be executable in the repo, or the installer copies a file
+# that cannot run and the guarantee is silently off.
+for s in hooks/*.sh; do
+  if [ -x "$SRC/$s" ]; then ok "$(basename "$s") is executable"
+  else no "$(basename "$s") is not executable"; fi
 done
 
 # ------------------------------------------------------- source invariants
@@ -165,12 +174,38 @@ assert_grep "SOMEONE ELSE'S FILE" "$H2/.claude/commands/iamlazy.md" "unmarked fi
 # install mechanics. Running it here means one command still covers everything.
 echo
 echo "layer 0 (delegating to test-hooks.sh)"
+#
+# Run under BOTH locales, and print the failing assertions instead of a summary
+# line. Both halves of that come from the same incident: the close-by-banner
+# regex used `\xe2\x94\x80`, which BSD grep honours under LC_ALL=C and silently
+# does not under UTF-8 -- so the path was dead wherever the hooks actually run
+# while CI's C locale went green. And when it finally did fail, this delegation
+# reported one opaque line, so `main` stayed red for nine days.
+#
+# The UTF-8 locale is DISCOVERED, not assumed. Asking for one the system does
+# not have makes bash fall back to C without failing, which would turn this
+# whole matrix into decoration -- the suite would report two locales and have
+# tested one, which is the same class of false green the regex bug lived in.
+UTF8_LOCALE=""
+for cand in en_US.UTF-8 C.UTF-8 en_US.utf8 C.utf8; do
+  if locale -a 2>/dev/null | grep -qix "$cand"; then UTF8_LOCALE="$cand"; break; fi
+done
+if [ -n "$UTF8_LOCALE" ]; then
+  ok "UTF-8 locale for the matrix: $UTF8_LOCALE"
+else
+  no "no UTF-8 locale on this system: the close-banner path cannot be tested where it actually runs"
+fi
+
 if [ -x "$SRC/test-hooks.sh" ]; then
-  if "$SRC/test-hooks.sh" >/dev/null 2>&1; then
-    ok "test-hooks.sh passes"
-  else
-    no "test-hooks.sh has failures (run ./test-hooks.sh for detail)"
-  fi
+  for loc in C ${UTF8_LOCALE:-}; do
+    hookout="$(LC_ALL="$loc" "$SRC/test-hooks.sh" 2>&1)"
+    if [ "$?" -eq 0 ]; then
+      ok "test-hooks.sh passes under LC_ALL=$loc"
+    else
+      no "test-hooks.sh fails under LC_ALL=$loc"
+      printf '%s\n' "$hookout" | grep 'FAIL' >&2
+    fi
+  done
 else
   no "test-hooks.sh missing or not executable"
 fi
@@ -191,6 +226,7 @@ HOME="$H5" "$SRC/install.sh" --tool=claude >/dev/null 2>&1
 
 assert_file "$H5/.claude/iamlazy-hooks/guard-agent.sh"   "hooks: guard installed"
 assert_file "$H5/.claude/iamlazy-hooks/flush-run.sh"     "hooks: flush installed"
+assert_file "$H5/.claude/iamlazy-hooks/end-run.sh"       "hooks: session-end installed"
 assert_file "$H5/.claude/iamlazy-hooks/merge-settings.sh" "hooks: merge helper installed"
 if [ -x "$H5/.claude/iamlazy-hooks/guard-agent.sh" ]; then ok "hooks are executable"
 else no "hooks are executable"; fi
@@ -200,6 +236,12 @@ assert_grep "iamlazy-hooks/open-run.sh"   "$H5/.claude/settings.json" "registere
 assert_grep "iamlazy-hooks/guard-agent.sh" "$H5/.claude/settings.json" "registered: PreToolUse"
 assert_grep "iamlazy-hooks/track-edit.sh"  "$H5/.claude/settings.json" "registered: PostToolUse"
 assert_grep "iamlazy-hooks/flush-run.sh"   "$H5/.claude/settings.json" "registered: Stop"
+assert_grep "iamlazy-hooks/end-run.sh"     "$H5/.claude/settings.json" "registered: SessionEnd"
+# Matchers are anchored: a bare `Agent|Task` also fires on TaskOutput/TaskStop,
+# and `Edit|Write` on NotebookEdit. The edit matcher is widened on purpose --
+# an edit the trace never sees is a hole in Guarantee 3.
+assert_grep '\^(Agent|Task)\$' "$H5/.claude/settings.json" "sub-agent matcher is anchored"
+assert_grep 'MultiEdit' "$H5/.claude/settings.json" "edit matcher covers MultiEdit/NotebookEdit"
 
 # The user's own configuration must survive untouched.
 assert_grep "/user/own.sh" "$H5/.claude/settings.json" "user's own hook survives install"

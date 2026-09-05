@@ -8,12 +8,15 @@
 # `Agent` in this Claude Code build, NOT `Task`. The official hooks documentation
 # uses `Task` in all of its examples. A hook matching only `Task` never fires --
 # silently. Both names are accepted here so the guarantee survives a rename.
+#
+# The guard is per-SESSION (2026-09-05). It used to key off one global run file,
+# so an open run denied sub-agents in every other session on the machine.
 set -u
 . "$(dirname "$0")/lib.sh"
 
 payload=$(cat)
 
-hk_guard || hk_allow
+hk_guard "$payload" || hk_allow
 
 tool=$(hk_field "$payload" "tool_name")
 case "$tool" in
