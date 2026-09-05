@@ -185,6 +185,120 @@ REAL='{"type":"tool_use","session_id":"sid-x","id":"toolu_01Bw2bp1A4HCetxEeiam6M
 assert_deny "$ACTIVE" "$REAL" "deniega el Agent/Explore real del run d7508d76"
 
 echo
+echo "el Critic lee y corre tests; no escribe"
+
+# PROJECT.md declaraba "el Critic nunca escribe" como invariante Y, en el mismo
+# archivo, como agujero conocido: el frontmatter niega Write y Edit, y Bash
+# pasaba por al lado de los dos. Una invariante sin mecanismo es un deseo.
+critic_bash() { # $1 comando
+  printf '{"hook_event_name":"PreToolUse","session_id":"sid-x","agent_type":"iamlazy-critic","tool_name":"Bash","tool_input":{"command":"%s"}}' "$1"
+}
+main_bash() { # $1 comando -- el hilo principal, sin agent_type
+  printf '{"hook_event_name":"PreToolUse","session_id":"sid-x","tool_name":"Bash","tool_input":{"command":"%s"}}' "$1"
+}
+run_cbash() { printf '%s' "$2" | HOME="$1" "$SRC/hooks/guard-critic-bash.sh" 2>/dev/null; }
+assert_cdeny() {
+  out="$(run_cbash "$ACTIVE" "$(critic_bash "$1")")"
+  case "$out" in
+    *'"permissionDecision":"deny"'*) ok "niega al Critic: $1" ;;
+    *) no "el Critic pudo escribir con: $1 (obtuvo: ${out:-<vacio>})" ;;
+  esac
+}
+assert_callow() {
+  out="$(run_cbash "$ACTIVE" "$(critic_bash "$1")")"
+  if [ -z "$out" ]; then ok "permite al Critic: $1"
+  else no "bloqueo una lectura legitima del Critic: $1"; fi
+}
+
+# Escrituras: lo que la invariante siempre prometio y nadie hacia cumplir.
+assert_cdeny 'echo parche > src/a.ts'
+assert_cdeny 'cat fixture.json >> src/data.json'
+assert_cdeny 'npm test | tee salida.log'
+assert_cdeny 'rm -rf node_modules'
+assert_cdeny 'mv src/a.ts src/b.ts'
+assert_cdeny 'cp -r src /tmp/copia'
+assert_cdeny 'mkdir -p src/nuevo'
+assert_cdeny 'touch src/nuevo.ts'
+assert_cdeny 'chmod +x script.sh'
+assert_cdeny 'sed -i.bak s/foo/bar/ src/a.ts'
+assert_cdeny 'perl -pi -e s/foo/bar/ src/a.ts'
+assert_cdeny 'npm install lodash'
+assert_cdeny 'pip3 install requests'
+assert_cdeny 'go get github.com/x/y'
+assert_cdeny 'wget https://example.com/x.tar.gz'
+assert_cdeny 'curl https://example.com/x -o x.tar.gz'
+# git: mutar el indice es escribir, y un intent-to-add deja `git stash` roto.
+assert_cdeny 'git add -A -N'
+assert_cdeny 'git commit -m fix'
+assert_cdeny 'git checkout -- src/a.ts'
+assert_cdeny 'git reset --hard'
+assert_cdeny 'git stash'
+assert_cdeny 'git apply parche.diff'
+assert_cdeny 'git clean -fd'
+
+# Lecturas y tests: el Critic tiene que poder hacer su trabajo. Un falso
+# positivo aca lo deja inutil, que es peor que el agujero que cerramos.
+assert_callow 'git diff HEAD'
+assert_callow 'git diff 4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+assert_callow 'git ls-files --others --exclude-standard'
+assert_callow 'git log --oneline -5'
+assert_callow 'git rev-parse HEAD'
+assert_callow 'git show --stat HEAD'
+assert_callow 'npm test'
+assert_callow 'npm run build'
+assert_callow './test.sh'
+assert_callow 'cargo test'
+assert_callow 'go test ./...'
+assert_callow 'rg -n listMembers src/'
+assert_callow 'grep -rn TODO src/'
+assert_callow 'cat src/a.ts'
+assert_callow 'sed -n 40,60p src/a.ts'
+# Redirigir a /dev/null y a stderr no es escribir un archivo.
+assert_callow 'npm test 2>/dev/null'
+assert_callow 'git diff --stat > /dev/null'
+assert_callow 'npm run lint 2>&1'
+
+# El hilo principal SI escribe: es quien construye. El guard es del Critic.
+out="$(run_cbash "$ACTIVE" "$(main_bash "echo x > src/a.ts")")"
+if [ -z "$out" ]; then ok "el hilo principal puede escribir (el guard es solo del Critic)"
+else no "el guard bloqueo al hilo principal, que es quien construye"; fi
+
+# Y fuera de una corrida, inerte como todo Layer 0.
+out="$(run_cbash "$IDLE" "$(critic_bash "rm -rf /tmp/x")")"
+if [ -z "$out" ]; then ok "inerte fuera de una corrida"
+else no "actuo fuera de una corrida de iamlazy"; fi
+
+echo
+echo "acuerdo Layer 0 / Layer 1 — el prompt del Critic no pide lo que el guard niega"
+
+# El mismo desacuerdo que el test de etapas, en otra superficie. Antes de este
+# guard el prompt del Critic decia literalmente "`git add -A -N` first so new
+# files are visible" -- una instruccion que el guard rechaza. Cuando las dos
+# capas se contradicen, el modelo obedece al prompt y choca con el hook.
+#
+# CONVENCION que esto impone, y que el prompt del Critic tiene que respetar:
+# **backticks = comando que el Critic puede correr.** Lo que se le prohibe se
+# nombra en prosa, sin backticks. Sin esa regla el extractor no puede saber si
+# un comando esta siendo mandado o desaconsejado, y una advertencia bien escrita
+# ("nunca `git add -N`") se leeria como una contradiccion. La forma del prompt
+# esta bajo nuestro control, la heuristica de leerlo no.
+crit_cmds="$(grep -o '`[^`]*`' "$SRC/critic/iamlazy-critic.md" | tr -d '`' \
+  | grep -E '^(git|npm|pnpm|yarn|cargo|go|rg|grep|cat|sed|awk|head|tail|find|fd)([[:space:]]|$)' \
+  | sort -u)"
+n_cmds="$(printf '%s\n' "$crit_cmds" | grep -c .)"
+if [ "$n_cmds" -ge 1 ]; then ok "el prompt del Critic nombra comandos concretos ($n_cmds)"
+else no "no se extrajo ningun comando del prompt del Critic: este bloque seria vacio"; fi
+
+oldifs="$IFS"; IFS='
+'
+for c in $crit_cmds; do
+  out="$(run_cbash "$ACTIVE" "$(critic_bash "$c")")"
+  if [ -z "$out" ]; then ok "el prompt pide '$c' y el guard lo permite"
+  else no "el prompt del Critic pide '$c' y el guard lo NIEGA: las dos capas se contradicen"; fi
+done
+IFS="$oldifs"
+
+echo
 echo "guarantee 7 — session identified at open"
 
 OPEN_DIR="$(mktmp)"

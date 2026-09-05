@@ -61,6 +61,7 @@ if mode == "install":
     spec = [
         ("UserPromptSubmit", None,                                      "open-run.sh"),
         ("PreToolUse",       "^(Agent|Task)$",                          "guard-agent.sh"),
+        ("PreToolUse",       "^Bash$",                                  "guard-critic-bash.sh"),
         ("PostToolUse",      "^(Edit|Write|MultiEdit|NotebookEdit)$",   "track-edit.sh"),
         ("Stop",             None,                                      "flush-run.sh"),
         ("SessionEnd",       None,                                      "end-run.sh"),

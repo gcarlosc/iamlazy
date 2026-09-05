@@ -16,7 +16,7 @@ CC_HOOK_DIR="${HOME}/.claude/iamlazy-hooks"
 # Files that make up the payload (relative to the repo root).
 PAYLOAD="core/iamlazy.md core/iamlazy-review.md critic/iamlazy-critic.md \
 hooks/lib.sh hooks/guard-agent.sh hooks/open-run.sh hooks/track-edit.sh hooks/flush-run.sh \
-hooks/end-run.sh hooks/subagent-done.sh hooks/merge-settings.sh \
+hooks/end-run.sh hooks/subagent-done.sh hooks/guard-critic-bash.sh hooks/merge-settings.sh \
 templates/claude-code/command-iamlazy.frontmatter \
 templates/claude-code/command-review.frontmatter \
 templates/claude-code/agent-critic.frontmatter \
@@ -105,7 +105,7 @@ install_opencode() {
 
 install_hooks() {
   mkdir -p "$CC_HOOK_DIR"
-  for h in lib.sh guard-agent.sh open-run.sh track-edit.sh flush-run.sh end-run.sh subagent-done.sh merge-settings.sh; do
+  for h in lib.sh guard-agent.sh guard-critic-bash.sh open-run.sh track-edit.sh flush-run.sh end-run.sh subagent-done.sh merge-settings.sh; do
     if [ -f "$SRC/hooks/$h" ]; then
       cp "$SRC/hooks/$h" "$CC_HOOK_DIR/$h"
       chmod +x "$CC_HOOK_DIR/$h"
@@ -126,7 +126,7 @@ print_hook_block() {
     cat <<EOF
 
   LAYER 0 ACTIVE. These run for you now, not on your discipline:
-    - only the Critic may be spawned as a sub-agent
+    - only the Critic may be spawned as a sub-agent, and its Bash cannot write
     - the run log is written, derived, at every close
     - every edit is traced to .iamlazy/journal.md
     - a run cannot close with a file outside its declared Scope, and is TOLD so
@@ -151,7 +151,9 @@ EOF
     ],
     "PreToolUse": [
       { "matcher": "^(Agent|Task)$",
-        "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/guard-agent.sh" } ] }
+        "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/guard-agent.sh" } ] },
+      { "matcher": "^Bash\$",
+        "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/guard-critic-bash.sh" } ] }
     ],
     "PostToolUse": [
       { "matcher": "^(Edit|Write|MultiEdit|NotebookEdit)\$",

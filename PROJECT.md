@@ -36,6 +36,7 @@ cannot bypass:
 |---|---|---|
 | `open-run.sh` | `UserPromptSubmit` | run identity from the real payload; stale-run sweep; refuses a permission bypass; **injects the run's state into the model's context** |
 | `guard-agent.sh` | `PreToolUse` `^(Agent\|Task)$` | only `iamlazy-critic` may be spawned |
+| `guard-critic-bash.sh` | `PreToolUse` `^Bash$` | inside the Critic, Bash cannot write: redirections, file commands, in-place edits, git mutations, installs |
 | `track-edit.sh` | `PostToolUse` on edit tools | every edit appended to `.iamlazy/journal.md`; the contract's location fixes `project_root` and `base_ref` |
 | `flush-run.sh` | `Stop` | the log line is written, derived, never self-reported; **the scope gate speaks**; **circuit breaker** on dollars per changed line |
 | `end-run.sh` | `SessionEnd` | a run that ends without closing is logged as `abandoned`, not lost |
@@ -61,9 +62,10 @@ Classify every rule by its **footprint**: can a command tell whether it was hono
 - No → **style**, Layer 1, with no pretence of being law
 
 **Nothing is promoted by being important.** The sub-agent rule was called an inviolable law and
-violated 7 times in 2 runs, because importance is not a mechanism. And a guarantee that fires
-**outside its domain, or in silence, is a defect** — the scope gate blocked closes without saying
-why, the guard armed itself in unrelated sessions, and both were "working" by their own tests.
+violated 7 times in 2 runs, because importance is not a mechanism. A guarantee that fires
+**outside its domain, or in silence, is a defect**. And where both layers name the same thing —
+stage banners, the commands the Critic may run — **a test compares them**: three separate bugs
+came from the two drifting apart while each looked correct alone.
 
 ## What we measure, and what we do not
 
@@ -93,7 +95,8 @@ justification; an undeclared deviation is an automatic reviewer finding.
 
 ## Invariants (do not break)
 
-- The Critic sub-agent **never** has write/edit permission. Bash is read/test only.
+- The Critic **never** writes: Write and Edit denied by frontmatter, Bash by
+  `guard-critic-bash.sh`. Its prompt backticks only what it may run, so the suite checks they agree.
 - **The Critic is the only sub-agent a run may spawn** — enforced by `guard-agent.sh`, and an
   ambiguous parse denies rather than guesses.
 - Hooks act **only on the session that owns the run**. A payload without a `session_id` never
@@ -155,9 +158,9 @@ justification; an undeclared deviation is an automatic reviewer finding.
 - **OpenCode has no Layer 0**, no tests, and its conventions are trusted from one machine. It is
   the largest untested surface in the repo and needs a decision, not more analysis.
 - **`curl | bash` requires `IAMLAZY_RAW_BASE`**; offline is clone+run.
-- **The Critic's Bash is a discipline hole**: frontmatter denies write/edit, but Bash can write via
-  shell. Closeable now that hooks receive `agent_type` inside sub-agents; accepted so the Critic
-  can run tests.
+- **The Critic's Bash guard reads the command string, not the process.** It stops the shell from
+  writing; it does not stop a program the Critic legitimately runs — `npm test` may create
+  fixtures, and that is intended. The discipline hole is closed, the hermetic seal is not.
 
 Why the current design is the way it is: `docs/decisions-2026-09.md` (the six unchecked
 suppositions, the gate's timing, `base_ref`) and `docs/decisions-2026-08.md` (Layer 0's rollout).
