@@ -24,7 +24,7 @@ templates/opencode/primary-iamlazy.frontmatter \
 templates/opencode/command-iamlazy.frontmatter \
 templates/opencode/command-review.frontmatter \
 templates/opencode/subagent-critic.frontmatter \
-models.conf DELTAS.md"
+models.conf prices.conf DELTAS.md"
 
 usage() {
   cat <<'EOF'
@@ -133,7 +133,7 @@ print_hook_block() {
     - a run that ends without closing is logged as abandoned, not lost
     - a contract run cannot close before its review has come back
     - the harness refuses to start under a permission bypass
-    - a run burning tokens without progress gets stopped and told to re-plan
+    - a run burning money without progress gets stopped and told to re-plan
   Run state is per SESSION, under ~/.iamlazy/active/ -- an open run in one
   session no longer changes how any other session behaves.
 EOF
@@ -266,6 +266,15 @@ mkdir -p "$LOG_DIR"
 # /iamlazy-review sweeps the backlog's triggers against the run log, so the candidates have to
 # be readable from any project. The repo copy stays the source of truth; this one is a mirror.
 if [ -f "$SRC/DELTAS.md" ]; then cp "$SRC/DELTAS.md" "$LOG_DIR/DELTAS.md"; fi
+# The price table is CONFIG, not a generated mirror: never clobber it. Prices
+# change and the human edits this file; overwriting their edit on every install
+# is how a cost figure goes quietly wrong.
+if [ -f "$SRC/prices.conf" ] && [ ! -f "$LOG_DIR/prices.conf" ]; then
+  cp "$SRC/prices.conf" "$LOG_DIR/prices.conf"
+  echo "  wrote $LOG_DIR/prices.conf"
+elif [ -f "$LOG_DIR/prices.conf" ]; then
+  echo "  kept  $LOG_DIR/prices.conf (yours; not overwritten)"
+fi
 echo "iamlazy installer  (source: $SRC)"
 if [ "$do_claude" -eq 1 ]; then
   echo "Claude Code -> $CC_MAIN_MODEL (main) / $CC_CRITIC_MODEL (critic)"

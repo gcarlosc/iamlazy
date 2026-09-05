@@ -71,43 +71,68 @@ if [ -n "$base" ]; then
   lines_changed=$(hk_changed_lines "$root" "$base" "$ubase")
 fi
 
-# --- weighted cost of THIS run (delta, not the whole session)
-run_tokens=""
-if end_tokens=$(hk_weighted_tokens "$tpath"); then
-  st=$(hk_json_num "$TMP" "start_tokens")
-  run_tokens=$((end_tokens - ${st:-0}))
+# --- cost of THIS run, in micro-dollars (delta, not the whole session)
+#
+# Dollars replaced `tokens_weighted` on 2026-09-05. The old unit normalised
+# every model to input-token-equivalents, so a Sonnet token and an Opus token
+# counted the same while costing 2.5x apart -- one measured run was 86%
+# Sonnet-weighted, and pricing its figure at Opus rates read $6.07 against a
+# real $3.02. See prices.conf. The Critic's own transcript is added in: it was
+# 14% of that run's cost and entirely invisible before.
+run_cost=""
+unpriced=""
+if [ "$(hk_json_num "$TMP" "cost_priced")" = "1" ]; then
+  if end_cost=$(hk_cost_micro "$tpath"); then
+    sub_cost=$(hk_subagent_cost_micro "$tpath")
+    if [ -n "$sub_cost" ]; then
+      sc=$(hk_json_num "$TMP" "start_cost")
+      run_cost=$((end_cost - ${sc:-0} + sub_cost))
+    fi
+  fi
 fi
+[ -n "$run_cost" ] || unpriced=$(hk_unpriced_models "$tpath" | tr -s ' ' | sed 's/ $//')
+
+# Raw components, as deltas, so the run can be repriced after a table fix.
+set -- $(hk_token_components "$tpath" 2>/dev/null)
+d_out=$(( ${1:-0} - $(hk_json_num "$TMP" "start_out"|| echo 0) ))
+d_cw=$((  ${2:-0} - $(hk_json_num "$TMP" "start_cw" || echo 0) ))
+d_cr=$((  ${3:-0} - $(hk_json_num "$TMP" "start_cr" || echo 0) ))
+[ "$d_out" -lt 0 ] && d_out=0; [ "$d_cw" -lt 0 ] && d_cw=0; [ "$d_cr" -lt 0 ] && d_cr=0
 
 # ---------------------------------------------------------------- Guarantee 5
 # Circuit breaker. Persisting without a new hypothesis is the failure, not the
 # virtue. The signal is arithmetic, not judgement: weighted cost per changed
 # line.
 #
-# RECALIBRATED 2026-08-27 against de-duplicated counts. The first calibration
-# used a token sum that double-counted usage blocks (~4x high), so both the
-# healthy baseline and the threshold were inflated by the same error and the
-# ratio happened to look sane. Real figures, recomputed from the transcripts:
-#   iamlazy-stats   1,457,005 / 389 lines =  3,745
-#   rotaturno       955,723   / 132 lines =  7,240
-#   the lost run    4,751,120 / 230 lines = 20,657   <- 7 attempts, ~2 hours
-# 14,000 sits about 2x above the worst healthy run and comfortably below the
-# lost one. Three data points is thin: if this fires on a run that was fine,
-# the threshold is wrong, not the run.
+# RECALIBRATED 2026-09-05 in dollars, from four measured run deltas (Critic
+# included, post-close activity excluded):
+#   27 lines  $0.0647/line     <- healthy; below the line floor, never checked
+#   48 lines  $0.0301/line
+#   66 lines  $0.0393/line
+#  156 lines  $0.0226/line
+# Cost per line FALLS as a run grows -- the fixed cost of reading, planning,
+# contracting and reviewing does not scale with lines, which is why the floors
+# carry more weight than the ratio. Above the 50-line floor the worst healthy
+# run is $0.0393, so the threshold sits at 2x that. The lost run (4.75M weighted
+# over 230 lines, Opus-priced ~$23.75) computes to $0.103/line and still fires.
+#
+# Four points is thin and they are all from two projects: if this fires on a run
+# that was fine, the threshold is wrong, not the run.
 #
 # Note what this catches that an acceptance-command check cannot: that run
 # logged validation_result=passed on all seven attempts. The tests kept
 # passing; it was failing in the browser. "The command failed twice" would
 # never have fired. Cost per line did.
-DRIFT_RATIO=14000
+DRIFT_MICRO_PER_LINE=80000      # $0.08 per changed line
 DRIFT_MIN_LINES=50
-DRIFT_MIN_TOKENS=1000000
+DRIFT_MIN_COST=3000000          # $3.00 -- "expensive AND unproductive"
 
 if ! grep -q '"drift_warned"' "$TMP" 2>/dev/null \
-   && [ -n "$run_tokens" ] \
-   && [ "$run_tokens" -ge "$DRIFT_MIN_TOKENS" ] \
+   && [ -n "$run_cost" ] \
+   && [ "$run_cost" -ge "$DRIFT_MIN_COST" ] \
    && [ "${lines_changed:-0}" -ge "$DRIFT_MIN_LINES" ]; then
-  ratio=$((run_tokens / lines_changed))
-  if [ "$ratio" -ge "$DRIFT_RATIO" ]; then
+  ratio=$((run_cost / lines_changed))
+  if [ "$ratio" -ge "$DRIFT_MICRO_PER_LINE" ]; then
     # Mark before blocking, so this warns once and never nags again.
     hk_set_field "$TMP" "drift_warned" "1"
     # `decision`/`reason` is the documented decision-control shape for Stop;
@@ -116,10 +141,11 @@ if ! grep -q '"drift_warned"' "$TMP" 2>/dev/null \
     # reference, on exit 2 the blocking message is the JSON reason when there
     # is one and stderr otherwise -- so all three channels agree here instead
     # of relying on whichever one the build happens to honour.
-    printf '{"decision":"block","reason":"iamlazy: esta corrida gasta %s tokens ponderados por linea cambiada (las sanas estan entre 3.000 y 5.500). El esfuerzo se esta yendo en intentos, no en avance. Deja de implementar y decilo claro: cual es la hipotesis, por que fallo el ultimo intento, y que CAMBIA ahora. Si la respuesta honesta es -probar otra cosa-, la hipotesis esta mal: volve al humano con lo que quedo descartado.","systemMessage":"iamlazy: %s tokens ponderados por linea cambiada. Circuit breaker disparado."}\n' "$ratio" "$ratio"
+    usd_line=$(hk_micro_to_usd "$ratio")
+    printf '{"decision":"block","reason":"iamlazy: esta corrida lleva gastados %s dolares por linea cambiada (las sanas estan entre 0,02 y 0,04). El esfuerzo se esta yendo en intentos, no en avance. Deja de implementar y decilo claro: cual es la hipotesis, por que fallo el ultimo intento, y que CAMBIA ahora. Si la respuesta honesta es -probar otra cosa-, la hipotesis esta mal: volve al humano con lo que quedo descartado.","systemMessage":"iamlazy: %s USD por linea cambiada. Circuit breaker disparado."}\n' "$usd_line" "$usd_line"
     cat >&2 <<MSG
-iamlazy: this run is spending ${ratio} weighted tokens per changed line. Healthy runs sit
-around 3,000-5,500. That ratio means the effort is going into attempts, not progress.
+iamlazy: this run is spending $(hk_micro_to_usd "$ratio") per changed line. Healthy runs sit
+between 0.02 and 0.04. That ratio means the effort is going into attempts, not progress.
 
 Stop implementing. Before the next edit, state plainly: what is the hypothesis, why did the
 last attempt fail, and what CHANGES in the hypothesis now? If the honest answer is "try
@@ -215,11 +241,21 @@ fi
 
 now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-hk_log_append "$(printf '{"schema_version":3,"timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"tokens_weighted":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","outcome":"flushed"}' \
+# cost_usd is null, never partial, when a model was missing from prices.conf --
+# cost_unpriced names it so the fix is obvious. The raw components are always
+# written, so the run can be repriced from the record once the table is right.
+if [ -n "$run_cost" ]; then
+  cost_field=$(hk_micro_to_usd "$run_cost")
+else
+  cost_field="null"
+fi
+
+hk_log_append "$(printf '{"schema_version":4,"timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","outcome":"flushed"}' \
   "$now_iso" "$task_summary" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" \
   "$(hk_json_esc "$root")" "$(hk_json_esc "$base")" \
   "${duration:-null}" "$human_interventions" "${files_changed:-0}" "${lines_changed:-0}" \
-  "${run_tokens:-null}" "$project_md" "$(hk_json_esc "$stage")" \
+  "$cost_field" "$(hk_json_esc "$unpriced")" "$d_out" "$d_cw" "$d_cr" \
+  "$project_md" "$(hk_json_esc "$stage")" \
   "$(hk_json_esc "$critic_findings")" "$signal")"
 
 hk_run_clear "$TMP"

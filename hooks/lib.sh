@@ -426,45 +426,129 @@ hk_rel_path() {
 
 # ------------------------------------------------------------------ cost
 
-# hk_weighted_tokens <transcript_path> -> weighted token total, or empty.
-# Weights follow the project's cost model: output x5, cache_creation x1.25,
-# cache_read x0.1. Raw sums overstate spend by roughly 4x, which is why the
-# weighting is not optional. Empty output means "could not read" -- callers
-# must skip the check rather than treat it as zero.
+# ------------------------------------------------------------------ cost
+
+# hk_prices -> path of the price table.
+hk_prices() { printf '%s/prices.conf' "$HK_DIR"; }
+
+# hk_cost_micro <transcript> [prices] -> cost in MICRO-dollars, or nothing when
+# a model in the transcript is missing from the price table.
 #
-# Deduplicated by message id, and that is not a detail: a transcript records
-# the same assistant message several times (streaming plus final), so a plain
-# `grep | awk` over the token fields counts each usage block more than once.
-# Measured 2026-08-27 on a real run: 75 usage blocks for 40 unique messages,
-# reporting 1,176,836 weighted against an actual 561,234 -- a 2.1x
-# overstatement. That number feeds the circuit breaker's threshold and the
-# closing cost line, so an inflated count means false alarms and a lie in the
-# log. This project already shipped one wrong token count; not twice.
-hk_weighted_tokens() {
+# Micro-dollars because bash has no float arithmetic and the close has to
+# subtract a baseline: integers make the delta exact. Divided back to dollars
+# only when the line is written.
+#
+# Replaces `tokens_weighted`, which normalised everything to input-token
+# equivalents and so priced a Sonnet token and an Opus token identically -- see
+# prices.conf for the measurement that killed it. Same de-duplication by message
+# id: a transcript records the same assistant message once per streaming chunk,
+# and summing them naively overstated spend ~2.1x (measured 2026-08-27).
+#
+# Unknown model => no number at all, deliberately. Pricing the part it
+# recognises and presenting that as the run's cost would be a silently low
+# figure, and this project has already shipped two confidently wrong numbers.
+hk_cost_micro() {
+  local t prices
+  t="$1"; prices="${2:-$(hk_prices)}"
+  [ -n "$t" ] && [ -f "$t" ] || return 1
+  [ -f "$prices" ] || return 1
+  awk '
+    NR==FNR {
+      if ($0 ~ /^[[:space:]]*#/ || NF < 3) next
+      pin[$1]=$2; pout[$1]=$3
+      next
+    }
+    {
+      if (!match($0, /"usage":\{/)) next
+      id = ""
+      if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) id = substr($0, RSTART, RLENGTH)
+      if (id != "" && (id in seen)) next
+      if (id != "") seen[id] = 1
+
+      model = ""
+      if (match($0, /"model":"[^"]+"/)) model = substr($0, RSTART+9, RLENGTH-10)
+      if (model == "" || !(model in pin)) { bad = 1; next }
+
+      o = c = r = i = 0
+      if (match($0, /"output_tokens":[0-9]+/))               o = substr($0, RSTART+16, RLENGTH-16)
+      if (match($0, /"cache_creation_input_tokens":[0-9]+/)) c = substr($0, RSTART+30, RLENGTH-30)
+      if (match($0, /"cache_read_input_tokens":[0-9]+/))     r = substr($0, RSTART+26, RLENGTH-26)
+      if (match($0, /"input_tokens":[0-9]+/))                i = substr($0, RSTART+15, RLENGTH-15)
+
+      # cache write = input x1.25, cache read = input x0.1
+      usd += (i * pin[model] + o * pout[model] \
+              + c * pin[model] * 1.25 + r * pin[model] * 0.1) / 1000000
+    }
+    END { if (bad) exit 1; printf "%d", usd * 1000000 + 0.5 }
+  ' "$prices" "$t" 2>/dev/null
+}
+
+# hk_unpriced_models <transcript> [prices] -> models the price table does not
+# know, space separated. Names what to add instead of leaving an unexplained
+# null.
+hk_unpriced_models() {
+  local t prices
+  t="$1"; prices="${2:-$(hk_prices)}"
+  [ -n "$t" ] && [ -f "$t" ] || return 0
+  [ -f "$prices" ] || return 0
+  awk '
+    NR==FNR { if ($0 !~ /^[[:space:]]*#/ && NF >= 3) pin[$1]=1; next }
+    {
+      if (!match($0, /"usage":\{/)) next
+      if (!match($0, /"model":"[^"]+"/)) next
+      m = substr($0, RSTART+9, RLENGTH-10)
+      if (!(m in pin)) miss[m] = 1
+    }
+    END { for (m in miss) printf "%s ", m }
+  ' "$prices" "$t" 2>/dev/null
+}
+
+# hk_subagent_cost_micro <transcript> -> cost of every sub-agent this session
+# spawned. The Critic runs in its own transcript under <session>/subagents/, so
+# it was invisible to the old figure: measured 2026-09-05 it was $0.50 of a
+# $3.53 run -- 14% of the cost, and the one part of the harness that has caught
+# production bugs. A cost line that omits the reviewer understates every
+# reviewed run.
+hk_subagent_cost_micro() {
+  local t dir total c f
+  t="$1"
+  dir="${t%.jsonl}/subagents"
+  total=0
+  [ -d "$dir" ] || { printf '0'; return 0; }
+  for f in "$dir"/*.jsonl; do
+    [ -f "$f" ] || continue
+    c=$(hk_cost_micro "$f") || { printf ''; return 1; }
+    total=$((total + c))
+  done
+  printf '%s' "$total"
+}
+
+# hk_micro_to_usd <micro> -> decimal dollars, 4 places, for the log line.
+hk_micro_to_usd() {
+  awk -v m="$1" 'BEGIN { printf "%.4f", m / 1000000 }'
+}
+
+# hk_token_components <transcript> -> "output cache_write cache_read", deduped.
+# Logged as per-run deltas so any run can be REPRICED from the record after the
+# price table is corrected. A cost figure you cannot recompute is a figure you
+# have to trust, and this project's whole posture on its own numbers is that
+# trust is the wrong thing to extend them.
+hk_token_components() {
   local t
   t="$1"
   [ -n "$t" ] && [ -f "$t" ] || return 1
   awk '
-    # one JSON object per line; take the first usage block per message id
     {
-      id = ""
-      if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) {
-        id = substr($0, RSTART, RLENGTH)
-      }
       if (!match($0, /"usage":\{/)) next
+      id = ""
+      if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) id = substr($0, RSTART, RLENGTH)
       if (id != "" && (id in seen)) next
       if (id != "") seen[id] = 1
-
-      o = c = r = 0
-      if (match($0, /"output_tokens":[0-9]+/))
-        o = substr($0, RSTART + 16, RLENGTH - 16)
-      if (match($0, /"cache_creation_input_tokens":[0-9]+/))
-        c = substr($0, RSTART + 30, RLENGTH - 30)
-      if (match($0, /"cache_read_input_tokens":[0-9]+/))
-        r = substr($0, RSTART + 26, RLENGTH - 26)
-      total += o * 5 + c * 1.25 + r * 0.1
+      if (match($0, /"output_tokens":[0-9]+/))               o += substr($0, RSTART+16, RLENGTH-16)
+      if (match($0, /"cache_creation_input_tokens":[0-9]+/)) c += substr($0, RSTART+30, RLENGTH-30)
+      if (match($0, /"cache_read_input_tokens":[0-9]+/))     r += substr($0, RSTART+26, RLENGTH-26)
     }
-    END { printf "%d", total + 0 }
+    END { printf "%d %d %d", o+0, c+0, r+0 }
   ' "$t"
 }
 

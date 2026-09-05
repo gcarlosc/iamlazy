@@ -59,4 +59,5 @@ fi
 echo
 echo "done. Your data was left untouched:"
 echo "  ~/.iamlazy/runs.jsonl  (run log)"
+echo "  ~/.iamlazy/prices.conf (your price table)"
 echo "  any PROJECT.md         (project ground truth)"

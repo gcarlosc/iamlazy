@@ -89,10 +89,20 @@ now_epoch=$(date +%s)
 now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # The transcript accumulates the WHOLE session, not this run. Recording the
-# weighted total at open lets the close measure the delta -- otherwise a
-# second /iamlazy in the same session would inherit the first one's cost and
-# the drift check would fire on the wrong run.
-start_tokens=$(hk_weighted_tokens "$tpath") || start_tokens=0
+# baseline at open lets the close measure the delta -- otherwise a second
+# /iamlazy in the same session would inherit the first one's cost and the drift
+# check would fire on the wrong run. Verified on the 2026-09-05 run: the
+# /iamlazy-review typed afterwards added $0.90 that correctly stayed out.
+#
+# cost_priced records whether the baseline could be priced at all. If a model in
+# the transcript is missing from prices.conf there is no baseline, and a delta
+# taken against a missing baseline would silently bill this run for the whole
+# session. The close reports null instead.
+start_cost=$(hk_cost_micro "$tpath")
+if [ -n "$start_cost" ]; then cost_priced=1; else cost_priced=0; start_cost=0; fi
+
+set -- $(hk_token_components "$tpath" 2>/dev/null)
+start_out="${1:-0}"; start_cw="${2:-0}"; start_cr="${3:-0}"
 
 # Same reasoning for interruptions: the marker accumulates over the session, so
 # the close subtracts this baseline instead of reporting the session's total.
@@ -103,8 +113,9 @@ if [ -n "$tpath" ] && [ -f "$tpath" ]; then
   start_interventions=$(grep -c 'Request interrupted by user' "$tpath" 2>/dev/null | tr -d ' ')
 fi
 
-printf '{"schema_version":3,"session_id":"%s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":%s,"start_interventions":%s,"opened_at":"%s","outcome":"incomplete"}' \
+printf '{"schema_version":4,"session_id":"%s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":%s,"cost_priced":%s,"start_out":%s,"start_cw":%s,"start_cr":%s,"start_interventions":%s,"opened_at":"%s","outcome":"incomplete"}' \
   "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$cwd")" \
-  "$now_epoch" "${start_tokens:-0}" "${start_interventions:-0}" "$now_iso" > "$RUN_FILE"
+  "$now_epoch" "$start_cost" "$cost_priced" "$start_out" "$start_cw" "$start_cr" \
+  "${start_interventions:-0}" "$now_iso" > "$RUN_FILE"
 
 hk_allow
