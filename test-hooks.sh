@@ -23,10 +23,19 @@ trap cleanup EXIT
 # which is the whole point, and what makes the isolation test below possible.
 runfile() { printf '%s/.iamlazy/active/%s.json' "$1" "${2:-sid-x}"; }
 
+# mk_prices <home> -- the price table every cost calculation reads. Opus-5
+# output is $25/MTok, so one output token costs exactly 25 micro-dollars, which
+# makes a transcript's cost trivially controllable from the test.
+mk_prices() {
+  mkdir -p "$1/.iamlazy"
+  printf 'claude-opus-5 5.00 25.00\nclaude-sonnet-5 2.00 10.00\n' > "$1/.iamlazy/prices.conf"
+}
+
 open_run() { # $1 home  $2 cwd  $3 start_epoch_delta  [$4 sid]
   sid="${4:-sid-x}"
   mkdir -p "$1/.iamlazy/active"
-  printf '{"schema_version":3,"session_id":"%s","transcript_path":"/x.jsonl","cwd":"%s","start_epoch":%s,"start_tokens":0,"start_interventions":0,"outcome":"incomplete"}' \
+  mk_prices "$1"
+  printf '{"schema_version":4,"session_id":"%s","transcript_path":"/x.jsonl","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"outcome":"incomplete"}' \
     "$sid" "$2" "$(($(date +%s)-${3:-30}))" > "$(runfile "$1" "$sid")"
 }
 
@@ -41,12 +50,13 @@ set_base() {
     > "$1/.iamlazy/active/$2.untracked" 2>/dev/null || : > "$1/.iamlazy/active/$2.untracked"
 }
 
-mk_transcript() { # <dir> <weighted_total>: all output_tokens, weight x5
-  awk -v t="$2" 'BEGIN{ printf "{\"usage\":{\"output_tokens\":%d,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}\n", t/5 }' > "$1/t.jsonl"
+mk_transcript() { # <dir> <micro_usd>: all output tokens on opus-5 (25 micro each)
+  awk -v m="$2" 'BEGIN{ printf "{\"model\":\"claude-opus-5\",\"message\":{\"id\":\"msg_T\",\"usage\":{\"input_tokens\":0,\"output_tokens\":%d,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n", m/25 }' > "$1/t.jsonl"
 }
-open_run_tok() { # $1 home $2 cwd -- opens with start_tokens=0 and a transcript
+open_run_tok() { # $1 home $2 cwd -- opens with a zero cost baseline
   mkdir -p "$1/.iamlazy/active"
-  printf '{"schema_version":3,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":0,"start_interventions":0,"outcome":"incomplete"}' \
+  mk_prices "$1"
+  printf '{"schema_version":4,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"outcome":"incomplete"}' \
     "$2/t.jsonl" "$2" "$(date +%s)" > "$(runfile "$1" s)"
 }
 
@@ -535,48 +545,77 @@ out="$(run_open "$IDLE" '{"hook_event_name":"UserPromptSubmit","session_id":"nad
 if [ -z "$out" ]; then ok "sin corrida activa no se inyecta nada"; else no "se inyecto contexto sin corrida (obtuvo: $out)"; fi
 
 echo
-echo "guarantee 5 — circuit breaker (calibrated against the real log)"
+echo "guarantee 5 — circuit breaker (calibrado en dolares, sobre corridas medidas)"
 
 CB="$(mkrepo)"
 mkdir -p "$CB/.iamlazy"
 printf '## Groups\n- [x] g1\n' > "$CB/.iamlazy/contract.md"
 
-# A healthy run: ~3,7k weighted tokens per changed line (the log's best case).
-printf 'x\n%.0s' $(seq 1 3400) > "$CB/big.txt"
-mk_transcript "$CB" 1400000
+# Sana: 100 lineas por $3.50 -> $0.035/linea. Pasa el piso de costo y queda
+# debajo del umbral. Las cuatro corridas reales medidas van de 0,0226 a 0,0647.
+printf 'x\n%.0s' $(seq 1 100) > "$CB/big.txt"
+mk_transcript "$CB" 3500000
 open_run_tok "$CB" "$CB"; set_base "$CB" "s" "$CB"; rm -f "$CB/.iamlazy/active/s.untracked"
-if [ "$(flush_rc "$CB" "$(stop_payload "$CB" "$CLOSE_MSG" s "$CB/t.jsonl")")" = "2" ]; then no "un run sano (~3.7k tok/linea) no debe disparar"; else ok "un run sano (~3.7k tok/linea) no dispara"; fi
+if [ "$(flush_rc "$CB" "$(stop_payload "$CB" "$CLOSE_MSG" s "$CB/t.jsonl")")" = "2" ]; then no "una corrida sana (\$0,035/linea) no debe disparar"; else ok "una corrida sana (\$0,035/linea) no dispara"; fi
 
-# The lost run: 230 lines, 4.8M weighted -> ~20k per line.
+# La corrida perdida: 230 lineas, ~\$23,69 -> \$0,103/linea.
 rm -f "$CB/big.txt"
 printf 'x\n%.0s' $(seq 1 230) > "$CB/small.txt"
-mk_transcript "$CB" 4800000
+mk_transcript "$CB" 23690000
 open_run_tok "$CB" "$CB"; set_base "$CB" "s" "$CB"; rm -f "$CB/.iamlazy/active/s.untracked"
-if [ "$(flush_rc "$CB" "$(stop_payload "$CB" "$CLOSE_MSG" s "$CB/t.jsonl")")" = "2" ]; then ok "el run perdido (~20k tok/linea) dispara el breaker"; else no "el run perdido debia disparar el breaker"; fi
+if [ "$(flush_rc "$CB" "$(stop_payload "$CB" "$CLOSE_MSG" s "$CB/t.jsonl")")" = "2" ]; then ok "la corrida perdida (\$0,103/linea) dispara el breaker"; else no "la corrida perdida debia disparar el breaker"; fi
 assert_grep '"drift_warned":1' "$(runfile "$CB" s)" "el aviso queda marcado en el run"
 
 if [ "$(flush_rc "$CB" "$(stop_payload "$CB" "$CLOSE_MSG" s "$CB/t.jsonl")")" = "2" ]; then no "el breaker no debe repetir el aviso"; else ok "el breaker avisa una sola vez"; fi
 assert_absent "$(runfile "$CB" s)" "tras avisar, el cierre sigue siendo posible"
-assert_grep '"tokens_weighted":4800000' "$CB/.iamlazy/runs.jsonl" "tokens_weighted (delta del run) llega al log"
+assert_grep '"cost_usd":23.6900' "$CB/.iamlazy/runs.jsonl" "cost_usd (delta de la corrida) llega al log"
+assert_grep '"tokens_output":947600' "$CB/.iamlazy/runs.jsonl" "los componentes crudos quedan para poder reprecificar"
 
+# Debajo del piso de lineas el ratio es ruido: el costo por linea SUBE cuanto
+# mas chica es la tarea, porque el costo fijo de leer/planificar/revisar no
+# escala. Es lo que salva a las tareas chicas de un falso positivo.
 CB2="$(mkrepo)"
 printf 'x\n%.0s' $(seq 1 10) > "$CB2/tiny.txt"
-mk_transcript "$CB2" 1200000
+mk_transcript "$CB2" 5000000
 open_run_tok "$CB2" "$CB2"; set_base "$CB2" "s" "$CB2"; rm -f "$CB2/.iamlazy/active/s.untracked"
-if [ "$(flush_rc "$CB2" "$(stop_payload "$CB2" "$CLOSE_MSG" s "$CB2/t.jsonl")")" = "2" ]; then no "con 10 lineas el ratio es ruido, no debe disparar"; else ok "bajo el piso de lineas no dispara (analisis temprano)"; fi
+if [ "$(flush_rc "$CB2" "$(stop_payload "$CB2" "$CLOSE_MSG" s "$CB2/t.jsonl")")" = "2" ]; then no "con 10 lineas el ratio es ruido, no debe disparar"; else ok "bajo el piso de lineas no dispara (tarea chica)"; fi
 
-# El delta importa: una SEGUNDA corrida en la misma sesion no debe heredar el
-# costo de la primera.
+# Y debajo del piso de COSTO tampoco: el breaker es "caro Y sin avance".
+CB2b="$(mkrepo)"
+printf 'x\n%.0s' $(seq 1 60) > "$CB2b/f.txt"
+mk_transcript "$CB2b" 2000000
+open_run_tok "$CB2b" "$CB2b"; set_base "$CB2b" "s" "$CB2b"; rm -f "$CB2b/.iamlazy/active/s.untracked"
+if [ "$(flush_rc "$CB2b" "$(stop_payload "$CB2b" "$CLOSE_MSG" s "$CB2b/t.jsonl")")" = "2" ]; then no "bajo el piso de costo no debe disparar"; else ok "bajo el piso de costo no dispara (barato aunque improductivo)"; fi
+
+# El delta importa: una SEGUNDA corrida en la misma sesion no hereda el costo
+# de la primera. Verificado en vivo -- el /iamlazy-review tipeado despues sumo
+# \$0,90 que correctamente quedaron afuera.
 CB3="$(mkrepo)"
 printf 'x\n%.0s' $(seq 1 230) > "$CB3/f.txt"
-mk_transcript "$CB3" 4800000
-mkdir -p "$CB3/.iamlazy/active"
-printf '{"schema_version":3,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":4400000,"start_interventions":0,"outcome":"incomplete"}' \
+mk_transcript "$CB3" 23690000
+mkdir -p "$CB3/.iamlazy/active"; mk_prices "$CB3"
+printf '{"schema_version":4,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":22000000,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"outcome":"incomplete"}' \
   "$CB3/t.jsonl" "$CB3" "$(date +%s)" > "$(runfile "$CB3" s)"
 set_base "$CB3" "s" "$CB3"; rm -f "$CB3/.iamlazy/active/s.untracked"
 if [ "$(flush_rc "$CB3" "$(stop_payload "$CB3" "$CLOSE_MSG" s "$CB3/t.jsonl")")" = "2" ]; then no "una 2da corrida no debe heredar el costo de la 1ra (usar delta)"; else ok "el breaker mide el DELTA de la corrida, no el total de sesion"; fi
 
 echo
+echo "costo — un modelo sin precio no produce un total parcial"
+
+# El pecado que este bloque previene: sumar lo que se reconoce y presentarlo
+# como el costo de la corrida. Un numero confiadamente bajo es peor que ninguno,
+# y este proyecto ya publico dos numeros equivocados sobre si mismo.
+UNP="$(mkrepo)"
+mkdir -p "$UNP/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$UNP/.iamlazy/contract.md"
+printf 'x\n%.0s' $(seq 1 20) > "$UNP/f.txt"
+open_run_tok "$UNP" "$UNP"; set_base "$UNP" "s" "$UNP"; rm -f "$UNP/.iamlazy/active/s.untracked"
+printf '{"model":"modelo-del-futuro","message":{"id":"msg_X","usage":{"input_tokens":0,"output_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' > "$UNP/t.jsonl"
+run_flush "$UNP" "$(stop_payload "$UNP" "$CLOSE_MSG" s "$UNP/t.jsonl")" >/dev/null
+assert_grep '"cost_usd":null' "$UNP/.iamlazy/runs.jsonl" "un modelo sin precio da cost_usd null, no un total parcial"
+assert_grep 'modelo-del-futuro' "$UNP/.iamlazy/runs.jsonl" "el log NOMBRA el modelo que falta en prices.conf"
+assert_grep '"tokens_output":1000' "$UNP/.iamlazy/runs.jsonl" "los componentes crudos se guardan igual, para reprecificar despues"
+
 echo "guarantee 2 — derived semantic fields"
 
 SEM="$(mkrepo)"
@@ -586,8 +625,9 @@ printf '# Task\nAdd rate limiting to the "login" endpoint\n\n## Scope\n- src/*\n
 printf '# P\n' > "$SEM/PROJECT.md"
 git -C "$SEM" add -A; git -C "$SEM" commit -q -m init
 mkdir -p "$SEM/.iamlazy/active"
-mk_transcript "$SEMT" 500
-printf '{"schema_version":3,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":0,"start_interventions":0,"outcome":"incomplete"}' \
+mk_transcript "$SEMT" 500000
+mk_prices "$SEM"
+printf '{"schema_version":4,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"outcome":"incomplete"}' \
   "$SEMT/t.jsonl" "$SEM" "$(date +%s)" > "$(runfile "$SEM" s)"
 set_base "$SEM" "s" "$SEM"
 echo x > "$SEM/src/a.rb"
@@ -596,7 +636,8 @@ run_flush "$SEM" "$(stop_payload "$SEM" "$CLOSE_MSG" s "$SEMT/t.jsonl")" >/dev/n
 assert_grep '"task_summary":"Add rate limiting to the \\"login\\" endpoint"' "$SEM/.iamlazy/runs.jsonl" \
   "task_summary derivado del contrato, con las comillas ESCAPADAS (no borradas)"
 assert_grep '"project_md":"updated"' "$SEM/.iamlazy/runs.jsonl" "project_md derivado del diff"
-assert_grep '"schema_version":3' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
+assert_grep '"schema_version":4' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
+assert_grep '"cost_usd":0.5000' "$SEM/.iamlazy/runs.jsonl" "cost_usd derivado del transcript y la tabla de precios"
 assert_grep '"close_detected_via":"contract"' "$SEM/.iamlazy/runs.jsonl" \
   "PROJECT.md modificado no bloquea el cierre (es parte del cierre)"
 assert_grep '"base_ref"' "$SEM/.iamlazy/runs.jsonl" "el log registra contra que base se midio"
@@ -697,25 +738,45 @@ if [ -z "$out" ]; then ok "el aviso de 'sin git' no se repite cada turno"
 else no "el aviso de 'sin git' se repitio (33 veces en la corrida real)"; fi
 
 echo
-echo "token counting — usage blocks are deduplicated by message id"
+echo "costo — los bloques usage se deduplican por message id"
 
+# Regresion: un transcript registra el mismo mensaje varias veces (streaming mas
+# final), asi que sumar los campos de tokens con grep cuenta cada bloque de mas.
+# Medido sobre una corrida real: 1.176.836 reportados contra 561.234 reales, un
+# 2,1x. Ese numero alimenta el circuit breaker y la linea de costo del cierre.
 DEDUP="$(mktmp)"
+mk_prices "$DEDUP"
+PRICES="$DEDUP/.iamlazy/prices.conf"
 {
-  printf '{"type":"assistant","message":{"id":"msg_A","usage":{"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
-  printf '{"type":"assistant","message":{"id":"msg_A","usage":{"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
-  printf '{"type":"assistant","message":{"id":"msg_A","usage":{"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
-  printf '{"type":"assistant","message":{"id":"msg_B","usage":{"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+  printf '{"model":"claude-opus-5","message":{"id":"msg_A","usage":{"input_tokens":0,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+  printf '{"model":"claude-opus-5","message":{"id":"msg_A","usage":{"input_tokens":0,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+  printf '{"model":"claude-opus-5","message":{"id":"msg_A","usage":{"input_tokens":0,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+  printf '{"model":"claude-opus-5","message":{"id":"msg_B","usage":{"input_tokens":0,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
 } > "$DEDUP/t.jsonl"
-got=$(. "$SRC/hooks/lib.sh"; hk_weighted_tokens "$DEDUP/t.jsonl")
-if [ "$got" = "1000" ]; then ok "cuenta un usage por mensaje unico (obtuvo $got)"
-else no "duplicados no deduplicados: esperaba 1000, obtuvo $got"; fi
+# 2 mensajes unicos x 100 tokens de salida x \$25/MTok = 5.000 micro-dolares.
+# Contando las 4 lineas darian 10.000.
+got=$(. "$SRC/hooks/lib.sh"; hk_cost_micro "$DEDUP/t.jsonl" "$PRICES")
+if [ "$got" = "5000" ]; then ok "cuenta un usage por mensaje unico (obtuvo $got)"
+else no "duplicados no deduplicados: esperaba 5000, obtuvo $got"; fi
+gotc=$(. "$SRC/hooks/lib.sh"; hk_token_components "$DEDUP/t.jsonl")
+if [ "$gotc" = "200 0 0" ]; then ok "los componentes crudos tambien deduplican (obtuvo: $gotc)"
+else no "componentes sin deduplicar: esperaba '200 0 0', obtuvo '$gotc'"; fi
 
-printf '{"type":"assistant","message":{"id":"msg_W","usage":{"output_tokens":10,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000}}}\n' > "$DEDUP/w.jsonl"
-gotw=$(. "$SRC/hooks/lib.sh"; hk_weighted_tokens "$DEDUP/w.jsonl")
-if [ "$gotw" = "275" ]; then ok "aplica las ponderaciones (x5/x1.25/x0.1)"
-else no "ponderacion incorrecta: esperaba 275, obtuvo $gotw"; fi
+# El precio depende del MODELO, que es exactamente lo que la unidad ponderada
+# no distinguia: mismos tokens, distinto costo.
+printf '{"model":"claude-sonnet-5","message":{"id":"msg_S","usage":{"input_tokens":0,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' > "$DEDUP/s.jsonl"
+gots=$(. "$SRC/hooks/lib.sh"; hk_cost_micro "$DEDUP/s.jsonl" "$PRICES")
+# 100 x \$10/MTok = 1.000 micro. En opus-5 los mismos 100 tokens valen 2.500.
+if [ "$gots" = "1000" ]; then ok "el mismo token cuesta distinto segun el modelo (sonnet 1000 vs opus 2500)"
+else no "precio por modelo incorrecto: esperaba 1000, obtuvo $gots"; fi
 
-echo
+# Cache: write x1,25 del input, read x0,1 del input.
+printf '{"model":"claude-opus-5","message":{"id":"msg_C","usage":{"input_tokens":1000,"output_tokens":0,"cache_creation_input_tokens":1000,"cache_read_input_tokens":10000}}}\n' > "$DEDUP/c.jsonl"
+gotk=$(. "$SRC/hooks/lib.sh"; hk_cost_micro "$DEDUP/c.jsonl" "$PRICES")
+# 1000x5 + 1000x5x1,25 + 10000x5x0,1 = 5.000 + 6.250 + 5.000 = 16.250 micro
+if [ "$gotk" = "16250" ]; then ok "aplica los multiplicadores de cache (x1,25 write / x0,1 read)"
+else no "multiplicadores de cache incorrectos: esperaba 16250, obtuvo $gotk"; fi
+
 echo "merge-settings — sin parser JSON avisa lo correcto"
 
 # `rc=$?` despues de un `if` lee el estado del `if`, que es 0 cuando corre el

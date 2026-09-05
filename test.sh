@@ -110,6 +110,14 @@ assert_file "$H/.config/opencode/agents/iamlazy.md" "opencode: primary installed
 assert_file "$H/.config/opencode/agents/iamlazy-critic.md" "opencode: critic installed"
 assert_file "$H/.config/opencode/commands/iamlazy.md"      "opencode: command installed"
 assert_file "$H/.iamlazy/DELTAS.md"                 "DELTAS mirror created"
+assert_file "$H/.iamlazy/prices.conf"               "price table installed"
+
+# prices.conf is CONFIG, not a generated mirror. The human edits it when rates
+# change, and an installer that overwrites that edit makes the cost figure
+# quietly wrong -- the exact failure this project keeps paying for.
+printf 'claude-opus-5 99.00 99.00\n' > "$H/.iamlazy/prices.conf"
+HOME="$H" "$SRC/install.sh" --tool=both >/dev/null 2>&1
+assert_grep "99.00" "$H/.iamlazy/prices.conf" "re-install does NOT clobber your edited price table"
 
 # Model projection: the placeholder must be gone and the configured id present.
 . "$SRC/models.conf"
