@@ -39,6 +39,7 @@ cannot bypass:
 | `track-edit.sh` | `PostToolUse` on edit tools | every edit appended to `.iamlazy/journal.md`; the contract's location fixes `project_root` and `base_ref` |
 | `flush-run.sh` | `Stop` | the log line is written, derived, never self-reported; **the scope gate speaks**; **circuit breaker** on cost per changed line |
 | `end-run.sh` | `SessionEnd` | a run that ends without closing is logged as `abandoned`, not lost |
+| `subagent-done.sh` | `SubagentStop` | the review actually returned, and its `findings: H/M/L/I` tally |
 
 `lib.sh` holds the shared helpers; `merge-settings.sh` is installer-only.
 
@@ -109,6 +110,8 @@ justification; an undeclared deviation is an automatic reviewer finding.
   **told so**, naming the file — a gate that blocks in silence is one the model cannot obey. It
   blocks **only when the model claims to be closing**: refusing mid-run turns, where groups are
   open by design, would trap the session where the human cannot intervene.
+- A contract run **cannot close before its review returns**. Every box ticked is necessary and
+  never sufficient — Layer 1 puts review and close *after* the execution that ticks them.
 - iamlazy must not run under a permission bypass — enforced by `open-run.sh` (exit 2).
 - The installer edits **only** its own `hooks` entries in `settings.json`, after a backup and
   with validation; user settings and user hooks are never altered. `uninstall.sh` unregisters
@@ -121,11 +124,13 @@ justification; an undeclared deviation is an automatic reviewer finding.
   decision, validated by mutation and run under both a C and a UTF-8 locale. What is still
   unexercised is a real `/iamlazy` run: the contract, the gate and the review remain correct by
   construction of the prompt.
-- **`decision: block` is documented, not observed.** The hooks reference says Stop honours
-  `{"decision":"block","reason":...}` and that `systemMessage` is top-level. Both the breaker and
-  the scope gate now emit that shape plus stderr plus exit 2, so every documented channel agrees —
-  but which one this build actually surfaces has not been watched in a live run. Verify before
-  trusting the gate to be heard.
+- **Two channels are documented, not observed.** `Stop`'s `{"decision":"block","reason":…}` (the
+  breaker and the scope gate emit it plus `systemMessage` plus stderr plus exit 2, so every
+  documented channel agrees) and `SubagentStop` firing with the parent `session_id` (which
+  `critic_done` and `critic_findings` depend on). Neither fired in the one real run so far. If
+  `SubagentStop` is wrong the close falls back to the CLOSE banner — degraded accuracy, never a
+  stuck run — but those fields stay silently empty. What **is** confirmed is `PreToolUse`'s
+  `permissionDecisionReason`: the sub-agent denial reached the model, which read it and adapted.
 - **The breaker rests on three data points, and the floors carry more weight than the ratio.**
   14,000 weighted tokens per changed line sits ~2x above the worst healthy run and below the lost
   one — but a run has a fixed cost that does not scale with lines, and one healthy run measured
@@ -136,10 +141,11 @@ justification; an undeclared deviation is an automatic reviewer finding.
   removed); the weighted count (~4x); `files_changed`/`lines_changed` (0 on real work whenever a
   run staged or committed). All three were caught by a human refusing a figure that felt wrong,
   never by a test.
-- **`critic_findings` and `gate_verdict` stay underived**, and `runs.jsonl` carries three schema
-  generations (`1` self-reported, `2` derived, `3` adds `base_ref`, `stage_reached`, the
-  `abandoned` outcome and a per-run `human_interventions`). `/iamlazy-review` reports what each
-  line has and never infers across generations.
+- **`gate_verdict` stays underived** (it would come from `ExitPlanMode`, whose payload shape is
+  unconfirmed). `runs.jsonl` carries three schema generations: `1` self-reported, `2` derived, `3`
+  adds `base_ref`, `stage_reached`, `critic_findings`, the `abandoned` outcome and a per-run
+  `human_interventions`. `/iamlazy-review` reports what each line has, never inferring across
+  generations.
 - **Hooks can be switched off.** `disableAllHooks` exists. Layer 0 is proof against forgetting,
   not proof against a decision.
 - **OpenCode has no Layer 0**, no tests, and its conventions are trusted from one machine. It is

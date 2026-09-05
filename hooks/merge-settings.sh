@@ -64,6 +64,7 @@ if mode == "install":
         ("PostToolUse",      "^(Edit|Write|MultiEdit|NotebookEdit)$",   "track-edit.sh"),
         ("Stop",             None,                                      "flush-run.sh"),
         ("SessionEnd",       None,                                      "end-run.sh"),
+        ("SubagentStop",     None,                                      "subagent-done.sh"),
     ]
     for event, matcher, script in spec:
         entry = collections.OrderedDict()

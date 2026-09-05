@@ -34,11 +34,23 @@ contract="${root}/.iamlazy/contract.md"
 base=$(hk_field_file "$TMP" "base_ref")
 ubase=$(hk_untracked_file "$TMP")
 
-# The stage this turn reached, kept so an abandoned run records where it died
-# instead of just that it did. Overwritten every turn; a sidecar file rather
-# than a JSON field so nothing has to rewrite the object in place.
-stage=$(hk_stage "$payload")
-[ -n "$stage" ] && printf '%s' "$stage" > "$(hk_stage_file "$TMP")"
+# The stage this turn reached, kept so a run records where it got to instead of
+# just that it ended. Overwritten every turn; a sidecar file rather than a JSON
+# field so nothing has to rewrite the object in place.
+#
+# Read back from the sidecar, never from this turn's variable. The first real
+# run logged `stage_reached: ""` because it closed on a turn that carried no
+# banner ("the critic is still running"), while the sidecar correctly held
+# EJECUCIÓN from the turn before. hk_flush_abandoned already read the sidecar;
+# this path did not, and the two disagreeing is how the empty value shipped.
+turn_stage=$(hk_stage "$payload")
+[ -n "$turn_stage" ] && printf '%s' "$turn_stage" > "$(hk_stage_file "$TMP")"
+stage=$(cat "$(hk_stage_file "$TMP")" 2>/dev/null)
+
+# Whether the Critic has returned. Recorded by subagent-done.sh on SubagentStop;
+# hk_close_signal refuses to close a contract run before the review lands.
+HK_CRITIC_DONE=$(hk_json_num "$TMP" "critic_done")
+critic_findings=$(cat "$(hk_findings_file "$TMP")" 2>/dev/null)
 
 # --- changed-file accounting (needed by the circuit breaker, so computed first)
 files_changed=""
@@ -189,24 +201,26 @@ if [ -f "${root}/PROJECT.md" ]; then
   fi
 fi
 
-# NOT derived, deliberately: critic_findings and gate_verdict.
-# The Critic's "findings: H/M/L/I" tally lives inside a sub-agent tool result,
-# and a plain grep over the transcript also matches the EXAMPLE in the Critic's
-# own prompt -- verified 2026-08-25, it returned 0/1/3/0 from documentation, not
-# from a review. gate_verdict would come from ExitPlanMode, whose payload shape
-# is unconfirmed. This project already shipped a token count that was wrong in
-# 7 of 7 runs; a field that is absent is honest, a field that is confidently
-# wrong is not. (SubagentStop carries agent_type and last_assistant_message,
-# which would make critic_findings derivable without that false positive --
-# scheduled, not done.)
+# critic_findings now comes from SubagentStop's own last_assistant_message
+# (see subagent-done.sh), which is the Critic's closing text and nothing else --
+# so it does not hit the false positive that blocked this before, where a
+# transcript grep also matched the EXAMPLE inside the Critic's own prompt
+# (verified 2026-08-25: it returned 0/1/3/0 from documentation, not a review).
+# It is empty when the Critic never ran or never emitted a tally, and empty is
+# the honest value there.
+#
+# Still NOT derived: gate_verdict. It would come from ExitPlanMode, whose
+# payload shape is unconfirmed. An absent field is honest; a confidently wrong
+# one is not, and this project already shipped a token count wrong in 7/7 runs.
 
 now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-hk_log_append "$(printf '{"schema_version":3,"timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"tokens_weighted":%s,"project_md":"%s","stage_reached":"%s","close_detected_via":"%s","outcome":"flushed"}' \
+hk_log_append "$(printf '{"schema_version":3,"timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"tokens_weighted":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","outcome":"flushed"}' \
   "$now_iso" "$task_summary" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" \
   "$(hk_json_esc "$root")" "$(hk_json_esc "$base")" \
   "${duration:-null}" "$human_interventions" "${files_changed:-0}" "${lines_changed:-0}" \
-  "${run_tokens:-null}" "$project_md" "$(hk_json_esc "$stage")" "$signal")"
+  "${run_tokens:-null}" "$project_md" "$(hk_json_esc "$stage")" \
+  "$(hk_json_esc "$critic_findings")" "$signal")"
 
 hk_run_clear "$TMP"
 exit 0

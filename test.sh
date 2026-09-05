@@ -48,17 +48,28 @@ trap cleanup EXIT
 
 # ---------------------------------------------------------------- syntax
 echo "syntax"
-for s in install.sh uninstall.sh test.sh test-hooks.sh \
-         hooks/lib.sh hooks/guard-agent.sh hooks/open-run.sh hooks/track-edit.sh \
-         hooks/flush-run.sh hooks/end-run.sh hooks/merge-settings.sh; do
-  if bash -n "$SRC/$s" 2>/dev/null; then ok "$s parses"; else no "$s parses"; fi
+# Globbed, not listed. A list you have to remember to extend is the failure mode
+# this project keeps paying for -- a new hook would simply never be checked.
+for s in "$SRC"/*.sh "$SRC"/hooks/*.sh; do
+  n="$(basename "$s")"
+  if bash -n "$s" 2>/dev/null; then ok "$n parses"; else no "$n parses"; fi
 done
 
 # Every hook has to be executable in the repo, or the installer copies a file
 # that cannot run and the guarantee is silently off.
-for s in hooks/*.sh; do
-  if [ -x "$SRC/$s" ]; then ok "$(basename "$s") is executable"
-  else no "$(basename "$s") is not executable"; fi
+for s in "$SRC"/hooks/*.sh; do
+  n="$(basename "$s")"
+  if [ -x "$s" ]; then ok "$n is executable"; else no "$n is not executable"; fi
+done
+
+# Every hook the installer copies must also be registered by merge-settings.sh,
+# or it lands on disk and never runs. lib.sh and the installer helper are the
+# only two that are sourced rather than registered.
+for s in "$SRC"/hooks/*.sh; do
+  n="$(basename "$s")"
+  case "$n" in lib.sh|merge-settings.sh) continue ;; esac
+  if grep -q "\"$n\"" "$SRC/hooks/merge-settings.sh"; then ok "$n is registered by the installer"
+  else no "$n is installed but never registered (a file, not a guarantee)"; fi
 done
 
 # ------------------------------------------------------- source invariants
@@ -227,6 +238,7 @@ HOME="$H5" "$SRC/install.sh" --tool=claude >/dev/null 2>&1
 assert_file "$H5/.claude/iamlazy-hooks/guard-agent.sh"   "hooks: guard installed"
 assert_file "$H5/.claude/iamlazy-hooks/flush-run.sh"     "hooks: flush installed"
 assert_file "$H5/.claude/iamlazy-hooks/end-run.sh"       "hooks: session-end installed"
+assert_file "$H5/.claude/iamlazy-hooks/subagent-done.sh" "hooks: subagent-done installed"
 assert_file "$H5/.claude/iamlazy-hooks/merge-settings.sh" "hooks: merge helper installed"
 if [ -x "$H5/.claude/iamlazy-hooks/guard-agent.sh" ]; then ok "hooks are executable"
 else no "hooks are executable"; fi
@@ -237,6 +249,7 @@ assert_grep "iamlazy-hooks/guard-agent.sh" "$H5/.claude/settings.json" "register
 assert_grep "iamlazy-hooks/track-edit.sh"  "$H5/.claude/settings.json" "registered: PostToolUse"
 assert_grep "iamlazy-hooks/flush-run.sh"   "$H5/.claude/settings.json" "registered: Stop"
 assert_grep "iamlazy-hooks/end-run.sh"     "$H5/.claude/settings.json" "registered: SessionEnd"
+assert_grep "iamlazy-hooks/subagent-done.sh" "$H5/.claude/settings.json" "registered: SubagentStop"
 # Matchers are anchored: a bare `Agent|Task` also fires on TaskOutput/TaskStop,
 # and `Edit|Write` on NotebookEdit. The edit matcher is widened on purpose --
 # an edit the trace never sees is a hole in Guarantee 3.

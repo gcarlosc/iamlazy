@@ -83,13 +83,48 @@ error directions are not symmetric: a pattern that fails to match produces a **f
 which is now loud and recoverable, while over-matching produces a **silent scope hole**. When in
 doubt, fail loudly.
 
+## The first real run, and the thing no fixture could have found
+
+`git-diff-viewer`, 2026-09-05, the first `/iamlazy` run against the reworked Layer 0. It worked:
+the sub-agent guard denied an `Explore` spawn and **the model read the denial and adapted in the
+same turn** ("el harness no me deja delegar — exploro yo mismo en este hilo"), the journal
+accumulated six edits plus the model's own design decision, every change landed inside the
+declared `## Scope`, and accounting against `base_ref` reported 2 files / 66 lines correctly.
+
+It also closed 17 seconds too early:
+
+```
+06:50:30  contract.md written with its one group ticked  - [x]
+06:50:44  iamlazy-critic spawned — in the BACKGROUND, so the turn ended
+06:51:01  Stop: contract complete, no scope violations → RUN CLOSED
+```
+
+The review was still executing. The log recorded `outcome: flushed`,
+`close_detected_via: contract` for a task whose CLOSE stage never happened. Nothing lied — "every
+box is ticked" was true. It was never *sufficient*, and Layer 1 has always said so: review is
+section 6, close is section 7, both after the execution that ticks the boxes. Layer 0's close
+signal and Layer 1's flow had simply never been read against each other.
+
+This is the same Layer 0 / Layer 1 disconnect recorded twice before (the `A5` banner, then the
+locale). Three occurrences of one shape: **the two layers are written separately and nothing
+checks that they agree.** The close signal now requires the Critic to have returned, with the
+CLOSE banner as a fallback so an event that never arrives cannot strand a run.
+
+The same run exposed a smaller one: `stage_reached` logged as `""`. The closing turn carried no
+banner, and the flush read the turn's variable instead of the sidecar that had accumulated
+`EJECUCIÓN`. `hk_flush_abandoned` read the sidecar correctly; the normal close did not. Two paths
+that should agree, disagreeing — the same shape again, one layer down.
+
+Cost, for the record: 596,757 weighted tokens over 66 changed lines — 9,042 per line, above the
+3,000–5,500 band and below the 14,000 threshold, and excluding the Critic, which lives in its own
+transcript. The breaker never fired, so it remains unexercised in production.
+
 ## What was deliberately not done
 
-- **`critic_findings` derivation.** `SubagentStop` carries `agent_type` and
-  `last_assistant_message`, which removes the false positive that blocked this (a transcript grep
-  matching the example inside the Critic's own prompt). Scheduled, not done.
 - **A `PreToolUse` guard on the Critic's Bash.** Now possible, since hooks receive `agent_type`
   inside sub-agents. Still deferred.
+- **Counting the Critic's tokens.** Sub-agent transcripts live under `<session>/subagents/`, so
+  `tokens_weighted` still measures the main thread only and understates every reviewed run.
 - **Denying edits in a project with no git.** The warning is now emitted once instead of on every
   turn; turning it into a refusal is a behaviour change worth its own decision.
 - **Thresholds in a config file.** The breaker's numbers stay hardcoded, so recalibration still

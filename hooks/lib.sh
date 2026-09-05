@@ -15,6 +15,9 @@ HK_LEGACY_TMP="${HK_DIR}/run.tmp.json"
 # Set by hk_guard to THIS session's run file. Empty until then.
 HK_RUN_TMP=""
 
+# Set by the caller before hk_close_signal: "1" when the Critic has returned.
+HK_CRITIC_DONE=""
+
 # Git's empty-tree hash. The base_ref for a repository with no commits yet, so
 # a greenfield run still has something to diff against.
 HK_EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -100,10 +103,12 @@ hk_run_file() {
 hk_untracked_file() { printf '%s.untracked' "${1%.json}"; }
 hk_gate_file()      { printf '%s.gate' "${1%.json}"; }
 hk_stage_file()     { printf '%s.stage' "${1%.json}"; }
+hk_findings_file()  { printf '%s.findings' "${1%.json}"; }
 
 # hk_run_clear <run_file> -> remove a run and all of its sidecars.
 hk_run_clear() {
-  rm -f "$1" "$(hk_untracked_file "$1")" "$(hk_gate_file "$1")" "$(hk_stage_file "$1")"
+  rm -f "$1" "$(hk_untracked_file "$1")" "$(hk_gate_file "$1")" \
+        "$(hk_stage_file "$1")" "$(hk_findings_file "$1")"
 }
 
 # hk_guard <payload> -> 0 when THIS session has an active run, 1 otherwise.
@@ -367,11 +372,29 @@ hk_has_close_banner() {
 # on its very first turn and closed immediately -- logging a run that had done
 # nothing, under the previous task's summary. A contract on disk is not this
 # run's contract until this run writes it.
+#
+# It also requires that the run be past its REVIEW: either the Critic has
+# returned (`critic_done`, set by subagent-done.sh) or the turn carries the
+# CLOSE banner. Found on the first real run of the reworked harness -- the model
+# ticked its group, spawned the Critic in the background, and its turn ended;
+# 17 seconds later this function said "every box is ticked, nothing is out of
+# scope" and closed a run whose review was still executing. Every box ticked is
+# necessary and was never sufficient: Layer 1 puts review and close AFTER the
+# execution that ticks them.
+#
+# The `or` is load-bearing, not belt-and-braces. Whether this build emits
+# SubagentStop, and whether its payload carries the parent session_id, are
+# unverified. If either is wrong, `critic_done` never arrives -- and without
+# the banner alternative every run would hang open until the 24h sweep called
+# it abandoned. A guard whose failure mode is worse than the bug is not a guard.
 hk_close_signal() {
   local payload contract root base basefile
   payload="$1"; contract="$2"; root="$3"; base="$4"; basefile="$5"
   if [ -f "$contract" ] && [ -n "$base" ]; then
     [ -n "$(hk_close_blockers "$root" "$contract" "$base" "$basefile")" ] && return 1
+    if [ "$HK_CRITIC_DONE" != "1" ] && ! hk_has_close_banner "$payload"; then
+      return 1
+    fi
     echo "contract"; return 0
   fi
   if hk_has_close_banner "$payload"; then

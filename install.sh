@@ -16,7 +16,7 @@ CC_HOOK_DIR="${HOME}/.claude/iamlazy-hooks"
 # Files that make up the payload (relative to the repo root).
 PAYLOAD="core/iamlazy.md core/iamlazy-review.md critic/iamlazy-critic.md \
 hooks/lib.sh hooks/guard-agent.sh hooks/open-run.sh hooks/track-edit.sh hooks/flush-run.sh \
-hooks/end-run.sh hooks/merge-settings.sh \
+hooks/end-run.sh hooks/subagent-done.sh hooks/merge-settings.sh \
 templates/claude-code/command-iamlazy.frontmatter \
 templates/claude-code/command-review.frontmatter \
 templates/claude-code/agent-critic.frontmatter \
@@ -105,7 +105,7 @@ install_opencode() {
 
 install_hooks() {
   mkdir -p "$CC_HOOK_DIR"
-  for h in lib.sh guard-agent.sh open-run.sh track-edit.sh flush-run.sh end-run.sh merge-settings.sh; do
+  for h in lib.sh guard-agent.sh open-run.sh track-edit.sh flush-run.sh end-run.sh subagent-done.sh merge-settings.sh; do
     if [ -f "$SRC/hooks/$h" ]; then
       cp "$SRC/hooks/$h" "$CC_HOOK_DIR/$h"
       chmod +x "$CC_HOOK_DIR/$h"
@@ -131,6 +131,7 @@ print_hook_block() {
     - every edit is traced to .iamlazy/journal.md
     - a run cannot close with a file outside its declared Scope, and is TOLD so
     - a run that ends without closing is logged as abandoned, not lost
+    - a contract run cannot close before its review has come back
     - the harness refuses to start under a permission bypass
     - a run burning tokens without progress gets stopped and told to re-plan
   Run state is per SESSION, under ~/.iamlazy/active/ -- an open run in one
@@ -161,6 +162,9 @@ EOF
     ],
     "SessionEnd": [
       { "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/end-run.sh" } ] }
+    ],
+    "SubagentStop": [
+      { "hooks": [ { "type": "command", "command": "$CC_HOOK_DIR/subagent-done.sh" } ] }
     ]
   }
 EOF

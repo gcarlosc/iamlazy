@@ -54,11 +54,16 @@ stop_payload() { # $1 cwd  $2 message  [$3 sid]  [$4 transcript]
   printf '{"hook_event_name":"Stop","stop_hook_active":false,"session_id":"%s","transcript_path":"%s","cwd":"%s","last_assistant_message":"%s"}' \
     "${3:-sid-x}" "${4:-/x.jsonl}" "$1" "$2"
 }
+CLOSE_MSG='── CIERRE · claude-opus-5 · high ──'
 run_flush() { printf '%s' "$2" | HOME="$1" "$SRC/hooks/flush-run.sh" 2>/dev/null; }
 flush_rc()  { printf '%s' "$2" | HOME="$1" "$SRC/hooks/flush-run.sh" >/dev/null 2>&1; echo "$?"; }
 run_track() { printf '%s' "$2" | HOME="$1" "$SRC/hooks/track-edit.sh" 2>/dev/null; }
 run_open()  { printf '%s' "$2" | HOME="$1" "$SRC/hooks/open-run.sh" 2>/dev/null; }
 run_end()   { printf '%s' "$2" | HOME="$1" "$SRC/hooks/end-run.sh" 2>/dev/null; }
+run_subagent() { printf '%s' "$2" | HOME="$1" "$SRC/hooks/subagent-done.sh" 2>/dev/null; }
+critic_stop() { # $1 sid  $2 last_assistant_message
+  printf '{"hook_event_name":"SubagentStop","session_id":"%s","agent_id":"ag_1","agent_type":"iamlazy-critic","last_assistant_message":"%s"}' "$1" "$2"
+}
 run_guard() { printf '%s' "$2" | HOME="$1" "$SRC/hooks/guard-agent.sh" 2>/dev/null; }
 
 assert_deny() {
@@ -91,7 +96,7 @@ IDLE="$(mktmp)"
 
 echo "sintaxis"
 for s in hooks/lib.sh hooks/guard-agent.sh hooks/open-run.sh hooks/track-edit.sh \
-         hooks/flush-run.sh hooks/end-run.sh test-hooks.sh; do
+         hooks/flush-run.sh hooks/end-run.sh hooks/subagent-done.sh test-hooks.sh; do
   if bash -n "$SRC/$s" 2>/dev/null; then ok "$s parsea"; else no "$s parsea"; fi
 done
 
@@ -239,7 +244,7 @@ printf '## Grupos\n- [x] grupo 1\n- [ ] grupo 2\n' > "$CONTRACT_DIR/.iamlazy/con
 run_flush "$CONTRACT_DIR" "$(stop_payload "$CONTRACT_DIR" 'grupo 1 listo')" >/dev/null
 if [ -f "$(runfile "$CONTRACT_DIR")" ]; then ok "contrato con grupo pendiente no vuelca"; else no "contrato con grupo pendiente no debia volcar"; fi
 printf '## Grupos\n- [x] grupo 1\n- [x] grupo 2\n' > "$CONTRACT_DIR/.iamlazy/contract.md"
-run_flush "$CONTRACT_DIR" "$(stop_payload "$CONTRACT_DIR" 'listo')" >/dev/null
+run_flush "$CONTRACT_DIR" "$(stop_payload "$CONTRACT_DIR" "$CLOSE_MSG")" >/dev/null
 assert_absent "$(runfile "$CONTRACT_DIR")" "todos los grupos resueltos cierra"
 assert_grep '"close_detected_via":"contract"' "$CONTRACT_DIR/.iamlazy/runs.jsonl" "cierre via contrato queda registrado"
 
@@ -353,7 +358,7 @@ printf '## Grupos\n- [x] g1\n## Scope\n- src/*\n' > "$SCOPE_DIR/.iamlazy/contrac
 open_run "$SCOPE_DIR" "$SCOPE_DIR" 5
 set_base "$SCOPE_DIR" "sid-x" "$SCOPE_DIR"
 echo cambio >> "$SCOPE_DIR/src/a.ts"
-run_flush "$SCOPE_DIR" "$(stop_payload "$SCOPE_DIR" 'listo')" >/dev/null
+run_flush "$SCOPE_DIR" "$(stop_payload "$SCOPE_DIR" "$CLOSE_MSG")" >/dev/null
 assert_absent "$(runfile "$SCOPE_DIR")" "cambio dentro del Scope declarado cierra"
 
 # El orden importa y refleja el real: la base se toma al escribir el contrato,
@@ -362,11 +367,11 @@ assert_absent "$(runfile "$SCOPE_DIR")" "cambio dentro del Scope declarado cierr
 open_run "$SCOPE_DIR" "$SCOPE_DIR" 5
 set_base "$SCOPE_DIR" "sid-x" "$SCOPE_DIR"
 echo fuera > "$SCOPE_DIR/otra_cosa.ts"
-run_flush "$SCOPE_DIR" "$(stop_payload "$SCOPE_DIR" 'listo')" >/dev/null
+run_flush "$SCOPE_DIR" "$(stop_payload "$SCOPE_DIR" "$CLOSE_MSG")" >/dev/null
 if [ -f "$(runfile "$SCOPE_DIR")" ]; then ok "archivo fuera del Scope declarado detiene el cierre"; else no "un desvio no declarado cerro igual (deberia frenar)"; fi
 
 printf '## Grupos\n- [x] g1\n## Scope\n- src/*\n- otra_cosa.ts\n' > "$SCOPE_DIR/.iamlazy/contract.md"
-run_flush "$SCOPE_DIR" "$(stop_payload "$SCOPE_DIR" 'listo')" >/dev/null
+run_flush "$SCOPE_DIR" "$(stop_payload "$SCOPE_DIR" "$CLOSE_MSG")" >/dev/null
 assert_absent "$(runfile "$SCOPE_DIR")" "declarar el desvio en Scope desbloquea el cierre"
 
 UNSCOPED_DIR="$(mkrepo)"
@@ -375,7 +380,7 @@ mkdir -p "$UNSCOPED_DIR/.iamlazy"
 printf '## Grupos\n- [x] g1\n' > "$UNSCOPED_DIR/.iamlazy/contract.md"
 open_run "$UNSCOPED_DIR" "$UNSCOPED_DIR" 5
 set_base "$UNSCOPED_DIR" "sid-x" "$UNSCOPED_DIR"
-run_flush "$UNSCOPED_DIR" "$(stop_payload "$UNSCOPED_DIR" 'listo')" >/dev/null
+run_flush "$UNSCOPED_DIR" "$(stop_payload "$UNSCOPED_DIR" "$CLOSE_MSG")" >/dev/null
 assert_absent "$(runfile "$UNSCOPED_DIR")" "sin seccion Scope declarada, el cierre no se bloquea (unscoped != violacion)"
 
 echo
@@ -391,7 +396,7 @@ for variant in '- `src/*`' '- src/' '- src/  '; do
   open_run "$PAT" "$PAT" 5
   set_base "$PAT" "sid-x" "$PAT"
   echo cambio >> "$PAT/src/a.ts"
-  run_flush "$PAT" "$(stop_payload "$PAT" 'listo')" >/dev/null
+  run_flush "$PAT" "$(stop_payload "$PAT" "$CLOSE_MSG")" >/dev/null
   assert_absent "$(runfile "$PAT")" "patron '$variant' cubre src/a.ts"
 done
 
@@ -441,6 +446,64 @@ if [ "$rc" = "0" ]; then ok "a mitad de corrida el gate NO bloquea el turno"
 else no "el gate bloqueo un turno intermedio (rc=$rc): la sesion queda en una cinta sin fin"; fi
 
 echo
+echo "la corrida no cierra antes de que vuelva la revision"
+
+# Reproduce la primera corrida real del harness reformado (git-diff-viewer,
+# 2026-09-05), al segundo:
+#   06:50:30  contract.md escrito con su grupo en - [x]
+#   06:50:44  iamlazy-critic lanzado en BACKGROUND -> el turno termino
+#   06:51:01  Stop: contrato completo, sin violaciones -> CERRO LA CORRIDA
+# La revision seguia corriendo. El log declaro `outcome: flushed` para una
+# tarea cuya revision nunca llego y cuya etapa CIERRE nunca ocurrio.
+REV="$(mkrepo)"
+mkdir -p "$REV/src" "$REV/.iamlazy"
+echo base > "$REV/src/a.ts"; git -C "$REV" add -A; git -C "$REV" commit -q -m init
+printf '# Task\nmaximizar el diff\n## Scope\n- src/*\n## Groups\n- [x] toggle\n' > "$REV/.iamlazy/contract.md"
+open_run "$REV" "$REV" 5
+set_base "$REV" "sid-x" "$REV"
+echo cambio >> "$REV/src/a.ts"
+
+run_flush "$REV" "$(stop_payload "$REV" 'El critic sigue corriendo en background. Aviso al usuario y quedo a la espera.')" >/dev/null
+if [ -f "$(runfile "$REV")" ]; then ok "con el critic todavia corriendo, la corrida NO cierra"
+else no "cerro con la revision en vuelo (el log mentiria: flushed sin review)"; fi
+
+# La etapa se acumula en el sidecar, no en el turno que cierra.
+run_flush "$REV" "$(stop_payload "$REV" '── EJECUCIÓN · claude-opus-5 · high ──\nsigo')" >/dev/null
+
+run_subagent "$REV" "$(critic_stop sid-x 'Revise adversarialmente ReviewView.tsx. findings: 0/2/1/0')"
+assert_grep '"critic_done":1' "$(runfile "$REV")" "SubagentStop del critic marca la revision como hecha"
+assert_grep '0/2/1/0' "$REV/.iamlazy/active/sid-x.findings" "el tally del critic se deriva de su propio mensaje final"
+
+run_flush "$REV" "$(stop_payload "$REV" 'reporte de entrega, sin banner')" >/dev/null
+assert_absent "$(runfile "$REV")" "con la revision devuelta, la corrida ya puede cerrar"
+assert_grep '"critic_findings":"0/2/1/0"' "$REV/.iamlazy/runs.jsonl" "critic_findings llega al log"
+# stage_reached salio vacio en la corrida real: el turno de cierre no tenia
+# banner y el flush usaba la variable del turno en vez del sidecar acumulado.
+assert_grep '"stage_reached":"EJECUCIÓN"' "$REV/.iamlazy/runs.jsonl" "stage_reached sale del sidecar, no del turno que cierra"
+
+# El respaldo importa tanto como el guard: si este build no emite SubagentStop,
+# o su payload no trae el session_id del padre, `critic_done` no llega nunca --
+# y sin esta salida toda corrida quedaria abierta hasta el barrido de 24h.
+FB="$(mkrepo)"
+mkdir -p "$FB/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$FB/.iamlazy/contract.md"
+open_run "$FB" "$FB" 5
+set_base "$FB" "sid-x" "$FB"
+run_flush "$FB" "$(stop_payload "$FB" "$CLOSE_MSG")" >/dev/null
+assert_absent "$(runfile "$FB")" "sin SubagentStop, el banner de CIERRE sigue cerrando (respaldo)"
+
+# Un sub-agente que no es el critic no cuenta como revision.
+NC="$(mkrepo)"
+mkdir -p "$NC/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$NC/.iamlazy/contract.md"
+open_run "$NC" "$NC" 5
+set_base "$NC" "sid-x" "$NC"
+run_subagent "$NC" '{"hook_event_name":"SubagentStop","session_id":"sid-x","agent_type":"Explore","last_assistant_message":"findings: 9/9/9/9"}'
+run_flush "$NC" "$(stop_payload "$NC" 'termine')" >/dev/null
+if [ -f "$(runfile "$NC")" ]; then ok "otro sub-agente no cuenta como la revision"
+else no "un sub-agente cualquiera destrabo el cierre"; fi
+
+echo
 echo "guarantee 6 — never under a permission bypass"
 
 BYPASS_DIR="$(mktmp)"
@@ -482,17 +545,17 @@ printf '## Groups\n- [x] g1\n' > "$CB/.iamlazy/contract.md"
 printf 'x\n%.0s' $(seq 1 3400) > "$CB/big.txt"
 mk_transcript "$CB" 1400000
 open_run_tok "$CB" "$CB"; set_base "$CB" "s" "$CB"; rm -f "$CB/.iamlazy/active/s.untracked"
-if [ "$(flush_rc "$CB" "$(stop_payload "$CB" 'ok' s "$CB/t.jsonl")")" = "2" ]; then no "un run sano (~3.7k tok/linea) no debe disparar"; else ok "un run sano (~3.7k tok/linea) no dispara"; fi
+if [ "$(flush_rc "$CB" "$(stop_payload "$CB" "$CLOSE_MSG" s "$CB/t.jsonl")")" = "2" ]; then no "un run sano (~3.7k tok/linea) no debe disparar"; else ok "un run sano (~3.7k tok/linea) no dispara"; fi
 
 # The lost run: 230 lines, 4.8M weighted -> ~20k per line.
 rm -f "$CB/big.txt"
 printf 'x\n%.0s' $(seq 1 230) > "$CB/small.txt"
 mk_transcript "$CB" 4800000
 open_run_tok "$CB" "$CB"; set_base "$CB" "s" "$CB"; rm -f "$CB/.iamlazy/active/s.untracked"
-if [ "$(flush_rc "$CB" "$(stop_payload "$CB" 'ok' s "$CB/t.jsonl")")" = "2" ]; then ok "el run perdido (~20k tok/linea) dispara el breaker"; else no "el run perdido debia disparar el breaker"; fi
+if [ "$(flush_rc "$CB" "$(stop_payload "$CB" "$CLOSE_MSG" s "$CB/t.jsonl")")" = "2" ]; then ok "el run perdido (~20k tok/linea) dispara el breaker"; else no "el run perdido debia disparar el breaker"; fi
 assert_grep '"drift_warned":1' "$(runfile "$CB" s)" "el aviso queda marcado en el run"
 
-if [ "$(flush_rc "$CB" "$(stop_payload "$CB" 'ok' s "$CB/t.jsonl")")" = "2" ]; then no "el breaker no debe repetir el aviso"; else ok "el breaker avisa una sola vez"; fi
+if [ "$(flush_rc "$CB" "$(stop_payload "$CB" "$CLOSE_MSG" s "$CB/t.jsonl")")" = "2" ]; then no "el breaker no debe repetir el aviso"; else ok "el breaker avisa una sola vez"; fi
 assert_absent "$(runfile "$CB" s)" "tras avisar, el cierre sigue siendo posible"
 assert_grep '"tokens_weighted":4800000' "$CB/.iamlazy/runs.jsonl" "tokens_weighted (delta del run) llega al log"
 
@@ -500,7 +563,7 @@ CB2="$(mkrepo)"
 printf 'x\n%.0s' $(seq 1 10) > "$CB2/tiny.txt"
 mk_transcript "$CB2" 1200000
 open_run_tok "$CB2" "$CB2"; set_base "$CB2" "s" "$CB2"; rm -f "$CB2/.iamlazy/active/s.untracked"
-if [ "$(flush_rc "$CB2" "$(stop_payload "$CB2" 'ok' s "$CB2/t.jsonl")")" = "2" ]; then no "con 10 lineas el ratio es ruido, no debe disparar"; else ok "bajo el piso de lineas no dispara (analisis temprano)"; fi
+if [ "$(flush_rc "$CB2" "$(stop_payload "$CB2" "$CLOSE_MSG" s "$CB2/t.jsonl")")" = "2" ]; then no "con 10 lineas el ratio es ruido, no debe disparar"; else ok "bajo el piso de lineas no dispara (analisis temprano)"; fi
 
 # El delta importa: una SEGUNDA corrida en la misma sesion no debe heredar el
 # costo de la primera.
@@ -511,7 +574,7 @@ mkdir -p "$CB3/.iamlazy/active"
 printf '{"schema_version":3,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_tokens":4400000,"start_interventions":0,"outcome":"incomplete"}' \
   "$CB3/t.jsonl" "$CB3" "$(date +%s)" > "$(runfile "$CB3" s)"
 set_base "$CB3" "s" "$CB3"; rm -f "$CB3/.iamlazy/active/s.untracked"
-if [ "$(flush_rc "$CB3" "$(stop_payload "$CB3" 'ok' s "$CB3/t.jsonl")")" = "2" ]; then no "una 2da corrida no debe heredar el costo de la 1ra (usar delta)"; else ok "el breaker mide el DELTA de la corrida, no el total de sesion"; fi
+if [ "$(flush_rc "$CB3" "$(stop_payload "$CB3" "$CLOSE_MSG" s "$CB3/t.jsonl")")" = "2" ]; then no "una 2da corrida no debe heredar el costo de la 1ra (usar delta)"; else ok "el breaker mide el DELTA de la corrida, no el total de sesion"; fi
 
 echo
 echo "guarantee 2 — derived semantic fields"
@@ -529,7 +592,7 @@ printf '{"schema_version":3,"session_id":"s","transcript_path":"%s","cwd":"%s","
 set_base "$SEM" "s" "$SEM"
 echo x > "$SEM/src/a.rb"
 echo c >> "$SEM/PROJECT.md"
-run_flush "$SEM" "$(stop_payload "$SEM" 'ok' s "$SEMT/t.jsonl")" >/dev/null
+run_flush "$SEM" "$(stop_payload "$SEM" "$CLOSE_MSG" s "$SEMT/t.jsonl")" >/dev/null
 assert_grep '"task_summary":"Add rate limiting to the \\"login\\" endpoint"' "$SEM/.iamlazy/runs.jsonl" \
   "task_summary derivado del contrato, con las comillas ESCAPADAS (no borradas)"
 assert_grep '"project_md":"updated"' "$SEM/.iamlazy/runs.jsonl" "project_md derivado del diff"
@@ -579,7 +642,7 @@ fi
 
 printf '## Groups\n- [x] g1\n' > "$PROJ/.iamlazy/contract.md"
 printf 'x\n%.0s' $(seq 1 30) > "$PROJ/src/a.py"
-run_flush "$SESS" "$(stop_payload "$SESS" 'listo' s)" >/dev/null
+run_flush "$SESS" "$(stop_payload "$SESS" "$CLOSE_MSG" s)" >/dev/null
 assert_absent "$(runfile "$SESS" s)" "el cierre encuentra el contrato en el proyecto"
 assert_grep '"lines_changed":30' "$SESS/.iamlazy/runs.jsonl" "las lineas se cuentan del proyecto, no del cwd"
 
@@ -618,7 +681,7 @@ open_run "$NOGIT" "$NOGIT" 5
 # Sin git, hk_set_base igual fija base_ref: cae al hash del arbol vacio. Es lo
 # que hace track-edit.sh al escribir el contrato, con o sin repositorio.
 set_base "$NOGIT" "sid-x" "$NOGIT"
-out=$(run_flush "$NOGIT" "$(stop_payload "$NOGIT" 'ok')")
+out=$(run_flush "$NOGIT" "$(stop_payload "$NOGIT" "$CLOSE_MSG")")
 case "$out" in
   *"no es un repositorio git"*) ok "un proyecto sin git avisa que las garantias estan degradadas" ;;
   *) no "un proyecto sin git debe avisar (obtuvo: ${out:-<vacio>})" ;;
