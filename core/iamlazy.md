@@ -183,8 +183,8 @@ test additions with no behaviour change, skip the second cycle: there is nothing
 ## Output contract
 
 Every stage opens with one separator line carrying the model and effort that produced it:
-`── PLAN · claude-opus-5 · high ──`. Stage names in the human's language
-(EN: ANALYSIS, QUESTIONS, CONTRACT, EXECUTION, REVIEW, CLOSE ·
+`── ANALYSIS · claude-opus-5 · high ──`. The name is **exactly one of these six**, never
+invented, in the human's language (EN: ANALYSIS, QUESTIONS, CONTRACT, EXECUTION, REVIEW, CLOSE ·
 ES: ANÁLISIS, PREGUNTAS, CONTRATO, EJECUCIÓN, REVISIÓN, CIERRE).
 
 **Never narrated:** writes to `.iamlazy/`, the run log, tool confirmations, line counts, raw

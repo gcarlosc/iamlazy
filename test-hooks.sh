@@ -104,6 +104,17 @@ mkrepo() { # -> a git repo with one commit
 ACTIVE="$(mktmp)"; open_run "$ACTIVE" "$ACTIVE" 30
 IDLE="$(mktmp)"
 
+# Discovered, not assumed. test.sh exports this when it drives the suite, but
+# run standalone we have to find it ourselves -- and asking for a locale the
+# system lacks makes bash fall back to C without failing, which would test the
+# C locale twice and report it as two.
+if [ -z "${UTF8_LOCALE:-}" ]; then
+  UTF8_LOCALE=""
+  for cand in en_US.UTF-8 C.UTF-8 en_US.utf8 C.utf8; do
+    if locale -a 2>/dev/null | grep -qix "$cand"; then UTF8_LOCALE="$cand"; break; fi
+  done
+fi
+
 echo "sintaxis"
 for s in hooks/lib.sh hooks/guard-agent.sh hooks/open-run.sh hooks/track-edit.sh \
          hooks/flush-run.sh hooks/end-run.sh hooks/subagent-done.sh test-hooks.sh; do
@@ -702,6 +713,98 @@ for loc in C en_US.UTF-8; do
   LC_ALL="$loc" run_flush "$BAN" "$(stop_payload "$BAN" '── CIERRE · claude-opus-5 · high ──')" >/dev/null
   assert_absent "$(runfile "$BAN")" "[$loc] el banner real si cierra"
 done
+
+echo
+echo "acuerdo Layer 0 / Layer 1 — el vocabulario de etapas es UNO solo"
+
+# Esto es lo unico en la suite que lee las DOS capas y las compara.
+#
+# El mismo defecto aparecio tres veces y cada vez se arreglo el caso puntual,
+# nunca el generador:
+#   - el prompt dejo de emitir `A5`, la regex seguia buscandolo: camino de
+#     cierre muerto durante una corrida entera
+#   - la regex usaba bytes escapados (\xe2\x94\x80), que BSD grep ignora bajo
+#     locale UTF-8: muerto en produccion, verde en el locale C de CI
+#   - el ejemplo del propio prompt usaba `PLAN`, una etapa que su lista no
+#     define, y el modelo copio el ejemplo
+#
+# El vocabulario es extraible de los dos lados, asi que por la regla del propio
+# proyecto esto no va en prosa: va en un comando.
+
+# TODO sale del PROMPT: el separador, las etapas, Y cual de ellas es el cierre.
+#
+# La primera version de este bloque extraia las etapas del prompt y despues
+# comparaba contra un `case CLOSE|CIERRE)` escrito aca. Verificacion por
+# mutacion: renombrar CIERRE en el prompt sin tocar los hooks NO fallaba, y
+# hacer que REVIEW cerrara tampoco. El test tenia exactamente la enfermedad que
+# vino a curar -- una copia local del vocabulario probando que coincide consigo
+# misma. La etapa de cierre se deriva por POSICION: es la ultima de cada lista,
+# porque el orden del prompt es el orden de sus secciones y cerrar es la ultima.
+PROMPT="$SRC/core/iamlazy.md"
+PROMPT_BANNER="$(grep -o '`──[^`]*──`' "$PROMPT" | head -1 | tr -d '`')"
+SEP="$(printf '%s' "$PROMPT_BANNER" | grep -o '^[^ ]*')"
+
+stage_list() { # $1 sed-expr -> una etapa por linea, en orden
+  sed -n "$1" "$PROMPT" \
+    | tr ',' '\n' \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+    | grep -v '^$'
+}
+EN_STAGES="$(stage_list 's/.*(EN: *\([^·]*\)·.*/\1/p')"
+ES_STAGES="$(stage_list 's/^ES: *\([^)]*\)).*/\1/p')"
+STAGES="$(printf '%s\n%s\n' "$EN_STAGES" "$ES_STAGES")"
+EN_CLOSE="$(printf '%s\n' "$EN_STAGES" | tail -1)"
+ES_CLOSE="$(printf '%s\n' "$ES_STAGES" | tail -1)"
+
+banner_for() { printf '%s %s · claude-opus-5 · high %s' "$SEP" "$1" "$SEP"; }
+
+# Guardias contra el test vacio: si el prompt se reformatea y la extraccion deja
+# de encontrar nada, los bucles corren cero veces y la suite pasaria sin haber
+# probado nada. Un test que se apaga solo es peor que no tenerlo.
+n_en="$(printf '%s\n' "$EN_STAGES" | grep -c .)"
+n_es="$(printf '%s\n' "$ES_STAGES" | grep -c .)"
+if [ "$n_en" -ge 2 ] && [ "$n_es" -ge 2 ]; then ok "el prompt declara su vocabulario de etapas ($n_en EN / $n_es ES)"
+else no "no se pudieron extraer las etapas del prompt (EN=$n_en ES=$n_es): el resto de este bloque seria vacio"; fi
+# Una traduccion que se perdio es un desacuerdo tambien.
+if [ "$n_en" = "$n_es" ]; then ok "las dos listas de etapas tienen el mismo largo"
+else no "las listas de etapas no coinciden en largo (EN=$n_en ES=$n_es): falta una traduccion"; fi
+if [ -n "$SEP" ]; then ok "el separador del banner sale del prompt ('$SEP')"
+else no "no se pudo extraer el separador del banner del prompt"; fi
+if [ -n "$EN_CLOSE" ] && [ -n "$ES_CLOSE" ]; then ok "la etapa de cierre se deriva del prompt ($EN_CLOSE / $ES_CLOSE)"
+else no "no se pudo derivar la etapa de cierre del prompt"; fi
+
+for loc in C ${UTF8_LOCALE:-C}; do
+  for st in $STAGES; do
+    b="$(banner_for "$st")"
+    got="$(LC_ALL="$loc" bash -c '. "'"$SRC"'/hooks/lib.sh"; hk_stage "$1"' _ "$b")"
+    if [ "$got" = "$st" ]; then ok "[$loc] hk_stage reconoce $st"
+    else no "[$loc] hk_stage no reconoce $st (obtuvo '${got:-<vacio>}')"; fi
+
+    # Solo la ultima etapa de cada lista cierra. Que REVIEW o EJECUCIÓN
+    # dispararan el cierre volveria a producir el bug de ayer por otro camino.
+    if LC_ALL="$loc" bash -c '. "'"$SRC"'/hooks/lib.sh"; hk_has_close_banner "$1"' _ "$b"; then
+      closes=1
+    else closes=0; fi
+    if [ "$st" = "$EN_CLOSE" ] || [ "$st" = "$ES_CLOSE" ]; then exp=1; else exp=0; fi
+    if [ "$closes" = "$exp" ]; then
+      [ "$exp" = 1 ] && ok "[$loc] $st dispara el cierre" || ok "[$loc] $st NO dispara el cierre"
+    else
+      [ "$exp" = 1 ] && no "[$loc] $st debia disparar el cierre (los hooks no conocen la etapa que el prompt declara)" \
+                     || no "[$loc] $st NO debia disparar el cierre"
+    fi
+  done
+done
+
+# El ejemplo que el prompt le muestra al modelo tiene que usar una etapa que el
+# prompt define. Cuando no coinciden gana el ejemplo: la corrida real del
+# 2026-09-05 emitio `PLAN` porque el ejemplo decia PLAN, y `PLAN` no estaba en
+# la lista de seis.
+ex_stage="$(printf '%s' "$PROMPT_BANNER" | sed -e "s/^$SEP //" -e 's/ ·.*//')"
+if printf '%s\n' "$STAGES" | grep -qx "$ex_stage"; then
+  ok "el banner de ejemplo usa una etapa declarada ($ex_stage)"
+else
+  no "el banner de ejemplo usa '$ex_stage', que el prompt no declara: el modelo copia el ejemplo"
+fi
 
 echo
 echo "stage_reached — se registra la etapa, tambien una que el prompt no define"
