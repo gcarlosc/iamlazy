@@ -1035,6 +1035,39 @@ esac
 assert_grep 'dark' "$MS/settings.json" "sin parser, settings.json queda intacto"
 
 echo
+echo "human_interventions — delta donde se puede contar, null donde no"
+
+# El transcript acumula TODA la sesion, asi que el campo es el delta de la
+# corrida: una segunda corrida en la misma sesion heredaria las interrupciones
+# de la primera. Se abre con una interrupcion ya presente y se agregan dos.
+HID="$(mkrepo)"
+mkdir -p "$HID/.iamlazy"; mk_prices "$HID"
+printf 'Request interrupted by user\n' > "$HID/t.jsonl"
+run_open "$HID" '{"hook_event_name":"UserPromptSubmit","session_id":"sid-x","transcript_path":"'"$HID/t.jsonl"'","cwd":"'"$HID"'","prompt":"/iamlazy tarea"}'
+printf 'Request interrupted by user\nRequest interrupted by user\n' >> "$HID/t.jsonl"
+printf '## Groups\n- [x] g1\n' > "$HID/.iamlazy/contract.md"
+set_base "$HID" "sid-x" "$HID"
+run_flush "$HID" "$(stop_payload "$HID" "$CLOSE_MSG" sid-x "$HID/t.jsonl")" >/dev/null
+assert_grep '"human_interventions":2' "$HID/.iamlazy/runs.jsonl" "human_interventions es el delta de la corrida, no el total de la sesion"
+
+# Sin transcript no hay donde contar, y `0` seria una mentira: diria "el humano
+# no interrumpio" cuando lo cierto es "no se puede saber". Es el mismo criterio
+# que cost_usd, y la razon por la que tokens_total se retiro en vez de dejarlo.
+HIN="$(mkrepo)"
+mkdir -p "$HIN/.iamlazy/active"; mk_prices "$HIN"
+printf '## Groups\n- [x] g1\n' > "$HIN/.iamlazy/contract.md"
+printf '{"schema_version":4,"host":"opencode","session_id":"s","transcript_path":"","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":0,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"outcome":"incomplete"}' \
+  "$HIN" "$(date +%s)" > "$(runfile "$HIN" s)"
+set_base "$HIN" "s" "$HIN"
+run_flush "$HIN" "$(stop_payload "$HIN" "$CLOSE_MSG" s "")" >/dev/null
+assert_grep '"human_interventions":null' "$HIN/.iamlazy/runs.jsonl" "sin transcript, human_interventions es null y no 0"
+if [ -f "$HIN/.iamlazy/runs.jsonl" ] && python3 -c "import json,sys;[json.loads(l) for l in open(sys.argv[1]) if l.strip()]" "$HIN/.iamlazy/runs.jsonl" 2>/dev/null; then
+  ok "la linea con null sigue siendo JSON valido"
+else
+  no "la linea con null no parsea como JSON"
+fi
+
+echo
 echo "contrato con adaptadores de host — costo provisto y campo host"
 
 # Claude Code no da costo por mensaje: los hooks lo derivan del transcript y de

@@ -211,7 +211,14 @@ duration=""
 # Counted as a DELTA, like the token cost: the transcript accumulates the whole
 # session, so a second run in it would otherwise inherit the first one's
 # interruptions.
-human_interventions=0
+#
+# `null`, never `0`, when there is no transcript to count in. OpenCode keeps its
+# sessions in SQLite and its adapter sends no transcript_path, so this count is
+# simply skipped there -- and a logged `0` reads as "the human never
+# interrupted" when the truth is "unknowable". Same rule cost_usd already
+# follows, for the same reason: this project has shipped a confidently wrong
+# number twice, and `tokens_total` was removed rather than left to be believed.
+human_interventions=null
 if [ -n "$tpath" ] && [ -f "$tpath" ]; then
   hi_now=$(grep -c 'Request interrupted by user' "$tpath" 2>/dev/null | tr -d ' ')
   hi_start=$(hk_json_num "$TMP" "start_interventions")
