@@ -10,7 +10,9 @@ process.env.HOME = HOME
 const installed = Bun.spawnSync([join(REPO, "install.sh"), "--tool=opencode"], { env: { ...process.env, HOME } })
 if (installed.exitCode !== 0) throw new Error(`install.sh failed: ${installed.stderr.toString()}`)
 
-const { server } = await import(join(HOME, ".config", "opencode", "plugins", "iamlazy.ts"))
+const INSTALLED_PLUGIN = join(HOME, ".config", "opencode", "plugins", "iamlazy.ts")
+const pluginModule = await import(INSTALLED_PLUGIN)
+const { server } = pluginModule
 
 type Prompt = { path: { id: string }; body: { parts: Array<{ text: string }> } }
 type Toast = { body: { message: string } }
@@ -108,7 +110,20 @@ const S = "ses_root"
 const C = "ses_critic"
 
 test("the installed plugin is the repo's adapter, byte for byte", () => {
-  expect(read(join(HOME, ".config", "opencode", "plugins", "iamlazy.ts"))).toBe(read(join(REPO, "adapters", "opencode", "iamlazy.ts")))
+  expect(read(INSTALLED_PLUGIN)).toBe(read(join(REPO, "adapters", "opencode", "iamlazy.ts")))
+})
+
+test("every export is a function, because OpenCode calls each one as a plugin", () => {
+  // It refuses the WHOLE module otherwise -- `Plugin export is not a function`
+  // -- and says so only in its own log file, so `opencode debug info` still
+  // lists the plugin and nothing on screen suggests Layer 0 is off. That is how
+  // a real run on 2026-09-06 produced a perfect contract, a real Critic and an
+  // empty runs.jsonl. A string constant next to the hook was all it took.
+  const notFunctions = Object.entries(pluginModule)
+    .filter(([, value]) => typeof value !== "function")
+    .map(([name]) => name)
+  expect(notFunctions).toEqual([])
+  expect(typeof server).toBe("function")
 })
 
 test("command.execute.before /iamlazy opens the run through open-run.sh: host recorded, no transcript, the project as cwd", async () => {

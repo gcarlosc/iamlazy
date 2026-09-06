@@ -10,8 +10,13 @@ type Decision = {
   hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string }
 }
 
-export const id = "iamlazy"
-
+// Every export of this module must be a FUNCTION. OpenCode walks the module's
+// exports and calls each one as a plugin: a `const id = "iamlazy"` alongside
+// this made it refuse the whole file with `Plugin export is not a function`,
+// logged to ~/.local/share/opencode/log/opencode.log and nowhere else -- so
+// `opencode debug info` still listed the plugin, because it lists what it
+// DISCOVERED, not what loaded. Verified 2026-09-06 by a real run in which
+// Layer 1 worked perfectly and Layer 0 wrote nothing at all.
 export const server: Plugin = async ({ $, client, directory }) => {
   const home = process.env.HOME ?? ""
   const hooksDir = `${home}/.config/opencode/iamlazy-hooks`
