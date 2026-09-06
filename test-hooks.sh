@@ -9,6 +9,23 @@
 set -u
 SRC="$(cd "$(dirname "$0")" && pwd)"
 PASS=0; FAIL=0
+
+# Every repository this suite builds takes its git identity from here, never
+# from the machine. git only auto-detects an author from username@hostname
+# when that hostname is fully qualified: on a GitHub Linux runner it is not,
+# so every `git commit` below failed, six assertions about change accounting
+# failed with them, and CI went red -- while macOS, where auto-detection
+# succeeds, stayed green and hid it. Reproduced on macOS 2026-09-06 with
+# `user.useConfigOnly=true`, which makes git refuse to guess the same way.
+#
+# Same shape as every other defect in this repo's history: an unchecked
+# supposition about the environment, here "a git identity exists". ubuntu in
+# CI is the standing guard -- it has no identity, so depending on one again
+# turns it red immediately.
+export GIT_AUTHOR_NAME="iamlazy test"
+export GIT_AUTHOR_EMAIL="test@iamlazy.invalid"
+export GIT_COMMITTER_NAME="iamlazy test"
+export GIT_COMMITTER_EMAIL="test@iamlazy.invalid"
 ok() { PASS=$((PASS+1)); echo "  ok    $1"; }
 no() { FAIL=$((FAIL+1)); echo "  FAIL  $1" >&2; }
 

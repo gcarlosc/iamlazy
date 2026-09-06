@@ -311,12 +311,17 @@ fi
 
 if [ -x "$SRC/test-hooks.sh" ]; then
   for loc in C ${UTF8_LOCALE:-}; do
-    hookout="$(LC_ALL="$loc" "$SRC/test-hooks.sh" 2>&1)"
+    # Only stderr is captured: the failing assertions go there, and so does
+    # anything a program the suite invoked complained about. Filtering the
+    # merged output down to `FAIL` lines was hiding the second half -- when
+    # git refused to commit for want of an identity, CI reported six wrong
+    # numbers and swallowed the `Author identity unknown` that explained them.
+    hookerr="$(LC_ALL="$loc" "$SRC/test-hooks.sh" 2>&1 >/dev/null)"
     if [ "$?" -eq 0 ]; then
       ok "test-hooks.sh passes under LC_ALL=$loc"
     else
       no "test-hooks.sh fails under LC_ALL=$loc"
-      printf '%s\n' "$hookout" | grep 'FAIL' >&2
+      printf '%s\n' "$hookerr" | head -40 >&2
     fi
   done
 else
