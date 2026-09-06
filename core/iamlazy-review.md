@@ -44,6 +44,9 @@ Show the human the last runs of the harness in a readable form.
      Runs before schema 4 carry `tokens_weighted` instead — a synthetic unit that priced Sonnet
      and Opus tokens identically and excluded the Critic. **Do not compare it against `cost_usd`
      and do not convert one to the other**; report each generation in its own unit.
+   - **`human_interventions: null` is not zero either.** The count comes from the session
+     transcript, which only Claude Code has; on any other host it is unknowable, not absent
+     because nothing happened. Never read a null as a calm run.
    - **`close_detected_via`** — `contract` means the run closed against its own ledger;
      `banner` means it closed on the weaker text signal, which is the path with no contract to
      check. A run expected to have a contract that closed via `banner` is worth a question.

@@ -74,6 +74,13 @@ a `<sid>.cost` sidecar — Critic included, baseline already subtracted — and 
 Deriving a second number from `prices.conf` on a host that already priced the run would produce two
 figures that disagree, and this file is the record of why that is worse than one.
 
+**`human_interventions` is `null` where it cannot be derived.** It counts the interruption marker
+in the session transcript, which only Claude Code keeps; OpenCode's adapter sends no transcript, so
+the count is skipped. It logged `0` there until 2026-09-06 — a fifth wrong number, found by reading
+the first real OpenCode run rather than by a test, and wrong in the same direction as the four
+above: it asserted "the human never interrupted" where the honest value was "unknowable". Fixing it
+also gave the field its first test, of either behaviour.
+
 `/iamlazy-review` reports what each line actually has, never inferring across generations and never
 converting between the two cost units. A line with no `base_ref` has **unmeasurable**
 `files_changed` and `lines_changed` — not zero.
