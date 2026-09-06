@@ -179,3 +179,44 @@ longer supports.
   means reinstalling.
 - **OpenCode.** Untouched, still without Layer 0 and without tests. It is now the largest untested
   surface in the repo and needs a decision, not more analysis.
+
+## TypeScript enters the repo, as a translator and nothing else
+
+Decided 2026-09-06, after the question was put to the human rather than settled by the artifact
+that proposed it. The convention was "pure bash + files, zero external deps", and OpenCode
+plugins are TypeScript run by OpenCode's own Bun. Two honest options: an adapter, or stopping at
+Phase B with OpenCode as a Layer-1-only host that says so. The store decided it: 299 messages
+under the `iamlazy` agent on OpenCode. It is the most-used surface without a guarantee, not a
+hypothetical one.
+
+The adapter (`adapters/opencode/iamlazy.ts`) is allowed on four conditions, each of them a test:
+
+| Condition | Test |
+|---|---|
+| It translates, never decides | `grep -E 'Scope\|base_ref\|DRIFT\|CIERRE'` over the file must be empty |
+| The prompt names exactly the hooks it invokes | fifth Layer 0 / Layer 1 agreement test, same shape as the marker test for Claude Code |
+| Bun is required to test it, never skipped | `test.sh` fails without `bun`; CI installs it |
+| Zero runtime dependencies | the only import is `import type`, erased by Bun; the hooks are the same files Claude Code runs |
+
+What it owns is the bookkeeping OpenCode's events force on it: which session is whose child (so
+the Critic's events land on the run that spawned it), which agent a session runs (so the Critic's
+Bash is guarded), the text of the last assistant turn (so the banner is visible to
+`flush-run.sh`), and de-duplication of `message.updated` by message id. Even the cost arithmetic
+went back into bash: `host-cost.sh` accumulates per-message deltas in the sidecar, because the
+sidecar's path, shape and lifetime are Layer 0's, and a second copy in TypeScript is the drift
+this repo has paid for four times.
+
+Verified against the running build (SDK 1.17.9, OpenCode 1.18.27, its SQLite store), not the docs,
+and it changed the plan: `tool.execute.after` on `task` carries the child session id and the
+sub-agent's final text — that is `SubagentStop`, so nothing watches child `session.idle`.
+OpenCode's `task` also has `background`, the same trap that closed the first Claude Code run 17
+seconds early; a background Critic is not translated as a review that returned, and the prompt
+tells the model to spawn it in the foreground. The SDK's `Session` type has no `agent` field
+while the store does — the runtime is ahead of its types, one more reason the store is the source.
+
+Still supposed, to be closed by a real run: that OpenCode loads `~/.config/opencode/plugins/*.ts`
+at all (17 MB of log and not one plugin-load line), that `command.execute.before` fires for
+markdown commands, that `session.idle` means end-of-turn, and that a `throw` in
+`tool.execute.before` shows its message to the model. The gate's `decision: block` is fed back
+through `session.promptAsync` as a synthetic user turn, with `stop_hook_active` set on the idle
+that follows — the same loop Claude Code runs, on a channel nobody has watched yet.

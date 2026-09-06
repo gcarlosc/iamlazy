@@ -2,9 +2,9 @@
 
 [![test](https://github.com/gcarlosc/iamlazy/actions/workflows/test.yml/badge.svg)](https://github.com/gcarlosc/iamlazy/actions/workflows/test.yml)
 
-A software-development harness for **Claude Code**. It runs **one task end to end** — analyse,
-ask, contract, approve, execute, review — in a single thread. No MCP, no plugins, no external
-dependencies. Just bash and files.
+A software-development harness for **Claude Code** and **OpenCode**. It runs **one task end to
+end** — analyse, ask, contract, approve, execute, review — in a single thread. No MCP, no external
+dependencies. Bash and files — plus one TypeScript file that lets OpenCode run the same bash.
 
 ## The mental model (one page)
 
@@ -104,6 +104,8 @@ IAMLAZY_RAW_BASE="https://raw.example/iamlazy/main" curl -fsSL https://raw.examp
 The installer:
 - auto-detects `claude` and `opencode`,
 - writes the slash commands and the Critic sub-agent to their global config dirs,
+- installs Layer 0: the hooks, registered in Claude Code's `settings.json`, or behind the plugin
+  on OpenCode,
 - projects `models.conf` into each file's frontmatter,
 - is **idempotent** (re-run any time) and **never clobbers** a file that isn't iamlazy's,
 - creates `~/.iamlazy/` for the run log.
@@ -208,6 +210,16 @@ unregisters them again, just as carefully.
 Without them the harness still runs, but every guarantee degrades back to prose — the exact failure
 mode Layer 0 exists to remove.
 
+**On OpenCode, Layer 0 is the same bash behind a plugin.** `adapters/opencode/iamlazy.ts` is
+installed to `~/.config/opencode/plugins/` and does one thing: it translates OpenCode's events
+into the JSON payloads the hooks already read, invokes them, and translates a denial back into
+the `throw` that blocks a tool there. It reads no contract, computes no scope and knows nothing
+about the breaker — a test greps it for those words and fails if any appears. The one thing that
+differs is cost: OpenCode prices every message itself, so the adapter forwards each figure to
+`host-cost.sh` instead of the hooks re-pricing the run from `prices.conf`. Two things Claude Code
+has and OpenCode does not: a permission-bypass mode to refuse, and a plan mode that denies rather
+than asks — the prompt says so on that host instead of pretending parity.
+
 ## Tests
 
 ```sh
@@ -218,7 +230,13 @@ Covers the installer and the declared invariants — file composition, model pro
 anti-clobber, `--model`, hook registration, and that `uninstall.sh` never touches your run log. It
 delegates to `./test-hooks.sh` for Layer 0's runtime decisions, fed real captured payloads and
 validated by mutation rather than by going green. Runs in an isolated `HOME`, so it cannot disturb
-your setup. Bash and coreutils only, like everything else here.
+your setup. Bash and coreutils, plus Bun for the one file that runs under Bun.
+
+The OpenCode adapter is exercised by `bun test` — Bun is OpenCode's runtime, so it is what the
+plugin actually runs under. Each test feeds a real OpenCode event to the *installed* plugin and
+asserts what the real hooks did on disk; nothing in Layer 0 is mocked. **Bun is required**, and the
+suite fails rather than skips when it is missing: a translator nobody ran, reported green, is the
+false green the rest of this suite exists to refuse.
 
 The Layer 0 half runs **twice, under a C and a UTF-8 locale**, and discovers which UTF-8 locale the
 system actually has rather than assuming one. That is not ceremony: the close-by-banner regex was
@@ -269,11 +287,13 @@ iamlazy/
   install.sh       idempotent installer (bash 3.2 compatible)
   uninstall.sh     marker-only removal, preserves your data
   hooks/           Layer 0: the guarantees, as bash reading JSON on stdin
+  adapters/        OpenCode: the plugin that turns its events into those payloads, and its tests
   test.sh          the installer and the declared invariants
   test-hooks.sh    Layer 0's runtime decisions, validated by mutation, in two locales
   .githooks/       pre-push: refuses to push a red suite
   .github/         CI: the suite on Linux + macOS, and under /bin/bash for bash 3.2
 ```
 
-The prompt body is identical across tools; only the frontmatter differs, and the installer
-translates it.
+The prompt body is one source for both tools. The frontmatter differs, and two small inserts —
+`{{GUARANTEES}}` and `{{GATE}}` — are filled per host so each one is told the truth about what it
+enforces; a test compares that text against the hooks each host actually runs.

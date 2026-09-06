@@ -6,16 +6,20 @@ gets reported, not silently resolved.
 
 ## Purpose
 
-iamlazy is a software-development harness for **Claude Code** (and, partially, OpenCode). It runs
-**one task end to end** in one thread: analyse it, ask what must be asked, write a contract, get it
-approved, execute it group by group, and hand it to a **different** reviewer. It is explicitly
-**not** built for multi-hour sessions: a long run is a symptom, not the use case, and making that
-visible and stopping it is the point.
+iamlazy is a software-development harness for **Claude Code** and **OpenCode**. It runs **one task
+end to end** in one thread: analyse it, ask what must be asked, write a contract, get it approved,
+execute it group by group, and hand it to a **different** reviewer. It is explicitly **not** built
+for multi-hour sessions: a long run is a symptom, not the use case, and making that visible and
+stopping it is the point.
 
 ## Stack and conventions
 
-- **Pure bash + files.** Zero external deps (no MCP, no plugins, no npm/pip/**no jq**). `curl` only
-  for the `curl | bash` path; `python3` only inside the installer, to merge settings JSON.
+- **Pure bash + files.** Zero external deps (no MCP, no npm/pip/**no jq**). `curl` only for the
+  `curl | bash` path; `python3` only inside the installer, to merge settings JSON. **One declared
+  exception:** `adapters/opencode/iamlazy.ts`, the OpenCode plugin. It translates OpenCode's
+  events into the hooks' payloads and decides nothing — a test greps it for harness logic. Its
+  only import is a type, erased by OpenCode's own Bun; Bun is required to run its tests, never
+  at runtime.
 - **bash 3.2 compatible** (macOS default): no `declare -A`, POSIX sh probes, no globs in `[ -f ]`.
   Enforced by CI, which runs `test.sh` under `/bin/bash` on macOS.
 - **Prompts are markdown, one source.** `core/` + `critic/`, with `{{GUARANTEES}}` and `{{GATE}}`
@@ -29,7 +33,9 @@ visible and stopping it is the point.
 ## Architecture — two layers
 
 **Layer 0 — guaranteed** (`hooks/`, installed and registered by default). Executed code the model
-cannot bypass; `lib.sh` holds the shared helpers and `merge-settings.sh` is installer-only:
+cannot bypass; `lib.sh` holds the shared helpers and `merge-settings.sh` is installer-only. On
+Claude Code the hooks are registered in `settings.json`; on OpenCode the same scripts are invoked
+by the plugin, which is the registration there:
 
 | Hook | Event | Guarantees |
 |---|---|---|
@@ -37,6 +43,7 @@ cannot bypass; `lib.sh` holds the shared helpers and `merge-settings.sh` is inst
 | `guard-agent.sh` | `PreToolUse` `^(Agent\|Task)$` | only `iamlazy-critic` may be spawned |
 | `guard-critic-bash.sh` | `PreToolUse` `^Bash$` | inside the Critic, Bash cannot write: redirections, file commands, in-place edits, git mutations, installs |
 | `track-edit.sh` | `PostToolUse` on edit tools | every edit appended to `.iamlazy/journal.md`; the contract's location fixes `project_root` and `base_ref` |
+| `host-cost.sh` | OpenCode only, per completed message | a host that prices its own messages hands the figure over; accumulated into the run's cost sidecar, never re-priced |
 | `flush-run.sh` | `Stop` | the log line is written, derived, never self-reported; **the scope gate speaks**; **circuit breaker** on dollars per changed line |
 | `end-run.sh` | `SessionEnd` | a run that ends without closing is logged as `abandoned`, not lost |
 | `subagent-done.sh` | `SubagentStop` | the review actually returned, and its `findings: H/M/L/I` tally |
@@ -47,8 +54,9 @@ is bounded* — the short logged run obeyed every prose instruction; the long on
 
 Three files carry the work: `PROJECT.md` (durable model), `.iamlazy/contract.md` (the signed
 contract), `.iamlazy/journal.md` (append-only trace). **Run state is per session**, under
-`~/.iamlazy/active/<session_id>.json` plus three sidecars (`.untracked`, `.gate`, `.stage`); it
-used to be one global file, which let an open run in one project govern every other session.
+`~/.iamlazy/active/<session_id>.json` plus its sidecars (`.untracked`, `.gate`, `.stage`,
+`.findings`, `.cost`); it used to be one global file, which let an open run in one project govern
+every other session.
 
 ## The rule that decides where something lives
 
@@ -85,7 +93,8 @@ justification; an undeclared deviation is an automatic reviewer finding.
 - Harness changes are evidence-gated: ideas not adopted yet live in `DELTAS.md`, each with a
   trigger observable in `runs.jsonl`; a fired trigger prompts evaluation, never auto-adoption.
 - Verify against the running build, not the documentation. The hooks docs say the sub-agent tool
-  is `Task`; in this build it is `Agent`, and a matcher on `Task` would have failed silently.
+  is `Task`; in this build it is `Agent`, and a matcher on `Task` would have failed silently. The
+  OpenCode SDK's types lag its runtime: its store is the source, not its `.d.ts`.
 - **Never write a count into prose.** Assertion totals, script counts and line counts go stale
   silently and this file is read first by every run. Measure them, or do not state them.
 
@@ -111,8 +120,13 @@ justification; an undeclared deviation is an automatic reviewer finding.
 - A contract run **cannot close before its review returns**. Every box ticked is necessary and
   never sufficient — Layer 1 puts review and close *after* the execution that ticks them.
 - **The prompt never promises what its host does not enforce.** `{{GUARANTEES}}` is filled per
-  host: enforced on Claude Code, stated as requests where there is no Layer 0.
-- iamlazy must not run under a permission bypass — enforced by `open-run.sh` (exit 2).
+  host, and each host's text names the hooks it runs: the suite compares Claude Code's against
+  `settings.json`'s registrations and OpenCode's against what the adapter invokes.
+- **The OpenCode adapter translates and never decides.** It reads no contract, computes no scope
+  and knows nothing about the breaker; `Scope`, `base_ref`, `DRIFT` and `CIERRE` never appear in
+  it, and the suite fails if one does.
+- iamlazy must not run under a permission bypass — enforced by `open-run.sh` (exit 2) on Claude
+  Code; OpenCode has no such mode, and its prompt says so.
 - The installer edits **only** its own `hooks` entries in `settings.json`, after a backup and
   with validation; user settings and user hooks are never altered. `uninstall.sh` unregisters
   them again and never deletes `runs.jsonl` or any `PROJECT.md`.
@@ -142,10 +156,15 @@ justification; an undeclared deviation is an automatic reviewer finding.
 - **The Critic's Bash guard reads the command string, not the process.** It stops the shell from
   writing; it does not stop a program the Critic legitimately runs — `npm test` may create
   fixtures, and that is intended. The discipline hole is closed, the hermetic seal is not.
-- **OpenCode has no Layer 0**, no tests, and its conventions are trusted from one machine. It is
-  the largest untested surface in the repo and needs a decision, not more analysis.
+- **OpenCode's Layer 0 is tested against the real hooks and unexercised in production.** Whether
+  OpenCode loads `~/.config/opencode/plugins/*.ts` at all, whether `command.execute.before` fires
+  for markdown commands, whether a `throw` shows its reason to the model, and whether the gate's
+  block fed back through `session.promptAsync` makes the model continue are documented, not
+  observed. A Critic spawned in the **background** returns before it has reviewed and is not
+  counted as a review; the prompt asks for the foreground. The first real run decides; the
+  artifact lists every supposition with its fallback.
 - **`curl | bash` requires `IAMLAZY_RAW_BASE`**; offline is clone+run.
 
 Why the design is what it is: `docs/decisions-2026-09.md` (the unchecked suppositions, the gate's
-timing, `base_ref`), `docs/decisions-2026-08.md` (Layer 0's rollout),
+timing, `base_ref`, TypeScript as a translator), `docs/decisions-2026-08.md` (Layer 0's rollout),
 `docs/measurement-history.md` (every number that was wrong, and the breaker's calibration).
