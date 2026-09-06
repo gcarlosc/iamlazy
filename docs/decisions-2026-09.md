@@ -214,9 +214,45 @@ seconds early; a background Critic is not translated as a review that returned, 
 tells the model to spawn it in the foreground. The SDK's `Session` type has no `agent` field
 while the store does — the runtime is ahead of its types, one more reason the store is the source.
 
-Still supposed, to be closed by a real run: that OpenCode loads `~/.config/opencode/plugins/*.ts`
-at all (17 MB of log and not one plugin-load line), that `command.execute.before` fires for
-markdown commands, that `session.idle` means end-of-turn, and that a `throw` in
-`tool.execute.before` shows its message to the model. The gate's `decision: block` is fed back
-through `session.promptAsync` as a synthetic user turn, with `stop_hook_active` set on the idle
-that follows — the same loop Claude Code runs, on a channel nobody has watched yet.
+Still supposed, to be closed by a real run: that `command.execute.before` fires for markdown
+commands, that `session.idle` means end-of-turn, and that a `throw` in `tool.execute.before` shows
+its message to the model. The gate's `decision: block` is fed back through `session.promptAsync`
+as a synthetic user turn, with `stop_hook_active` set on the idle that follows — the same loop
+Claude Code runs, on a channel nobody has watched yet.
+
+## Every export of the OpenCode plugin must be a function
+
+The first real run on OpenCode, 2026-09-06: a clean contract, a real Critic that derived its own
+diff and returned `findings: 0/0/0/0`, an acceptance command green at 5/5 — and **not one line in
+`runs.jsonl`**. Layer 1 behaved perfectly on that host while Layer 0 was never invoked, because
+the plugin had failed to load from the very first attempt:
+
+```
+level=ERROR message="failed to load plugin" error="Plugin export is not a function"
+```
+
+OpenCode walks a module's exports and calls each one. The adapter carried
+`export const id = "iamlazy"` — a string — beside its hook, and that made OpenCode refuse the
+whole file. The SDK's `PluginModule` type declares `{id?, server, tui?}`, so the `.d.ts` suggests
+the opposite of what the runtime does: one more reason this project trusts the running build.
+
+The bug is one line. The two verification failures behind it are worth more:
+
+- **The probe was not the real file.** It exported only `server` — precisely the thing being
+  confirmed — and omitted the only thing that broke. That is the methodological failure recorded
+  at the top of this file, applied to a probe rather than to a fixture: a test written by the
+  author of the assumption can only confirm it.
+- **The error was looked for where it could not be.** `opencode debug startup` does not load
+  plugins; its silence was read as absence of failure. The error had been sitting in
+  `~/.local/share/opencode/log/opencode.log` all along, and `opencode debug info` keeps listing a
+  plugin that failed to load, because it lists what it *discovered*.
+
+Now a mechanism: the adapter's own suite imports the installed module and asserts that **every**
+export is a function, so putting the constant back fails by name. And the diagnostic signal is
+written down where the next run will read it — a run that leaves no line in `runs.jsonl` is
+investigated in OpenCode's log, not on screen.
+
+One measurement came free with the failure. The TUI footer reported **$0.01** for that run; the
+store's own sum over the session and its child is **$0.0267**. The footer excludes the Critic's
+session — the same invisible ~14% that killed `tokens_weighted` in the first place. The run's cost
+is compared against the store, never against the footer.

@@ -156,14 +156,16 @@ justification; an undeclared deviation is an automatic reviewer finding.
 - **The Critic's Bash guard reads the command string, not the process.** It stops the shell from
   writing; it does not stop a program the Critic legitimately runs — `npm test` may create
   fixtures, and that is intended. The discipline hole is closed, the hermetic seal is not.
-- **OpenCode's Layer 0 is tested against the real hooks and unexercised in production.** Its
-  plugin does load and its `server` export is invoked: `opencode debug info` answers both, and
-  `debug config` and `debug agent` answer more, at no cost — ask them before supposing anything
-  about that host. What no run has shown yet is whether `command.execute.before` fires for
-  markdown commands, whether a `throw` shows its reason to the model, and whether the gate's
-  block fed back through `session.promptAsync` makes it continue. A Critic spawned in the
-  **background** returns before it has reviewed and is not counted as a review; the prompt asks
-  for the foreground. The first real run decides; the artifact lists each one with its fallback.
+- **OpenCode's Layer 0 is tested against the real hooks and unexercised in production.** Every
+  export of the plugin must be a **function**: OpenCode calls each one, refuses the whole module
+  otherwise, and says so only in `~/.local/share/opencode/log/opencode.log` — `opencode debug
+  info` keeps listing the plugin either way, because it lists what it discovered, not what
+  loaded. That log is where to look, and a run that leaves no line in `runs.jsonl` is where to
+  look first. What no run has shown yet is whether `command.execute.before` fires for markdown
+  commands, whether a `throw` shows its reason to the model, and whether the gate's block fed
+  back through `session.promptAsync` makes it continue. A Critic spawned in the **background**
+  returns before it has reviewed and is not counted as a review; the prompt asks for the
+  foreground. The artifact lists each one with its fallback.
 - **`curl | bash` requires `IAMLAZY_RAW_BASE`**; offline is clone+run.
 
 Why the design is what it is: `docs/decisions-2026-09.md` (the unchecked suppositions, the gate's
