@@ -60,6 +60,12 @@ hk_bool_true() {
   esac
 }
 
+# hk_num <payload> <field> -> integer value of an unquoted numeric field, empty
+# if absent. The string-payload twin of hk_json_num, which reads a file.
+hk_num() {
+  printf '%s' "$1" | grep -o "\"$2\":[0-9]*" | head -1 | grep -o '[0-9]*$'
+}
+
 # hk_field_file <file> <field> -> string value of a field read from a FILE.
 hk_field_file() {
   [ -f "$1" ] || return 0
