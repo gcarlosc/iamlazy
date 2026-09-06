@@ -20,6 +20,12 @@ jobs:
       # stayed green in CI while being dead in production.
       - name: locales available
         run: locale -a | grep -i utf | head -5 || true
+      # The OpenCode adapter runs inside OpenCode's Bun, so Bun is what tests
+      # it. test.sh FAILS without Bun rather than skipping: a translator nobody
+      # ran, reported green, is the false green this suite exists to refuse.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
       - name: test suite
         run: ./test.sh
 
@@ -32,5 +38,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: bash version in use
         run: /bin/bash --version | head -1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
       - name: test suite under /bin/bash
         run: /bin/bash ./test.sh

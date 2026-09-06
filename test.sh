@@ -62,13 +62,16 @@ for s in "$SRC"/hooks/*.sh; do
   if [ -x "$s" ]; then ok "$n is executable"; else no "$n is not executable"; fi
 done
 
-# Every hook the installer copies must also be registered by merge-settings.sh,
-# or it lands on disk and never runs. lib.sh and the installer helper are the
-# only two that are sourced rather than registered.
+# Every hook the installer copies must also be registered -- by merge-settings.sh
+# on Claude Code, or invoked by the OpenCode adapter -- or it lands on disk and
+# never runs. lib.sh and the installer helper are the only two that are sourced
+# rather than registered.
+ADAPTER="$SRC/adapters/opencode/iamlazy.ts"
 for s in "$SRC"/hooks/*.sh; do
   n="$(basename "$s")"
   case "$n" in lib.sh|merge-settings.sh) continue ;; esac
-  if grep -q "\"$n\"" "$SRC/hooks/merge-settings.sh"; then ok "$n is registered by the installer"
+  if grep -q "\"$n\"" "$SRC/hooks/merge-settings.sh" || grep -q "\"$n\"" "$ADAPTER"; then
+    ok "$n is registered by the installer or invoked by the adapter"
   else no "$n is installed but never registered (a file, not a guarantee)"; fi
 done
 
@@ -118,6 +121,29 @@ else
   no "guarantees text and registered hooks disagree -- registered: $(echo "$registered" | tr '\n' ' ')| declared: $(echo "$declared" | tr '\n' ' ')"
 fi
 
+# Fifth surface, same shape: the OpenCode prompt names the hooks its adapter
+# invokes. The adapter is the registration on that host, so the two lists must
+# match exactly, and every hook it names must exist.
+declared_oc="$(sed -n 's/^<!-- hooks: \(.*\) -->$/\1/p' "$SRC/templates/opencode/guarantees.md" | tr ' ' '\n' | grep -v '^$' | sort -u)"
+invoked="$(grep -o '"[a-z-]*\.sh"' "$ADAPTER" | tr -d '"' | sort -u)"
+if [ "$invoked" = "$declared_oc" ]; then
+  ok "opencode: the guarantees text names exactly the hooks the adapter invokes"
+else
+  no "opencode: guarantees text and adapter disagree -- invoked: $(echo "$invoked" | tr '\n' ' ')| declared: $(echo "$declared_oc" | tr '\n' ' ')"
+fi
+for hname in $invoked; do
+  assert_file "$SRC/hooks/$hname" "adapter invokes a hook that exists: $hname"
+done
+
+# The adapter translates and never decides. If it knew what closing means, what
+# a scope deviation is or when the breaker fires, Layer 0 would have two
+# implementations -- and this repo has paid for two copies four times already.
+if grep -Eq 'Scope|base_ref|DRIFT|CIERRE' "$ADAPTER"; then
+  no "the adapter contains harness logic (Scope|base_ref|DRIFT|CIERRE) -- it must translate, never decide"
+else
+  ok "the adapter translates and never decides (no Scope|base_ref|DRIFT|CIERRE)"
+fi
+
 # Every template must declare the idempotency marker, or uninstall can never reclaim it.
 for f in "$SRC"/templates/*/*.frontmatter; do
   assert_grep "iamlazy-managed" "$f" "marker present: $(basename "$(dirname "$f")")/$(basename "$f")"
@@ -145,6 +171,16 @@ assert_file "$H/.claude/agents/iamlazy-critic.md"   "claude: critic installed"
 assert_file "$H/.config/opencode/agents/iamlazy.md" "opencode: primary installed"
 assert_file "$H/.config/opencode/agents/iamlazy-critic.md" "opencode: critic installed"
 assert_file "$H/.config/opencode/commands/iamlazy.md"      "opencode: command installed"
+assert_file "$H/.config/opencode/plugins/iamlazy.ts"        "opencode: plugin installed"
+assert_file "$H/.config/opencode/iamlazy-hooks/host-cost.sh" "opencode: hooks installed beside the plugin"
+assert_grep "iamlazy-managed" "$H/.config/opencode/plugins/iamlazy.ts" "opencode: plugin carries the marker"
+if cmp -s "$H/.config/opencode/plugins/iamlazy.ts" "$SRC/adapters/opencode/iamlazy.ts"; then
+  ok "opencode: installed plugin is byte-identical to the repo's"
+else no "opencode: installed plugin differs from the repo's"; fi
+# Two hosts, one Layer 0: the two copies of the hooks must be the same bytes.
+if cmp -s "$H/.config/opencode/iamlazy-hooks/lib.sh" "$H/.claude/iamlazy-hooks/lib.sh"; then
+  ok "both hosts run the same lib.sh"
+else no "the two hook copies differ (lib.sh)"; fi
 assert_file "$H/.iamlazy/DELTAS.md"                 "DELTAS mirror created"
 assert_file "$H/.iamlazy/prices.conf"               "price table installed"
 
@@ -176,8 +212,9 @@ for f in "$H/.claude/commands/iamlazy.md" "$H/.config/opencode/agents/iamlazy.md
 done
 assert_grep "Hooks enforce these for you"  "$H/.claude/commands/iamlazy.md"      "claude: guarantees are stated as enforced"
 assert_grep "Enter plan mode first" "$H/.claude/commands/iamlazy.md"              "claude: the gate is native plan mode"
-assert_grep "nothing below is enforced"    "$H/.config/opencode/agents/iamlazy.md" "opencode: says plainly that nothing is enforced"
-assert_no_grep "Hooks enforce"             "$H/.config/opencode/agents/iamlazy.md" "opencode: never claims hooks enforce anything"
+assert_grep "plugin enforces these for you" "$H/.config/opencode/agents/iamlazy.md" "opencode: guarantees are stated as enforced by the plugin"
+assert_grep "no such mode"                 "$H/.config/opencode/agents/iamlazy.md" "opencode: says plainly there is no bypass refusal"
+assert_no_grep "refuses to start under"    "$H/.config/opencode/agents/iamlazy.md" "opencode: never claims the bypass refusal"
 assert_grep "plan\` agent first"           "$H/.config/opencode/agents/iamlazy.md" "opencode: the gate is its own plan agent"
 assert_grep 'Request:.*ARGUMENTS'   "$H/.claude/commands/iamlazy.md" "argument hook appended"
 assert_grep "Anti-condescension"    "$H/.claude/agents/iamlazy-critic.md" "critic body composed in"
@@ -197,8 +234,11 @@ echo "anti-clobber"
 H2="$(mktmp)"
 mkdir -p "$H2/.claude/commands"
 echo "SOMEONE ELSE'S FILE" > "$H2/.claude/commands/iamlazy.md"
-HOME="$H2" "$SRC/install.sh" --tool=claude >/dev/null 2>&1
+mkdir -p "$H2/.config/opencode/plugins"
+echo "// SOMEONE ELSE'S PLUGIN" > "$H2/.config/opencode/plugins/iamlazy.ts"
+HOME="$H2" "$SRC/install.sh" --tool=both >/dev/null 2>&1
 assert_grep "SOMEONE ELSE'S FILE" "$H2/.claude/commands/iamlazy.md" "unmarked file is not clobbered"
+assert_grep "SOMEONE ELSE'S PLUGIN" "$H2/.config/opencode/plugins/iamlazy.ts" "unmarked plugin is not clobbered"
 
 # ------------------------------------------------------- --model override
 # Runs against a COPY of the repo: persist_model rewrites models.conf in place, and a
@@ -231,12 +271,16 @@ HOME="$H" "$SRC/uninstall.sh" >/dev/null 2>&1
 assert_absent "$H/.claude/commands/iamlazy.md"      "claude command removed"
 assert_absent "$H/.claude/agents/iamlazy-critic.md" "claude critic removed"
 assert_absent "$H/.config/opencode/agents/iamlazy.md" "opencode primary removed"
+assert_absent "$H/.config/opencode/plugins/iamlazy.ts" "opencode plugin removed"
+if [ -d "$H/.config/opencode/iamlazy-hooks" ]; then no "opencode hook dir removed"
+else ok "opencode hook dir removed"; fi
 assert_absent "$H/.iamlazy/DELTAS.md"               "DELTAS mirror removed"
 assert_grep "user data" "$H/.iamlazy/runs.jsonl"    "runs.jsonl preserved (invariant)"
 
 # Uninstall must refuse to remove a file that is not ours.
 HOME="$H2" "$SRC/uninstall.sh" >/dev/null 2>&1
 assert_grep "SOMEONE ELSE'S FILE" "$H2/.claude/commands/iamlazy.md" "unmarked file survives uninstall"
+assert_grep "SOMEONE ELSE'S PLUGIN" "$H2/.config/opencode/plugins/iamlazy.ts" "unmarked plugin survives uninstall"
 
 # ------------------------------------------------------- layer 0 (hooks)
 # The hook suite is a separate file because it tests runtime decisions, not
@@ -277,6 +321,27 @@ if [ -x "$SRC/test-hooks.sh" ]; then
   done
 else
   no "test-hooks.sh missing or not executable"
+fi
+
+# ------------------------------------------------ opencode adapter (bun test)
+echo
+echo "opencode adapter (delegating to bun test)"
+# The adapter runs inside OpenCode's Bun, so Bun is what exercises it: each test
+# feeds a real OpenCode event to the INSTALLED plugin and asserts what the REAL
+# hooks did on disk -- no mocks of Layer 0. Bun is not optional here and this is
+# not skipped when it is missing: a translator nobody ran, reported as green, is
+# the false green this suite exists to refuse.
+if command -v bun >/dev/null 2>&1; then
+  ok "bun available: $(bun --version)"
+  adout="$(cd "$SRC" && bun test adapters/opencode/iamlazy.test.ts 2>&1)"
+  if [ "$?" -eq 0 ]; then
+    ok "adapter translation suite passes ($(printf '%s\n' "$adout" | grep -Eo '[0-9]+ pass' | head -1))"
+  else
+    no "adapter translation suite fails (bun test)"
+    printf '%s\n' "$adout" | grep -E '✗|\(fail\)|error' >&2
+  fi
+else
+  no "bun is required to test the OpenCode adapter and was not found (https://bun.sh); skipping would be a false green"
 fi
 
 # ------------------------------------------------------ layer 0 by default
@@ -329,6 +394,11 @@ H6="$(mktmp)"
 HOME="$H6" "$SRC/install.sh" --tool=claude --no-hooks >/dev/null 2>&1
 if [ -d "$H6/.claude/iamlazy-hooks" ]; then no "--no-hooks skips layer 0"
 else ok "--no-hooks skips layer 0"; fi
+H7="$(mktmp)"
+HOME="$H7" "$SRC/install.sh" --tool=opencode --no-hooks >/dev/null 2>&1
+if [ -f "$H7/.config/opencode/plugins/iamlazy.ts" ] || [ -d "$H7/.config/opencode/iamlazy-hooks" ]; then
+  no "--no-hooks skips the OpenCode plugin and its hooks"
+else ok "--no-hooks skips the OpenCode plugin and its hooks"; fi
 
 # Uninstall unregisters, and again leaves the user's own hooks alone.
 HOME="$H5" "$SRC/uninstall.sh" >/dev/null 2>&1

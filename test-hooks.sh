@@ -116,9 +116,9 @@ if [ -z "${UTF8_LOCALE:-}" ]; then
 fi
 
 echo "sintaxis"
-for s in hooks/lib.sh hooks/guard-agent.sh hooks/open-run.sh hooks/track-edit.sh \
-         hooks/flush-run.sh hooks/end-run.sh hooks/subagent-done.sh test-hooks.sh; do
-  if bash -n "$SRC/$s" 2>/dev/null; then ok "$s parsea"; else no "$s parsea"; fi
+for f in "$SRC"/hooks/*.sh "$SRC"/test-hooks.sh; do
+  s="${f#$SRC/}"
+  if bash -n "$f" 2>/dev/null; then ok "$s parsea"; else no "$s parsea"; fi
 done
 
 echo
@@ -1058,6 +1058,29 @@ run_open "$HH" '{"hook_event_name":"UserPromptSubmit","host":"opencode","session
 assert_grep '"host":"opencode"' "$(runfile "$HH" oc1)" "open-run registra el host que declara el adaptador"
 run_open "$HH" '{"hook_event_name":"UserPromptSubmit","session_id":"cc1","transcript_path":"/x.jsonl","cwd":"'"$HH"'","prompt":"/iamlazy tarea"}'
 assert_grep '"host":"claude-code"' "$(runfile "$HH" cc1)" "sin campo host, es Claude Code"
+
+# host-cost.sh acumula lo que el adaptador manda por mensaje completado. La
+# aritmetica, la ruta y la forma del sidecar son de Layer 0; deduplicar por id
+# de mensaje es del adaptador, que es el unico que ve ids.
+run_cost() { printf '%s' "$2" | HOME="$1" "$SRC/hooks/host-cost.sh" 2>/dev/null; }
+HK="$(mkrepo)"
+open_run "$HK" "$HK" 30 hc
+run_cost "$HK" '{"hook_event_name":"HostCost","session_id":"hc","host":"opencode","cost_micro":100000,"tokens_output":10,"tokens_cache_write":1,"tokens_cache_read":5}'
+run_cost "$HK" '{"hook_event_name":"HostCost","session_id":"hc","host":"opencode","cost_micro":250000,"tokens_output":15,"tokens_cache_write":2,"tokens_cache_read":7}'
+assert_grep '^cost_micro=350000$' "$HK/.iamlazy/active/hc.cost" "host-cost acumula el costo de dos mensajes"
+assert_grep '^tokens_output=25$' "$HK/.iamlazy/active/hc.cost" "host-cost acumula tokens_output"
+assert_grep '^tokens_cache_write=3$' "$HK/.iamlazy/active/hc.cost" "host-cost acumula cache_write"
+assert_grep '^tokens_cache_read=12$' "$HK/.iamlazy/active/hc.cost" "host-cost acumula cache_read"
+run_cost "$HK" '{"hook_event_name":"Stop","session_id":"hc","cost_micro":999999}'
+assert_grep '^cost_micro=350000$' "$HK/.iamlazy/active/hc.cost" "un evento que no es HostCost no toca el sidecar"
+run_cost "$HK" '{"hook_event_name":"HostCost","session_id":"nadie","cost_micro":5}'
+assert_absent "$HK/.iamlazy/active/nadie.cost" "sin corrida activa, host-cost es inerte"
+# ...y el cierre tarifa la corrida con exactamente lo acumulado.
+mkdir -p "$HK/.iamlazy"; printf '## Groups\n- [x] g1\n' > "$HK/.iamlazy/contract.md"
+set_base "$HK" hc "$HK"
+run_flush "$HK" "$(stop_payload "$HK" "$CLOSE_MSG" hc "")" >/dev/null
+assert_grep '"cost_usd":0.3500' "$HK/.iamlazy/runs.jsonl" "el cierre tarifa la corrida con lo que host-cost acumulo"
+assert_absent "$HK/.iamlazy/active/hc.cost" "el cierre limpia el sidecar acumulado"
 
 echo
 echo "----------------------------------------"

@@ -10,13 +10,16 @@ CC_CMD_DIR="${HOME}/.claude/commands"
 CC_AGENT_DIR="${HOME}/.claude/agents"
 OC_CMD_DIR="${HOME}/.config/opencode/commands"
 OC_AGENT_DIR="${HOME}/.config/opencode/agents"
+OC_HOOK_DIR="${HOME}/.config/opencode/iamlazy-hooks"
+OC_PLUGIN_DIR="${HOME}/.config/opencode/plugins"
 LOG_DIR="${HOME}/.iamlazy"
 CC_HOOK_DIR="${HOME}/.claude/iamlazy-hooks"
 
 # Files that make up the payload (relative to the repo root).
 PAYLOAD="core/iamlazy.md core/iamlazy-review.md critic/iamlazy-critic.md \
 hooks/lib.sh hooks/guard-agent.sh hooks/open-run.sh hooks/track-edit.sh hooks/flush-run.sh \
-hooks/end-run.sh hooks/subagent-done.sh hooks/guard-critic-bash.sh hooks/merge-settings.sh \
+hooks/end-run.sh hooks/subagent-done.sh hooks/guard-critic-bash.sh hooks/host-cost.sh \
+hooks/merge-settings.sh adapters/opencode/iamlazy.ts \
 templates/claude-code/command-iamlazy.frontmatter \
 templates/claude-code/command-review.frontmatter \
 templates/claude-code/agent-critic.frontmatter \
@@ -36,10 +39,12 @@ iamlazy installer
   --model=<id> sets BOTH roles (main + critic) for a single tool, persists the
     choice to models.conf, and reinstalls. Requires a single --tool (claude or
     opencode) because their model-id namespaces differ.
-  Layer 0 hooks are installed and registered BY DEFAULT (Claude Code only).
-    They are what makes the harness's guarantees actual guarantees rather than
-    requests, so they are not an optional extra. Your settings.json is backed
-    up first, validated after, and your own hooks are left untouched.
+  Layer 0 hooks are installed and registered BY DEFAULT. On Claude Code they
+    are registered in settings.json; on OpenCode a plugin translates its events
+    into the same hooks. They are what makes the harness's guarantees actual
+    guarantees rather than requests, so they are not an optional extra. Your
+    settings.json is backed up first, validated after, and your own hooks are
+    left untouched.
   --no-hooks skips them. The harness still runs, but every guarantee degrades
     back to prose -- which is the failure mode Layer 0 exists to remove.
   For curl|bash installs, set IAMLAZY_RAW_BASE to the raw file base URL.
@@ -131,15 +136,20 @@ install_opencode() {
 }
 
 
-install_hooks() {
-  mkdir -p "$CC_HOOK_DIR"
-  for h in lib.sh guard-agent.sh guard-critic-bash.sh open-run.sh track-edit.sh flush-run.sh end-run.sh subagent-done.sh merge-settings.sh; do
-    if [ -f "$SRC/hooks/$h" ]; then
-      cp "$SRC/hooks/$h" "$CC_HOOK_DIR/$h"
-      chmod +x "$CC_HOOK_DIR/$h"
-      echo "  wrote $CC_HOOK_DIR/$h"
-    fi
+# copy_hooks <dir> -- every script in hooks/, globbed. A list you have to
+# remember to extend is how a new hook lands in the repo and never installs.
+copy_hooks() {
+  mkdir -p "$1"
+  for h in "$SRC"/hooks/*.sh; do
+    n="$(basename "$h")"
+    cp "$h" "$1/$n"
+    chmod +x "$1/$n"
+    echo "  wrote $1/$n"
   done
+}
+
+install_hooks() {
+  copy_hooks "$CC_HOOK_DIR"
   # Registering is part of installing. A hook script nobody invokes is a file,
   # not a guarantee.
   if "$CC_HOOK_DIR/merge-settings.sh" "$HOME/.claude/settings.json" "$CC_HOOK_DIR"; then
@@ -147,6 +157,14 @@ install_hooks() {
   else
     HOOKS_REGISTERED=0
   fi
+}
+
+# OpenCode has no settings.json hooks block; it has plugins. The adapter IS the
+# registration there: it translates OpenCode's events into the payloads the same
+# hooks already read, so Layer 0 stays one implementation with two entry points.
+install_opencode_hooks() {
+  copy_hooks "$OC_HOOK_DIR"
+  write_file "$OC_PLUGIN_DIR/iamlazy.ts" < "$SRC/adapters/opencode/iamlazy.ts"
 }
 
 print_hook_block() {
@@ -317,9 +335,21 @@ fi
 if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_claude" -eq 1 ]; then
   install_hooks
 fi
+if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_opencode" -eq 1 ]; then
+  install_opencode_hooks
+fi
 
 if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_claude" -eq 1 ]; then
   print_hook_block
+fi
+if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_opencode" -eq 1 ]; then
+  cat <<EOF
+
+  LAYER 0 ON OPENCODE: $OC_PLUGIN_DIR/iamlazy.ts translates OpenCode's events
+  into the same hooks, now in $OC_HOOK_DIR. Plugins load at startup, so restart
+  any running OpenCode. Cost comes from OpenCode's own per-message pricing. There
+  is no permission-bypass refusal: OpenCode has no such mode.
+EOF
 fi
 
 echo
