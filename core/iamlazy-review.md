@@ -56,14 +56,14 @@ Show the human the last runs of the harness in a readable form.
    **fired**, naming the runs that fired them. A fired trigger prompts evaluation, never
    adoption — say what fired, and stop there. If nothing fired, say so in one line.
 
-   Three cautions, all about not manufacturing evidence:
+   **Every trigger declares how it is checked, and that governs what you do with it:**
 
-   - **The wording is the contract.** A trigger asking for "2+ runs where X" is not fired by one.
-     Do not round up, and do not treat a near-miss as a hit.
-   - **Some triggers reference evidence the log does not carry** — a finding's severity, whether
-     a file was created, whether a later step read it. For those, say plainly what the log can
-     and cannot confirm instead of inferring. An unconfirmable trigger is not a fired trigger.
-   - **A trigger written against a field that no longer exists cannot fire.** Several candidates
-     were written when `reversibility` and `critic_mode` were recorded. Say that the trigger is
-     now unmeasurable rather than silently treating it as unfired — the first is a fact about the
-     backlog, the second is a claim about the runs.
+   - `[log]` — derivable from these runs. Check it. Report fired or not fired.
+   - `[human]` — needs a person to have noticed. **Do not try to derive it, and do not explain
+     that you could not.** List it in one line and move on. Explaining the unconfirmable once per
+     candidate per run is how this step grew to outweigh the report it belongs to.
+   - A trigger marked **blocked** names the field it is waiting on. Say it is still blocked; that
+     is a fact about the backlog, not a claim about the runs.
+
+   And one caution that outranks all three: **the wording is the contract.** A trigger asking for
+   "2+ runs where X" is not fired by one. Do not round up, and do not treat a near-miss as a hit.

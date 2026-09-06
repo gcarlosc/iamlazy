@@ -76,7 +76,13 @@ if printf '%s' "$payload" | grep -q '"permission_mode":"bypassPermissions"'; the
   exit 2
 fi
 
-[ -n "$sid" ] && [ -n "$tpath" ] || hk_allow  # malformed payload: do nothing, never guess
+# Only the session id is required. transcript_path is EMPTY on hosts that have
+# no Claude-style transcript (OpenCode keeps sessions in SQLite and hands cost
+# over in a sidecar instead -- see hk_cost_file). Everything that reads the
+# transcript degrades on its own: cost_priced=0, start_interventions=0. Found by
+# the first test that opened a run as an OpenCode adapter would: this line used
+# to refuse it as malformed, and no run could ever have opened there.
+[ -n "$sid" ] || hk_allow  # malformed payload: do nothing, never guess
 
 RUN_FILE=$(hk_run_file "$sid")
 
@@ -113,8 +119,15 @@ if [ -n "$tpath" ] && [ -f "$tpath" ]; then
   start_interventions=$(grep -c 'Request interrupted by user' "$tpath" 2>/dev/null | tr -d ' ')
 fi
 
-printf '{"schema_version":4,"session_id":"%s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":%s,"cost_priced":%s,"start_out":%s,"start_cw":%s,"start_cr":%s,"start_interventions":%s,"opened_at":"%s","outcome":"incomplete"}' \
-  "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$cwd")" \
+# Which host is running this. Claude Code's real payload carries no such field,
+# so its absence means Claude Code; a host adapter (OpenCode's plugin) adds
+# "host" to the payload it synthesises. Recorded so runs.jsonl can tell the two
+# apart once both write to it -- the review must never average across hosts.
+host=$(hk_field "$payload" "host")
+[ -n "$host" ] || host="claude-code"
+
+printf '{"schema_version":4,"host":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":%s,"cost_priced":%s,"start_out":%s,"start_cw":%s,"start_cr":%s,"start_interventions":%s,"opened_at":"%s","outcome":"incomplete"}' \
+  "$(hk_json_esc "$host")" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$cwd")" \
   "$now_epoch" "$start_cost" "$cost_priced" "$start_out" "$start_cw" "$start_cr" \
   "${start_interventions:-0}" "$now_iso" > "$RUN_FILE"
 

@@ -1018,6 +1018,48 @@ esac
 assert_grep 'dark' "$MS/settings.json" "sin parser, settings.json queda intacto"
 
 echo
+echo "contrato con adaptadores de host — costo provisto y campo host"
+
+# Claude Code no da costo por mensaje: los hooks lo derivan del transcript y de
+# prices.conf. OpenCode y Pi SI lo calculan ellos, y un adaptador lo entrega en
+# <sid>.cost. Cuando existe, ese es el costo de la corrida -- derivar un segundo
+# numero desde prices.conf encima de un host que ya la tarifo produciria dos
+# cifras que no coinciden, que es peor que una sola.
+HC="$(mkrepo)"
+mkdir -p "$HC/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$HC/.iamlazy/contract.md"
+printf 'x\n%.0s' $(seq 1 12) > "$HC/f.txt"
+mk_transcript "$HC" 9000000          # el transcript diria $9.00...
+open_run_tok "$HC" "$HC"; set_base "$HC" "s" "$HC"; rm -f "$HC/.iamlazy/active/s.untracked"
+printf 'cost_micro=1234567\ntokens_output=111\ntokens_cache_write=222\ntokens_cache_read=333\n' > "$HC/.iamlazy/active/s.cost"
+run_flush "$HC" "$(stop_payload "$HC" "$CLOSE_MSG" s "$HC/t.jsonl")" >/dev/null
+assert_grep '"cost_usd":1.2346' "$HC/.iamlazy/runs.jsonl" "el sidecar del host gana sobre el transcript (\$1.23, no \$9.00)"
+assert_grep '"tokens_output":111' "$HC/.iamlazy/runs.jsonl" "los componentes salen del sidecar, no del transcript"
+assert_grep '"tokens_cache_read":333' "$HC/.iamlazy/runs.jsonl" "cache_read del sidecar"
+assert_absent "$HC/.iamlazy/active/s.cost" "hk_run_clear tambien limpia el sidecar de costo"
+
+# Sin transcript legible (cost_priced=0), el sidecar igual tarifa la corrida: un
+# host que entrega costo no necesita que exista un transcript al estilo Claude.
+HC2="$(mkrepo)"
+mkdir -p "$HC2/.iamlazy/active"; mk_prices "$HC2"
+printf '## Groups\n- [x] g1\n' > "$HC2/.iamlazy/contract.md"
+printf '{"schema_version":4,"host":"opencode","session_id":"s","transcript_path":"","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":0,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"outcome":"incomplete"}' \
+  "$HC2" "$(date +%s)" > "$(runfile "$HC2" s)"
+set_base "$HC2" "s" "$HC2"
+printf 'cost_micro=500000\n' > "$HC2/.iamlazy/active/s.cost"
+run_flush "$HC2" "$(stop_payload "$HC2" "$CLOSE_MSG" s "")" >/dev/null
+assert_grep '"cost_usd":0.5000' "$HC2/.iamlazy/runs.jsonl" "sin transcript, el sidecar tarifa igual"
+assert_grep '"host":"opencode"' "$HC2/.iamlazy/runs.jsonl" "el host queda registrado en el log"
+
+# El campo host: un adaptador lo agrega al payload sintetizado; Claude Code no
+# lo trae, y su ausencia significa Claude Code.
+HH="$(mktmp)"
+run_open "$HH" '{"hook_event_name":"UserPromptSubmit","host":"opencode","session_id":"oc1","transcript_path":"","cwd":"'"$HH"'","prompt":"/iamlazy tarea"}'
+assert_grep '"host":"opencode"' "$(runfile "$HH" oc1)" "open-run registra el host que declara el adaptador"
+run_open "$HH" '{"hook_event_name":"UserPromptSubmit","session_id":"cc1","transcript_path":"/x.jsonl","cwd":"'"$HH"'","prompt":"/iamlazy tarea"}'
+assert_grep '"host":"claude-code"' "$(runfile "$HH" cc1)" "sin campo host, es Claude Code"
+
+echo
 echo "----------------------------------------"
 echo "  passed: $PASS   failed: $FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

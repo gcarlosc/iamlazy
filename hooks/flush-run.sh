@@ -81,23 +81,35 @@ fi
 # 14% of that run's cost and entirely invisible before.
 run_cost=""
 unpriced=""
-if [ "$(hk_json_num "$TMP" "cost_priced")" = "1" ]; then
-  if end_cost=$(hk_cost_micro "$tpath"); then
-    sub_cost=$(hk_subagent_cost_micro "$tpath")
-    if [ -n "$sub_cost" ]; then
-      sc=$(hk_json_num "$TMP" "start_cost")
-      run_cost=$((end_cost - ${sc:-0} + sub_cost))
+COSTF=$(hk_cost_file "$TMP")
+if [ -f "$COSTF" ]; then
+  # A host adapter priced this run (see hk_cost_file). Its figure is the run's
+  # figure: it already includes sub-agents and already subtracted the baseline.
+  run_cost=$(hk_kv "$COSTF" cost_micro)
+  d_out=$(hk_kv "$COSTF" tokens_output)
+  d_cw=$(hk_kv "$COSTF" tokens_cache_write)
+  d_cr=$(hk_kv "$COSTF" tokens_cache_read)
+  d_out=${d_out:-0}; d_cw=${d_cw:-0}; d_cr=${d_cr:-0}
+else
+  if [ "$(hk_json_num "$TMP" "cost_priced")" = "1" ]; then
+    if end_cost=$(hk_cost_micro "$tpath"); then
+      sub_cost=$(hk_subagent_cost_micro "$tpath")
+      if [ -n "$sub_cost" ]; then
+        sc=$(hk_json_num "$TMP" "start_cost")
+        run_cost=$((end_cost - ${sc:-0} + sub_cost))
+      fi
     fi
   fi
-fi
-[ -n "$run_cost" ] || unpriced=$(hk_unpriced_models "$tpath" | tr -s ' ' | sed 's/ $//')
+  [ -n "$run_cost" ] || unpriced=$(hk_unpriced_models "$tpath" | tr -s ' ' | sed 's/ $//')
 
-# Raw components, as deltas, so the run can be repriced after a table fix.
-set -- $(hk_token_components "$tpath" 2>/dev/null)
-d_out=$(( ${1:-0} - $(hk_json_num "$TMP" "start_out"|| echo 0) ))
-d_cw=$((  ${2:-0} - $(hk_json_num "$TMP" "start_cw" || echo 0) ))
-d_cr=$((  ${3:-0} - $(hk_json_num "$TMP" "start_cr" || echo 0) ))
-[ "$d_out" -lt 0 ] && d_out=0; [ "$d_cw" -lt 0 ] && d_cw=0; [ "$d_cr" -lt 0 ] && d_cr=0
+  # Raw components, as deltas, so the run can be repriced after a table fix.
+  set -- $(hk_token_components "$tpath" 2>/dev/null)
+  d_out=$(( ${1:-0} - $(hk_json_num "$TMP" "start_out"|| echo 0) ))
+  d_cw=$((  ${2:-0} - $(hk_json_num "$TMP" "start_cw" || echo 0) ))
+  d_cr=$((  ${3:-0} - $(hk_json_num "$TMP" "start_cr" || echo 0) ))
+  [ "$d_out" -lt 0 ] && d_out=0; [ "$d_cw" -lt 0 ] && d_cw=0; [ "$d_cr" -lt 0 ] && d_cr=0
+fi
+host=$(hk_field_file "$TMP" "host"); [ -n "$host" ] || host="claude-code"
 
 # ---------------------------------------------------------------- Guarantee 5
 # Circuit breaker. Persisting without a new hypothesis is the failure, not the
@@ -250,8 +262,8 @@ else
   cost_field="null"
 fi
 
-hk_log_append "$(printf '{"schema_version":4,"timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","outcome":"flushed"}' \
-  "$now_iso" "$task_summary" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" \
+hk_log_append "$(printf '{"schema_version":4,"host":"%s","timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","outcome":"flushed"}' \
+  "$(hk_json_esc "$host")" "$now_iso" "$task_summary" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" \
   "$(hk_json_esc "$root")" "$(hk_json_esc "$base")" \
   "${duration:-null}" "$human_interventions" "${files_changed:-0}" "${lines_changed:-0}" \
   "$cost_field" "$(hk_json_esc "$unpriced")" "$d_out" "$d_cw" "$d_cr" \

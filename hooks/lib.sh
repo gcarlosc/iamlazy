@@ -105,10 +105,26 @@ hk_gate_file()      { printf '%s.gate' "${1%.json}"; }
 hk_stage_file()     { printf '%s.stage' "${1%.json}"; }
 hk_findings_file()  { printf '%s.findings' "${1%.json}"; }
 
+# <sid>.cost -- written by a HOST ADAPTER, never by these hooks. Claude Code has
+# no per-message cost, so the hooks derive it from the transcript and the price
+# table; OpenCode and Pi compute cost per message themselves and hand it over.
+# When this file exists it is the run's cost, Critic included, delta applied --
+# the adapter owns that arithmetic because it can see the child sessions. Shape:
+# KEY=value lines: cost_micro, tokens_output, tokens_cache_write,
+# tokens_cache_read. Deriving a second figure from prices.conf on top of a host
+# that already priced the run would produce two numbers that disagree.
+hk_cost_file()      { printf '%s.cost' "${1%.json}"; }
+
 # hk_run_clear <run_file> -> remove a run and all of its sidecars.
 hk_run_clear() {
   rm -f "$1" "$(hk_untracked_file "$1")" "$(hk_gate_file "$1")" \
-        "$(hk_stage_file "$1")" "$(hk_findings_file "$1")"
+        "$(hk_stage_file "$1")" "$(hk_findings_file "$1")" "$(hk_cost_file "$1")"
+}
+
+# hk_kv <file> <key> -> value of a KEY=value line, empty if absent.
+hk_kv() {
+  [ -f "$1" ] || return 0
+  sed -n "s/^$2=//p" "$1" | head -1
 }
 
 # hk_guard <payload> -> 0 when THIS session has an active run, 1 otherwise.

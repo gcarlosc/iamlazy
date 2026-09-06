@@ -64,6 +64,15 @@ right.
 | 2 | derived by hooks: `task_summary`, `duration_seconds`, `files_changed`, `lines_changed`, `tokens_weighted`, `project_md`, `close_detected_via` |
 | 3 | `base_ref`, `stage_reached`, `critic_findings`, `outcome: abandoned`, `human_interventions` as a per-run delta |
 | 4 | `cost_usd` + `cost_unpriced` + raw `tokens_output` / `tokens_cache_write` / `tokens_cache_read`, replacing `tokens_weighted` |
+| 4 (additive, 2026-09-05) | `host`: `claude-code` when absent from the payload, otherwise what the host adapter declares (`opencode`). Added the moment a second host could write to the same log, so `/iamlazy-review` never averages across hosts. Not a version bump: readers that ignore it lose nothing. |
+
+**Where the cost figure comes from depends on the host.** Claude Code exposes no per-message
+cost, so the hooks derive it from the session transcript and `prices.conf`. OpenCode and Pi price
+every assistant message themselves (`cost`, `tokens{input,output,reasoning,cache{read,write}}`
+per message, verified in both stores on 2026-09-05), so their adapters hand the run's figure over in
+a `<sid>.cost` sidecar — Critic included, baseline already subtracted — and the hooks use it as-is.
+Deriving a second number from `prices.conf` on a host that already priced the run would produce two
+figures that disagree, and this file is the record of why that is worse than one.
 
 `/iamlazy-review` reports what each line actually has, never inferring across generations and never
 converting between the two cost units. A line with no `base_ref` has **unmeasurable**

@@ -18,8 +18,8 @@ visible and stopping it is the point.
   for the `curl | bash` path; `python3` only inside the installer, to merge settings JSON.
 - **bash 3.2 compatible** (macOS default): no `declare -A`, POSIX sh probes, no globs in `[ -f ]`.
   Enforced by CI, which runs `test.sh` under `/bin/bash` on macOS.
-- **Prompts are markdown.** Single source (`core/`, `critic/`); `templates/*.frontmatter` wrap it.
-  The installer composes `frontmatter + body` and projects `models.conf` into `model:`.
+- **Prompts are markdown, one source.** `core/` + `critic/`, with `{{GUARANTEES}}` and `{{GATE}}`
+  filled per host from `templates/<host>/`; the installer composes and projects `models.conf`.
 - **Hooks read a JSON payload on stdin**, parsed with `grep`/`sed`/`awk`. Every helper in `lib.sh`
   declares its variables `local`: they share one process, and a helper leaking `tpath` into its
   caller corrupts the log line written after it.
@@ -61,8 +61,8 @@ Classify every rule by its **footprint**: can a command tell whether it was hono
 **Nothing is promoted by being important.** The sub-agent rule was called an inviolable law and
 violated 7 times in 2 runs, because importance is not a mechanism. A guarantee that fires
 **outside its domain, or in silence, is a defect**. And where both layers name the same thing —
-stage banners, the commands the Critic may run — **a test compares them**: three separate bugs
-came from the two drifting apart while each looked correct alone.
+stage banners, the commands the Critic may run, **what each host actually enforces** — **a test
+compares them**: four separate bugs came from the two drifting apart while each looked correct.
 
 ## What we measure, and what we do not
 
@@ -110,6 +110,8 @@ justification; an undeclared deviation is an automatic reviewer finding.
   obeyed; one that blocks mid-run, where groups are open by design, traps the human out.
 - A contract run **cannot close before its review returns**. Every box ticked is necessary and
   never sufficient — Layer 1 puts review and close *after* the execution that ticks them.
+- **The prompt never promises what its host does not enforce.** `{{GUARANTEES}}` is filled per
+  host: enforced on Claude Code, stated as requests where there is no Layer 0.
 - iamlazy must not run under a permission bypass — enforced by `open-run.sh` (exit 2).
 - The installer edits **only** its own `hooks` entries in `settings.json`, after a backup and
   with validation; user settings and user hooks are never altered. `uninstall.sh` unregisters

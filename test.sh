@@ -78,9 +78,45 @@ echo "source invariants"
 # The budget applies to prose-of-judgement only: mechanical accounting moved to
 # hooks/, which is why this dropped from 250 to 200. Design pressure, not a number
 # to negotiate -- a new rule must evict another or become structure.
-core_lines="$(wc -l < "$SRC/core/iamlazy.md" | tr -d ' ')"
-if [ "$core_lines" -le 200 ]; then ok "core budget: $core_lines <= 200"
-else no "core budget exceeded: $core_lines > 200"; fi
+#
+# Measured on the COMPOSED body, per host, not on the source. The source now
+# carries {{GUARANTEES}} and {{GATE}}; what the model reads is the source with
+# each token replaced by that host's file, so that is what the budget governs.
+# Composition is one token per line replaced by one whole file, so the arithmetic
+# below is exact -- and it deliberately does not re-implement compose_core, which
+# would be the copy this repo keeps paying for.
+core_src="$(wc -l < "$SRC/core/iamlazy.md" | tr -d ' ')"
+for host in claude-code opencode; do
+  g="$SRC/templates/$host/guarantees.md"; t="$SRC/templates/$host/gate.md"
+  if [ ! -f "$g" ] || [ ! -f "$t" ]; then
+    no "host $host is missing guarantees.md or gate.md"
+    continue
+  fi
+  # the marker line is stripped at compose time, so it does not count
+  gl="$(grep -cv '^<!-- hooks:' "$g" | tr -d ' ')"
+  tl="$(wc -l < "$t" | tr -d ' ')"
+  composed=$((core_src - 2 + gl + tl))
+  if [ "$composed" -le 200 ]; then ok "core budget ($host): $composed <= 200"
+  else no "core budget exceeded ($host): $composed > 200"; fi
+done
+
+# The tokens must exist, or composition silently produces a prompt with no
+# guarantees section at all and every host looks identical.
+assert_grep '{{GUARANTEES}}' "$SRC/core/iamlazy.md" "core declares the {{GUARANTEES}} token"
+assert_grep '{{GATE}}'       "$SRC/core/iamlazy.md" "core declares the {{GATE}} token"
+
+# Layer 0 / Layer 1 agreement, third surface. The core used to open with "Hooks
+# enforce five things for you" while merge-settings.sh registered seven hooks --
+# the guarantees text and the hooks it describes had drifted apart, each looking
+# correct alone. The marker in the template names the hooks whose guarantees it
+# declares; these two lists must match exactly.
+registered="$(sed -n 's/.*"\([a-z-]*\.sh\)".*/\1/p' "$SRC/hooks/merge-settings.sh" | sort -u)"
+declared="$(sed -n 's/^<!-- hooks: \(.*\) -->$/\1/p' "$SRC/templates/claude-code/guarantees.md" | tr ' ' '\n' | grep -v '^$' | sort -u)"
+if [ "$registered" = "$declared" ]; then
+  ok "the guarantees text names exactly the hooks that are registered"
+else
+  no "guarantees text and registered hooks disagree -- registered: $(echo "$registered" | tr '\n' ' ')| declared: $(echo "$declared" | tr '\n' ' ')"
+fi
 
 # Every template must declare the idempotency marker, or uninstall can never reclaim it.
 for f in "$SRC"/templates/*/*.frontmatter; do
@@ -129,6 +165,20 @@ assert_grep "model: $CC_CRITIC_MODEL" "$H/.claude/agents/iamlazy-critic.md" "cri
 # Composition: frontmatter + full body + argument hook, in that order.
 assert_grep "What is guaranteed vs what is asked" \
   "$H/.claude/commands/iamlazy.md" "core body composed in"
+
+# Composition, per host. The prompt must never ship an unfilled token, must not
+# carry the verification marker, and must tell each host the truth about itself:
+# on Claude Code the guarantees are enforced, on OpenCode they are requests.
+for f in "$H/.claude/commands/iamlazy.md" "$H/.config/opencode/agents/iamlazy.md"; do
+  n="$(basename "$(dirname "$f")")"
+  assert_no_grep '{{' "$f" "no unfilled token ($n)"
+  assert_no_grep '<!-- hooks:' "$f" "verification marker stays out of the prompt ($n)"
+done
+assert_grep "Hooks enforce these for you"  "$H/.claude/commands/iamlazy.md"      "claude: guarantees are stated as enforced"
+assert_grep "Enter plan mode first" "$H/.claude/commands/iamlazy.md"              "claude: the gate is native plan mode"
+assert_grep "nothing below is enforced"    "$H/.config/opencode/agents/iamlazy.md" "opencode: says plainly that nothing is enforced"
+assert_no_grep "Hooks enforce"             "$H/.config/opencode/agents/iamlazy.md" "opencode: never claims hooks enforce anything"
+assert_grep "plan\` agent first"           "$H/.config/opencode/agents/iamlazy.md" "opencode: the gate is its own plan agent"
 assert_grep 'Request:.*ARGUMENTS'   "$H/.claude/commands/iamlazy.md" "argument hook appended"
 assert_grep "Anti-condescension"    "$H/.claude/agents/iamlazy-critic.md" "critic body composed in"
 

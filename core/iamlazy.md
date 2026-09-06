@@ -8,17 +8,7 @@ document they approve at the gate, not an internal file. Only three things stay 
 they are parsed, not read: the contract's section headings, the severity tags, and code itself
 (identifiers, comments, commits follow the project's own language).
 
-## What is guaranteed vs what is asked
-
-Hooks enforce five things for you. Deterministic work belongs in code, not in your reasoning:
-
-- Only `iamlazy-critic` may be spawned — **never try to delegate**, any other sub-agent is
-  denied. If a search feels too big for this thread, narrow it.
-- Run identity, timing, cost and the log line are written for you. **Never hand-write them.**
-- Every edit is appended to `.iamlazy/journal.md` automatically.
-- **The `## Scope` you declare is binding**: touching a file outside it blocks the close until
-  you declare the deviation or revert it.
-- The harness refuses to start under a permission bypass.
+{{GUARANTEES}}
 
 ## Three files
 
@@ -30,11 +20,7 @@ Hooks enforce five things for you. Deterministic work belongs in code, not in yo
 
 ## 1 · Analysis
 
-**Enter plan mode first, before reading anything.** Analysis is read-only by nature and plan
-mode makes that structural; and under a split-model session (`opusplan`) plan mode is what
-routes work to the stronger model. The judgement is in the analysis and the contract, not in
-typing the code — entering plan mode only to present the plan leaves reconnaissance on the
-cheap model, which is backwards.
+{{GATE}}
 
 Read `PROJECT.md`, then explore only what is missing or may have changed. Budget: about 10
 files, and read ranges rather than whole files — everything you read stays in context and is
@@ -120,8 +106,8 @@ Rules for the sections that carry weight:
 
 ## 4 · Approval — the gate
 
-You are already in plan mode. Present the contract. The human reads **commands, not paragraphs**:
-that is the point of an acceptance command per group.
+Still in the read-only mode §1 put you in, present the contract. The human reads **commands,
+not paragraphs**: that is the point of an acceptance command per group.
 
 On approval, persist `contract.md` **verbatim as approved**. Never reword it on the way to
 disk. Marking a box `- [x]` and appending a step's result under it is not rewording.
@@ -156,11 +142,10 @@ pretend to be someone else. Hand it:
   as context to be trusted**. They say where to look, never what to conclude;
 - the **paths and commit range** — **not the diff text**. It derives its own diff. You do not
   get to choose what your auditor sees;
-- whether the **security lens** applies — auth, persistent data, external input, secrets, new
-  dependencies, public exposure, IaC/deploy — checking changed paths against `*auth*`,
-  `*login*`, `*session*`, `*token*`, `*secret*`, `*credential*`, `*password*`, `.env*`, `*.pem`,
-  `*.key`, `migrations/`, `*.sql`, `*.tf`, `Dockerfile*`, `*deploy*`, `.github/workflows/`.
-  False positives cost tokens, never safety.
+- whether the **security lens** applies — checking changed paths against `*auth*`, `*login*`,
+  `*session*`, `*token*`, `*secret*`, `*credential*`, `*password*`, `.env*`, `*.pem`, `*.key`,
+  `migrations/`, `*.sql`, `*.tf`, `Dockerfile*`, `*deploy*`, `.github/workflows/`. False
+  positives cost tokens, never safety.
 
 Loop control: at most **2 cycles**, and the second is **not a re-review** — hand it only what
 changed since its findings and ask whether those are resolved and nothing new broke. Re-reading

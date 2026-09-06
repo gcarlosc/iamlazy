@@ -20,10 +20,12 @@ hooks/end-run.sh hooks/subagent-done.sh hooks/guard-critic-bash.sh hooks/merge-s
 templates/claude-code/command-iamlazy.frontmatter \
 templates/claude-code/command-review.frontmatter \
 templates/claude-code/agent-critic.frontmatter \
+templates/claude-code/guarantees.md templates/claude-code/gate.md \
 templates/opencode/primary-iamlazy.frontmatter \
 templates/opencode/command-iamlazy.frontmatter \
 templates/opencode/command-review.frontmatter \
 templates/opencode/subagent-critic.frontmatter \
+templates/opencode/guarantees.md templates/opencode/gate.md \
 models.conf prices.conf DELTAS.md"
 
 usage() {
@@ -50,6 +52,30 @@ render() {
   sed -e "s|{{MAIN_MODEL}}|$2|g" -e "s|{{CRITIC_MODEL}}|$3|g" "$1"
 }
 
+# Compose the core body for ONE host: {{GUARANTEES}} and {{GATE}} are replaced
+# by that host's files.
+#
+# Why the core is tokenised at all: its opening section used to state, flatly,
+# that hooks enforce a list of things. That is true on Claude Code and false
+# anywhere without Layer 0 -- so the same bytes were a description on one host
+# and a lie on another. Two prompts would fix the lie and reintroduce drift,
+# which this repo has already paid for three times (the A5 banner, the locale
+# regex, the close firing before the review). One source, two small inserts,
+# and a test that every token gets filled.
+#
+# $1 core body, $2 guarantees file, $3 gate file
+compose_core() {
+  awk -v g="$2" -v t="$3" '''
+    # `<!-- hooks: ... -->` is a verification marker, not prompt text: the suite
+    # compares it against the hooks merge-settings.sh actually registers, so a
+    # new hook whose guarantee nobody wrote down fails the build. The model
+    # never needs to read it, so it is dropped here.
+    /\{\{GUARANTEES\}\}/ { while ((getline line < g) > 0) if (line !~ /^<!-- hooks:/) print line; close(g); next }
+    /\{\{GATE\}\}/       { while ((getline line < t) > 0) print line; close(t); next }
+    { print }
+  ''' "$1"
+}
+
 # Write stdin to $1, but never clobber a pre-existing file that is not ours.
 write_file() {
   dest="$1"
@@ -69,7 +95,8 @@ install_claude() {
   mkdir -p "$CC_CMD_DIR" "$CC_AGENT_DIR"
   {
     render "$SRC/templates/claude-code/command-iamlazy.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"
-    cat "$SRC/core/iamlazy.md"
+    compose_core "$SRC/core/iamlazy.md" \
+      "$SRC/templates/claude-code/guarantees.md" "$SRC/templates/claude-code/gate.md"
     printf '\n\n---\n\n**Request:** $ARGUMENTS\n'
   } | write_file "$CC_CMD_DIR/iamlazy.md"
   {
@@ -86,7 +113,8 @@ install_opencode() {
   mkdir -p "$OC_CMD_DIR" "$OC_AGENT_DIR"
   {
     render "$SRC/templates/opencode/primary-iamlazy.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
-    cat "$SRC/core/iamlazy.md"
+    compose_core "$SRC/core/iamlazy.md" \
+      "$SRC/templates/opencode/guarantees.md" "$SRC/templates/opencode/gate.md"
   } | write_file "$OC_AGENT_DIR/iamlazy.md"
   {
     render "$SRC/templates/opencode/command-iamlazy.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
