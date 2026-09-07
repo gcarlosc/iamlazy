@@ -553,6 +553,24 @@ hk_subagent_cost_micro() {
   printf '%s' "$total"
 }
 
+# hk_unpriced_run <transcript> -> every model the price table does not know,
+# across the main transcript AND each sub-agent's, space separated.
+#
+# The Critic's models were invisible here while its COST was already being
+# added in, so an unpriced model inside a review produced a null the log could
+# not explain: `cost_usd: null` with an empty `cost_unpriced`. A null that names
+# nothing is indistinguishable from a bug, and it took a real run to notice.
+hk_unpriced_run() {
+  local t dir f
+  t="$1"
+  { hk_unpriced_models "$t"
+    dir="${t%.jsonl}/subagents"
+    for f in "$dir"/*.jsonl; do
+      [ -f "$f" ] && hk_unpriced_models "$f"
+    done
+  } | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ' | sed 's/ $//'
+}
+
 # hk_micro_to_usd <micro> -> decimal dollars, 4 places, for the log line.
 hk_micro_to_usd() {
   awk -v m="$1" 'BEGIN { printf "%.4f", m / 1000000 }'

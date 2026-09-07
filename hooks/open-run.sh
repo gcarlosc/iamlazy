@@ -104,8 +104,22 @@ now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # the transcript is missing from prices.conf there is no baseline, and a delta
 # taken against a missing baseline would silently bill this run for the whole
 # session. The close reports null instead.
-start_cost=$(hk_cost_micro "$tpath")
-if [ -n "$start_cost" ]; then cost_priced=1; else cost_priced=0; start_cost=0; fi
+#
+# An ABSENT transcript is not an unknown price -- it means nothing has been
+# spent yet, so the baseline is genuinely zero. Claude Code creates the file
+# lazily and UserPromptSubmit can fire first: verified 2026-09-06, the file was
+# born in the same second the run opened and the hook got there first. Treating
+# the two cases alike made every run started as the first prompt of a fresh
+# session report `cost_usd: null` with nothing in `cost_unpriced` to explain it
+# -- a null with no reason, which is the one thing this field exists to prevent.
+# An EXISTING transcript with no usage lines already priced as 0; only a missing
+# file failed.
+if [ -n "$tpath" ] && [ ! -f "$tpath" ]; then
+  start_cost=0; cost_priced=1
+else
+  start_cost=$(hk_cost_micro "$tpath")
+  if [ -n "$start_cost" ]; then cost_priced=1; else cost_priced=0; start_cost=0; fi
+fi
 
 set -- $(hk_token_components "$tpath" 2>/dev/null)
 start_out="${1:-0}"; start_cw="${2:-0}"; start_cr="${3:-0}"

@@ -88,6 +88,19 @@ lists `claude-haiku-4-5`, so the lookup missed and **every** Claude Code run wou
 `claude-opus-6-preview` at opus-5 rates, and an unknown model is still reported by its full id so
 the human can paste exactly what they saw.
 
+**An absent transcript is a zero baseline, not an unknown price.** Claude Code creates the
+transcript file lazily and `UserPromptSubmit` can fire first — verified 2026-09-06 on the first
+Claude Code run of the dollar era: the file was born in the same second the run opened and the hook
+got there first. `hk_cost_micro` failed on the missing file, the run recorded `cost_priced: 0`, and
+the close reported `cost_usd: null` with an **empty** `cost_unpriced`. That is the sixth wrong
+number, and the worst-behaved of them: a null whose whole job is to name its reason, naming
+nothing. Every run started as the first prompt of a fresh session was affected, which is how most
+runs start. An existing-but-empty transcript already priced as 0; only a missing file failed.
+
+The same run exposed a second path to an unexplained null: the Critic's cost was already being
+added in, but only the MAIN transcript was scanned for unpriced models, so an unknown model inside
+a review produced a null that named nothing either. Both transcripts are scanned now.
+
 **`human_interventions` is `null` where it cannot be derived.** It counts the interruption marker
 in the session transcript, which only Claude Code keeps; OpenCode's adapter sends no transcript, so
 the count is skipped. It logged `0` there until 2026-09-06 — a fifth wrong number, found by reading
@@ -116,7 +129,9 @@ block was being discarded. See `decisions-2026-09.md`.
 Still unexercised, and the reason the "documented, not observed" entry stays in `PROJECT.md`:
 
 - the scope gate blocking a close **on Claude Code** — it has now done so on OpenCode, where the
-  adapter reads `decision: block` itself, which says nothing about whether Claude Code honours it
+  adapter reads `decision: block` itself, which says nothing about whether Claude Code honours it.
+  A run on 2026-09-06 was meant to force it and did not: the out-of-scope file was created after
+  the close rather than before it, so the gate had nothing to refuse
 - ~~the circuit breaker under its current message shape~~ — fired in production for the first time
   on 2026-09-07 (OpenCode), with thresholds deliberately lowered through `~/.iamlazy/config` so the
   experiment cost $0.06 instead of the $3 a real trip needs. The model answered it correctly: "I am

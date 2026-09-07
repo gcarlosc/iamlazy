@@ -114,7 +114,7 @@ else
       fi
     fi
   fi
-  [ -n "$run_cost" ] || unpriced=$(hk_unpriced_models "$tpath" | tr -s ' ' | sed 's/ $//')
+  [ -n "$run_cost" ] || unpriced=$(hk_unpriced_run "$tpath")
 
   # Raw components, as deltas, so the run can be repriced after a table fix.
   set -- $(hk_token_components "$tpath" 2>/dev/null)

@@ -1089,6 +1089,41 @@ esac
 assert_grep 'dark' "$MS/settings.json" "sin parser, settings.json queda intacto"
 
 echo
+echo "costo: el transcript se crea DESPUES del primer prompt"
+
+# UserPromptSubmit dispara antes de que Claude Code escriba el archivo del
+# transcript en una sesion nueva. Verificado 2026-09-06 sobre una corrida real:
+# el archivo nacio en el mismo segundo en que la corrida abrio y el hook llego
+# primero. Un transcript AUSENTE no es un precio desconocido -- es que todavia
+# no se gasto nada, asi que la linea base es cero. Tratarlos igual hacia que
+# toda corrida abierta como primer prompt de una sesion nueva reportara
+# cost_usd null, y ademas sin nada en cost_unpriced que lo explicara.
+LATE="$(mkrepo)"
+mkdir -p "$LATE/.iamlazy"; mk_prices "$LATE"
+run_open "$LATE" '{"hook_event_name":"UserPromptSubmit","session_id":"s","transcript_path":"'"$LATE/t.jsonl"'","cwd":"'"$LATE"'","prompt":"/iamlazy tarea"}'
+assert_grep '"cost_priced":1' "$(runfile "$LATE" s)" "sin transcript todavia, la linea base es cero y la corrida es tarifable"
+assert_grep '"start_cost":0' "$(runfile "$LATE" s)" "y la linea base es exactamente cero, no un desconocido"
+mk_transcript "$LATE" 500000            # el transcript aparece recien ahora
+printf '## Groups\n- [x] g1\n' > "$LATE/.iamlazy/contract.md"
+set_base "$LATE" "s" "$LATE"
+run_flush "$LATE" "$(stop_payload "$LATE" "$CLOSE_MSG" s "$LATE/t.jsonl")" >/dev/null
+assert_grep '"cost_usd":0.5000' "$LATE/.iamlazy/runs.jsonl" "y el cierre tarifa la corrida entera en vez de null"
+
+# Un modelo sin precio dentro del transcript del CRITICO: su costo ya se sumaba
+# a la corrida, pero solo se buscaban modelos sin precio en el transcript
+# principal, asi que producia un null que el log no podia explicar.
+SUBU="$(mkrepo)"
+mkdir -p "$SUBU/.iamlazy"; mk_prices "$SUBU"
+printf '## Groups\n- [x] g1\n' > "$SUBU/.iamlazy/contract.md"
+mk_transcript "$SUBU" 100000
+mkdir -p "$SUBU/t/subagents"
+printf '{"model":"claude-desconocido-9","message":{"id":"msg_S","usage":{"input_tokens":0,"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' > "$SUBU/t/subagents/agent-x.jsonl"
+open_run_tok "$SUBU" "$SUBU"; set_base "$SUBU" "s" "$SUBU"
+run_flush "$SUBU" "$(stop_payload "$SUBU" "$CLOSE_MSG" s "$SUBU/t.jsonl")" >/dev/null
+assert_grep '"cost_usd":null' "$SUBU/.iamlazy/runs.jsonl" "un modelo sin precio en el Critico deja el costo en null"
+assert_grep '"cost_unpriced":"claude-desconocido-9"' "$SUBU/.iamlazy/runs.jsonl" "y el null NOMBRA al modelo, aunque viva en el transcript del Critico"
+
+echo
 echo "precios: un snapshot con fecha es el mismo modelo"
 
 # Claude Code escribe ids con sufijo de fecha en el transcript
