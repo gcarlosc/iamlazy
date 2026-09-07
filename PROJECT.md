@@ -139,8 +139,10 @@ justification; an undeclared deviation is an automatic reviewer finding.
   is now `cost_usd`: model-aware, Critic included, `null` rather than partial when a model is
   missing from `prices.conf`, with raw token components kept so a run can be repriced from the
   record. History and calibration: `docs/measurement-history.md`.
-- **Some channels are documented, not observed.** `Stop`'s `{"decision":"block","reason":…}` and
-  `SubagentStop` carrying the parent `session_id`. The breaker and the scope gate emit every
+- **Some channels are documented, not observed — on Claude Code.** `Stop`'s
+  `{"decision":"block","reason":…}` and `SubagentStop` carrying the parent `session_id`. Both are
+  now observed on OpenCode, where the adapter reads that JSON itself; that says nothing about
+  whether Claude Code honours it. The breaker and the scope gate emit every
   documented channel at once (decision, `systemMessage`, stderr, exit 2) so one of them lands; if
   `SubagentStop` is wrong the close falls back to the CLOSE banner — degraded accuracy, never a
   stuck run — but `critic_done` and `critic_findings` stay silently empty. Confirmed by contrast:

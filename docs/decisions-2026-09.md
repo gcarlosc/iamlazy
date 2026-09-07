@@ -220,6 +220,34 @@ its message to the model. The gate's `decision: block` is fed back through `sess
 as a synthetic user turn, with `stop_hook_active` set on the idle that follows — the same loop
 Claude Code runs, on a channel nobody has watched yet.
 
+## The gate blocked a close for the first time, and the close never came
+
+2026-09-06, OpenCode, a run deliberately given a file outside its `## Scope`. Everything the gate
+is for worked: it refused the close, named `README.md`, and the model **read the reason and acted
+on it** — reverting the stray file rather than absorbing it, because its own contract had
+discarded that path. The channel is real, on this host: the adapter turns `decision: block` into a
+synthetic user turn, and the store shows that turn arriving verbatim.
+
+And then the run did not close. It was logged `abandoned`, stage `CIERRE`, with its work finished,
+its group ticked and its acceptance command green.
+
+The cause is one line of Layer 0 that predates OpenCode. `stop_hook_active` marks the Stop that
+exists *because* a hook blocked the previous one, and `flush-run.sh` treated it as "do nothing at
+all". But that turn is precisely where the model resolves the deviation and finishes — throwing it
+away means a run can never close on the turn that makes it closeable. It only closes if the human
+happens to say something else afterwards.
+
+The flag now suppresses only the *speaking*: the breaker and the gate stay quiet on that turn, the
+close is allowed to happen. Nothing loops without the early exit, because neither of them ever
+spoke twice anyway — the breaker marks `drift_warned` once and the gate keeps its last blocker set
+in a sidecar.
+
+**This bug was in Claude Code too**, and had been since the audit. It could not be found there: the
+scope gate has never once blocked a close on that host, so the turn after a block never existed.
+The test suite even asserted the wrong behaviour — "`stop_hook_active=true` never flushes" — which
+is what a test written from the same assumption as the code will do. It now asserts both halves:
+that turn does not block again, and it does close a run whose blockers are gone.
+
 ## Every export of the OpenCode plugin must be a function
 
 The first real run on OpenCode, 2026-09-06: a clean contract, a real Critic that derived its own

@@ -92,9 +92,17 @@ contract, the gate, execution, review by the Critic, and the close — plus the 
 where the model **read the refusal and adapted in the same turn**, which is what confirms
 `PreToolUse`'s `permissionDecisionReason` actually reaches it.
 
+Three more landed on OpenCode on 2026-09-06, and the third is the one worth keeping: a run whose
+contract, Critic, accounting and close all matched an independent recomputation to the digit; a run
+where the plugin had failed to load, so Layer 1 was flawless and Layer 0 wrote nothing; and a run
+where the scope gate **blocked a close for the first time on any host**. The model read the block
+and reverted the stray file — and the run still could not close, because the turn that resolves a
+block was being discarded. See `decisions-2026-09.md`.
+
 Still unexercised, and the reason the "documented, not observed" entry stays in `PROJECT.md`:
 
-- the scope gate **blocking** a close (no run has deviated yet)
+- the scope gate blocking a close **on Claude Code** — it has now done so on OpenCode, where the
+  adapter reads `decision: block` itself, which says nothing about whether Claude Code honours it
 - the circuit breaker under its current message shape — it fired once on 2026-08-26, but under the
   old `hookSpecificOutput.systemMessage` form, on a run that never closed
 - `Stop`'s `{"decision":"block","reason":…}` reaching the model
