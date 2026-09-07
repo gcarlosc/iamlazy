@@ -22,8 +22,22 @@ hk_guard "$payload" || exit 0
 TMP="$HK_RUN_TMP"
 
 # stop_hook_active=true means THIS Stop is itself the result of a blocking hook
-# on a prior Stop. Skip, so the breaker and the scope gate can never loop.
-hk_bool_true "$payload" "stop_hook_active" && exit 0
+# on a prior Stop. It must not block AGAIN -- that is the loop the flag exists
+# to prevent -- but it must still be allowed to CLOSE, and skipping the turn
+# outright was wrong.
+#
+# Only a real run could show it, and it took the first time the scope gate ever
+# blocked a close on any host (OpenCode, 2026-09-06): the gate refused a close
+# over a file outside ## Scope, the model read the reason and reverted the file
+# on the very next turn -- and that turn, the one where the run finally became
+# closeable, was thrown away. The run stayed open with its work finished and was
+# later logged as `abandoned`.
+#
+# Nothing loops without this early exit: the breaker marks `drift_warned` once
+# and the gate keeps the last blocker set in its sidecar, so neither speaks
+# twice for the same reason. This flag now suppresses only the speaking.
+stop_active=0
+hk_bool_true "$payload" "stop_hook_active" && stop_active=1
 
 sid=$(hk_field "$payload" "session_id")
 cwd=$(hk_field "$payload" "cwd")
@@ -140,6 +154,7 @@ DRIFT_MIN_LINES=50
 DRIFT_MIN_COST=3000000          # $3.00 -- "expensive AND unproductive"
 
 if ! grep -q '"drift_warned"' "$TMP" 2>/dev/null \
+   && [ "$stop_active" = 0 ] \
    && [ -n "$run_cost" ] \
    && [ "$run_cost" -ge "$DRIFT_MIN_COST" ] \
    && [ "${lines_changed:-0}" -ge "$DRIFT_MIN_LINES" ]; then
@@ -186,7 +201,7 @@ if ! signal=$(hk_close_signal "$payload" "$contract" "$root" "$base" "$ubase"); 
   # Warned once per DISTINCT blocker set: if the model resolves one deviation
   # and introduces another, that is new information and gets said. Repeating
   # the same list is not.
-  if hk_has_close_banner "$payload"; then
+  if [ "$stop_active" = 0 ] && hk_has_close_banner "$payload"; then
     blockers=$(hk_close_blockers "$root" "$contract" "$base" "$ubase")
     if [ -n "$blockers" ]; then
       gate=$(hk_gate_file "$TMP")

@@ -413,11 +413,39 @@ run_flush "$STALECON" "$(stop_payload "$STALECON" 'arrancando el analisis')" >/d
 if [ -f "$(runfile "$STALECON")" ]; then ok "el contrato de una corrida anterior no cierra la nueva"
 else no "la corrida cerro con el contrato de la anterior (registro una tarea ajena)"; fi
 
-LOOP_DIR="$(mktmp)"
-open_run "$LOOP_DIR" "$LOOP_DIR" 10
-printf '%s' '{"hook_event_name":"Stop","stop_hook_active":true,"session_id":"sid-x","transcript_path":"/x.jsonl","cwd":"'"$LOOP_DIR"'","last_assistant_message":"── CLOSE · claude-opus-5 · high ──"}' \
-  | HOME="$LOOP_DIR" "$SRC/hooks/flush-run.sh" >/dev/null 2>&1
-if [ -f "$(runfile "$LOOP_DIR")" ]; then ok "stop_hook_active=true nunca vuelca (evita el loop)"; else no "stop_hook_active=true no debia volcar"; fi
+# stop_hook_active=true marca el turno que EXISTE porque un hook bloqueo el
+# anterior. Ese turno no debe volver a bloquear -- ese es el loop que la bandera
+# previene -- pero SI debe poder cerrar: es exactamente el turno donde el modelo
+# resuelve el desvio que el gate le senalo. Saltearlo entero dejaba la corrida
+# abierta con el trabajo terminado, y se registraba `abandoned`.
+#
+# Encontrado el 2026-09-06 en la primera corrida de la historia del proyecto en
+# que el gate bloqueo un cierre de verdad (OpenCode): bloqueo por README.md
+# fuera de Scope, el modelo lo revirtio en el turno siguiente, y ese turno se
+# tiro a la basura.
+loop_payload() { # $1 cwd  $2 mensaje
+  printf '{"hook_event_name":"Stop","stop_hook_active":true,"session_id":"sid-x","transcript_path":"","cwd":"%s","last_assistant_message":"%s"}' "$1" "$2"
+}
+
+LOOPOK="$(mkrepo)"
+mkdir -p "$LOOPOK/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$LOOPOK/.iamlazy/contract.md"
+open_run "$LOOPOK" "$LOOPOK" 10; set_base "$LOOPOK" "sid-x" "$LOOPOK"
+loop_payload "$LOOPOK" "$CLOSE_MSG" | HOME="$LOOPOK" "$SRC/hooks/flush-run.sh" >/dev/null 2>&1
+assert_grep '"outcome":"flushed"' "$LOOPOK/.iamlazy/runs.jsonl" "el turno que sigue a un bloqueo puede cerrar la corrida"
+assert_absent "$(runfile "$LOOPOK")" "y la corrida queda cerrada, no abandonada"
+
+# ...pero con bloqueadores todavia sin resolver, ese mismo turno calla: si
+# volviera a emitir `decision: block` el host lo haria continuar otra vez, que
+# es el bucle. Callar es correcto porque el aviso anterior ya se dio.
+LOOPQ="$(mkrepo)"
+mkdir -p "$LOOPQ/.iamlazy"
+printf '## Groups\n- [ ] g1\n' > "$LOOPQ/.iamlazy/contract.md"
+open_run "$LOOPQ" "$LOOPQ" 10; set_base "$LOOPQ" "sid-x" "$LOOPQ"
+loopout="$(loop_payload "$LOOPQ" "$CLOSE_MSG" | HOME="$LOOPQ" "$SRC/hooks/flush-run.sh" 2>&1)"
+if [ -z "$loopout" ]; then ok "con bloqueadores pendientes, ese turno no vuelve a bloquear (evita el loop)"
+else no "volvio a bloquear en el turno posterior a un bloqueo (obtuvo: $loopout)"; fi
+if [ -f "$(runfile "$LOOPQ")" ]; then ok "y la corrida sigue abierta, como debe"; else no "cerro con bloqueadores pendientes"; fi
 
 echo
 echo "guarantee 2 — real payloads and real git"
@@ -709,6 +737,21 @@ if [ "$(flush_rc "$CB" "$(stop_payload "$CB" "$CLOSE_MSG" s "$CB/t.jsonl")")" = 
 assert_grep '"drift_warned":1' "$(runfile "$CB" s)" "el aviso queda marcado en el run"
 
 if [ "$(flush_rc "$CB" "$(stop_payload "$CB" "$CLOSE_MSG" s "$CB/t.jsonl")")" = "2" ]; then no "el breaker no debe repetir el aviso"; else ok "el breaker avisa una sola vez"; fi
+
+# El breaker tampoco habla en el turno que EXISTE porque un hook bloqueo el
+# anterior: seria el mismo bucle que la bandera previene. Se prueba con una
+# corrida virgen (sin drift_warned), asi que lo unico que puede callarlo es
+# stop_hook_active.
+CBL="$(mkrepo)"
+mkdir -p "$CBL/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$CBL/.iamlazy/contract.md"
+printf 'x\n%.0s' $(seq 1 230) > "$CBL/small.txt"
+mk_transcript "$CBL" 23690000
+open_run_tok "$CBL" "$CBL"; set_base "$CBL" "s" "$CBL"; rm -f "$CBL/.iamlazy/active/s.untracked"
+cbl_payload="$(printf '{"hook_event_name":"Stop","stop_hook_active":true,"session_id":"s","transcript_path":"%s","cwd":"%s","last_assistant_message":"%s"}' "$CBL/t.jsonl" "$CBL" "$CLOSE_MSG")"
+if [ "$(printf '%s' "$cbl_payload" | HOME="$CBL" "$SRC/hooks/flush-run.sh" >/dev/null 2>&1; echo $?)" = "2" ]; then
+  no "el breaker no debe disparar en el turno posterior a un bloqueo"
+else ok "el breaker calla en el turno posterior a un bloqueo"; fi
 assert_absent "$(runfile "$CB" s)" "tras avisar, el cierre sigue siendo posible"
 assert_grep '"cost_usd":23.6900' "$CB/.iamlazy/runs.jsonl" "cost_usd (delta de la corrida) llega al log"
 assert_grep '"tokens_output":947600' "$CB/.iamlazy/runs.jsonl" "los componentes crudos quedan para poder reprecificar"
