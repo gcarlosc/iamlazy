@@ -1089,6 +1089,48 @@ esac
 assert_grep 'dark' "$MS/settings.json" "sin parser, settings.json queda intacto"
 
 echo
+echo "precios: un snapshot con fecha es el mismo modelo"
+
+# Claude Code escribe ids con sufijo de fecha en el transcript
+# (claude-haiku-4-5-20251001 aparece 9.321 veces en una semana de transcripts
+# reales) y prices.conf lista la familia sin sufijo. La busqueda era exacta, asi
+# que TODA corrida que tocara un snapshot habria salido con cost_usd null. Un
+# -YYYYMMDD es el mismo modelo al mismo precio, por definicion; cualquier otro
+# prefijo NO se normaliza, porque tarifar claude-opus-6-preview a precio de
+# opus-5 seria un numero equivocado, y este proyecto prefiere no tener numero.
+PSNAP="$(mktmp)"
+mk_prices "$PSNAP"
+printf '{"model":"claude-opus-5-20251001","message":{"id":"msg_A","usage":{"input_tokens":0,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' > "$PSNAP/t.jsonl"
+snap_cost="$(HOME="$PSNAP" bash -c '. '"$SRC"'/hooks/lib.sh; hk_cost_micro "'"$PSNAP"'/t.jsonl"')"
+if [ "$snap_cost" = "2500" ]; then ok "un id con -YYYYMMDD tarifa como su familia (100 tok x 25 micro)"
+else no "el snapshot con fecha no tarifo (obtuvo: ${snap_cost:-<vacio>})"; fi
+snap_miss="$(HOME="$PSNAP" bash -c '. '"$SRC"'/hooks/lib.sh; hk_unpriced_models "'"$PSNAP"'/t.jsonl"')"
+if [ -z "$snap_miss" ]; then ok "y no se reporta como modelo sin precio"
+else no "reporto como sin precio un snapshot que si tiene precio: $snap_miss"; fi
+
+# Un modelo realmente desconocido sigue sin tarifarse, y se nombra.
+PUNK="$(mktmp)"
+mk_prices "$PUNK"
+printf '{"model":"claude-opus-6-preview","message":{"id":"msg_B","usage":{"input_tokens":0,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' > "$PUNK/t.jsonl"
+if HOME="$PUNK" bash -c '. '"$SRC"'/hooks/lib.sh; hk_cost_micro "'"$PUNK"'/t.jsonl"' >/dev/null 2>&1; then
+  no "un modelo desconocido no debe tarifarse por parecido"
+else ok "un modelo desconocido sigue sin tarifar, no se aproxima"; fi
+unk="$(HOME="$PUNK" bash -c '. '"$SRC"'/hooks/lib.sh; hk_unpriced_models "'"$PUNK"'/t.jsonl"')"
+case "$unk" in *claude-opus-6-preview*) ok "y se nombra con su id completo" ;; *) no "no nombro el modelo sin precio (obtuvo: ${unk:-<vacio>})" ;; esac
+
+# Y si el desconocido ADEMAS trae fecha, se reporta con el id COMPLETO: el
+# humano tiene que poder pegar en prices.conf exactamente lo que vio, no una
+# version recortada que no aparece en ningun transcript.
+PUNKD="$(mktmp)"
+mk_prices "$PUNKD"
+printf '{"model":"claude-zeta-9-20260101","message":{"id":"msg_C","usage":{"input_tokens":0,"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' > "$PUNKD/t.jsonl"
+unkd="$(HOME="$PUNKD" bash -c '. '"$SRC"'/hooks/lib.sh; hk_unpriced_models "'"$PUNKD"'/t.jsonl"')"
+case "$unkd" in
+  *claude-zeta-9-20260101*) ok "un desconocido con fecha se nombra completo, sin recortar" ;;
+  *) no "reporto el id recortado en vez del real (obtuvo: ${unkd:-<vacio>})" ;;
+esac
+
+echo
 echo "umbrales del breaker: config, con los defaults como respaldo"
 
 # Recalibrar exigia editar el script instalado y reinstalar, y por eso el breaker

@@ -489,6 +489,12 @@ hk_cost_micro() {
 
       model = ""
       if (match($0, /"model":"[^"]+"/)) model = substr($0, RSTART+9, RLENGTH-10)
+      # A trailing -YYYYMMDD is a SNAPSHOT of the same model, priced the same by
+      # definition, so it is stripped before the lookup. Nothing else is: prefix
+      # matching in general would let `claude-opus-6-preview` be priced at
+      # opus-5 rates, and a wrong number is worse than none -- which is the
+      # whole reason an unknown model reports null and names itself.
+      sub(/-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/, "", model)
       if (model == "" || !(model in pin)) { bad = 1; next }
 
       o = c = r = i = 0
@@ -519,7 +525,9 @@ hk_unpriced_models() {
       if (!match($0, /"usage":\{/)) next
       if (!match($0, /"model":"[^"]+"/)) next
       m = substr($0, RSTART+9, RLENGTH-10)
-      if (!(m in pin)) miss[m] = 1
+      raw = m
+      sub(/-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/, "", m)
+      if (!(m in pin)) miss[raw] = 1
     }
     END { for (m in miss) printf "%s ", m }
   ' "$prices" "$t" 2>/dev/null

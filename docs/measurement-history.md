@@ -80,6 +80,14 @@ a `<sid>.cost` sidecar — Critic included, baseline already subtracted — and 
 Deriving a second number from `prices.conf` on a host that already priced the run would produce two
 figures that disagree, and this file is the record of why that is worse than one.
 
+**A trailing `-YYYYMMDD` in a model id is a snapshot of the same model**, so it is stripped before
+the price lookup. Found on 2026-09-06 while preparing the first Claude Code run of the dollar era:
+`claude-haiku-4-5-20251001` appears 9,321 times in a week of real transcripts and `prices.conf`
+lists `claude-haiku-4-5`, so the lookup missed and **every** Claude Code run would have logged
+`cost_usd: null`. Nothing else is normalised: prefix-matching in general would price a
+`claude-opus-6-preview` at opus-5 rates, and an unknown model is still reported by its full id so
+the human can paste exactly what they saw.
+
 **`human_interventions` is `null` where it cannot be derived.** It counts the interruption marker
 in the session transcript, which only Claude Code keeps; OpenCode's adapter sends no transcript, so
 the count is skipped. It logged `0` there until 2026-09-06 — a fifth wrong number, found by reading
