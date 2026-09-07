@@ -4,11 +4,11 @@ Moved out of `PROJECT.md` on 2026-09-05. That file is read at the start of every
 what changes a decision **now**; this holds the record behind it.
 
 One pattern runs through all of it: **every number this harness has reported about itself has been
-wrong at least once, and a human refusing a figure that felt wrong found all four. No test did.**
+wrong at least once, and a human refusing a figure that felt wrong found every one. No test did.**
 That is the reason for the standing rule — check any self-reported figure against an independent
 calculation before trusting it.
 
-## The four wrong numbers
+## The wrong numbers
 
 | Field | How wrong | How it was found | Outcome |
 |---|---|---|---|
@@ -63,10 +63,14 @@ right.
 | 1 (pre-Layer 0) | self-reported: `reversibility`, `critic_mode`, `gate_verdict`, `outcome: success` |
 | 2 | derived by hooks: `task_summary`, `duration_seconds`, `files_changed`, `lines_changed`, `tokens_weighted`, `project_md`, `close_detected_via` |
 | 3 | `base_ref`, `stage_reached`, `critic_findings`, `outcome: abandoned`, `human_interventions` as a per-run delta |
-| 4 | `cost_usd` (dollars, model-aware, Critic included) with raw token components, replacing `tokens_weighted`; `host` |
-| 5 | `drift_thresholds`, the breaker's settings in effect for that run; `abandoned` lines stop claiming to be schema 3 |
 | 4 | `cost_usd` + `cost_unpriced` + raw `tokens_output` / `tokens_cache_write` / `tokens_cache_read`, replacing `tokens_weighted` |
 | 4 (additive, 2026-09-05) | `host`: `claude-code` when absent from the payload, otherwise what the host adapter declares (`opencode`). Added the moment a second host could write to the same log, so `/iamlazy-review` never averages across hosts. Not a version bump: readers that ignore it lose nothing. |
+| 5 | `drift_thresholds`, the breaker's settings in effect for that run; `abandoned` lines stop claiming to be schema 3 rather than the generation that wrote them |
+| 6 | `drift_fired`, whether the breaker actually stopped that run — on flushed and abandoned lines alike |
+
+Five and six landed the same day, one field each, which is one bump more than it should have taken:
+logging the thresholds without logging whether they fired only looked complete until the breaker
+fired for the first time and the log could not say so.
 
 **Where the cost figure comes from depends on the host.** Claude Code exposes no per-message
 cost, so the hooks derive it from the session transcript and `prices.conf`. OpenCode and Pi price
@@ -105,8 +109,13 @@ Still unexercised, and the reason the "documented, not observed" entry stays in 
 
 - the scope gate blocking a close **on Claude Code** — it has now done so on OpenCode, where the
   adapter reads `decision: block` itself, which says nothing about whether Claude Code honours it
-- the circuit breaker under its current message shape — it fired once on 2026-08-26, but under the
-  old `hookSpecificOutput.systemMessage` form, on a run that never closed
+- ~~the circuit breaker under its current message shape~~ — fired in production for the first time
+  on 2026-09-07 (OpenCode), with thresholds deliberately lowered through `~/.iamlazy/config` so the
+  experiment cost $0.06 instead of the $3 a real trip needs. The model answered it correctly: "I am
+  not going to invent a hypothesis or a failed attempt, because there are none." It was right — the
+  run was healthy and the threshold was artificial, which is exactly what `PROJECT.md` says to
+  conclude. The false positive cost 705s and $0.0565 against 331s and $0.0363 for the equivalent
+  run without it
 - `Stop`'s `{"decision":"block","reason":…}` reaching the model
 - the gate **rejecting** a plan: across 29 logged runs, `gate_verdict` has never once been
   `rejected`

@@ -19,7 +19,11 @@ Show the human the last runs of the harness in a readable form.
    outcome and a per-run `human_interventions`; `4` replaces `tokens_weighted` with `cost_usd`
    plus the raw `tokens_output` / `tokens_cache_write` / `tokens_cache_read`, and names the `host`;
    `5` adds `drift_thresholds` — the breaker's settings as `microUSD-per-line/min-lines/min-cost`,
-   logged because a breaker that did not fire is only interpretable against what it measured.
+   logged because a breaker that did not fire is only interpretable against what it measured; `6`
+   adds `drift_fired`, whether it actually stopped that run. **Report how many runs it fired on,
+   and against which thresholds.** Its numbers rest on four runs from two projects, so that count
+   is the evidence for keeping or moving them — and a run it fired on that turned out fine means
+   the threshold is wrong, not the run.
    **Report what each line actually has. Never carry a field across generations, and never infer a
    missing one** — a run that predates a field did not score badly on it, it simply has no value,
    and those are different facts. An `abandoned` line carries only the subset a run that never
