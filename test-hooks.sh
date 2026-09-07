@@ -754,6 +754,17 @@ if [ "$(printf '%s' "$cbl_payload" | HOME="$CBL" "$SRC/hooks/flush-run.sh" >/dev
 else ok "el breaker calla en el turno posterior a un bloqueo"; fi
 assert_absent "$(runfile "$CB" s)" "tras avisar, el cierre sigue siendo posible"
 assert_grep '"cost_usd":23.6900' "$CB/.iamlazy/runs.jsonl" "cost_usd (delta de la corrida) llega al log"
+assert_grep '"drift_fired":1' "$CB/.iamlazy/runs.jsonl" "la linea recuerda que el breaker disparo"
+
+# Una corrida que cruzo el breaker y ADEMAS nunca cerro es la corrida enferma
+# canonica: cara, sin avance y abandonada. El dato vive en el archivo de la
+# corrida, que se borra al volcarla, asi que tiene que viajar a la linea.
+CBA="$(mkrepo)"
+open_run "$CBA" "$CBA" 30 s
+sed 's/}$/,"drift_warned":1}/' "$(runfile "$CBA" s)" > "$CBA/rf.tmp" && mv "$CBA/rf.tmp" "$(runfile "$CBA" s)"
+run_end "$CBA" '{"hook_event_name":"SessionEnd","session_id":"s","cwd":"'"$CBA"'"}'
+assert_grep '"drift_fired":1' "$CBA/.iamlazy/runs.jsonl" "una corrida abandonada recuerda que el breaker disparo"
+assert_grep '"schema_version":6' "$CBA/.iamlazy/runs.jsonl" "la linea abandonada declara el schema vigente"
 assert_grep '"tokens_output":947600' "$CB/.iamlazy/runs.jsonl" "los componentes crudos quedan para poder reprecificar"
 
 # Debajo del piso de lineas el ratio es ruido: el costo por linea SUBE cuanto
@@ -821,7 +832,7 @@ run_flush "$SEM" "$(stop_payload "$SEM" "$CLOSE_MSG" s "$SEMT/t.jsonl")" >/dev/n
 assert_grep '"task_summary":"Add rate limiting to the \\"login\\" endpoint"' "$SEM/.iamlazy/runs.jsonl" \
   "task_summary derivado del contrato, con las comillas ESCAPADAS (no borradas)"
 assert_grep '"project_md":"updated"' "$SEM/.iamlazy/runs.jsonl" "project_md derivado del diff"
-assert_grep '"schema_version":5' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
+assert_grep '"schema_version":6' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
 assert_grep '"cost_usd":0.5000' "$SEM/.iamlazy/runs.jsonl" "cost_usd derivado del transcript y la tabla de precios"
 assert_grep '"close_detected_via":"contract"' "$SEM/.iamlazy/runs.jsonl" \
   "PROJECT.md modificado no bloquea el cierre (es parte del cierre)"
@@ -1098,6 +1109,7 @@ if [ "$(flush_rc "$DEFT" "$(stop_payload "$DEFT" "$CLOSE_MSG" s "$DEFT/t.jsonl")
   no "sin config, una corrida barata no debe disparar"
 else ok "sin config valen los umbrales por defecto"; fi
 assert_grep '"drift_thresholds":"80000/50/3000000"' "$DEFT/.iamlazy/runs.jsonl" "la linea registra los umbrales por defecto"
+assert_grep '"drift_fired":0' "$DEFT/.iamlazy/runs.jsonl" "una corrida que no lo cruzo registra drift_fired 0"
 
 LOWT="$(mkrepo)"; mk_cheap_run "$LOWT"
 printf 'DRIFT_MICRO_PER_LINE=5000\nDRIFT_MIN_LINES=5\nDRIFT_MIN_COST=50000\n' > "$LOWT/.iamlazy/config"

@@ -593,7 +593,7 @@ hk_log_append() {
 # a real line, including the stage it died at -- which is the one thing worth
 # knowing about it.
 hk_flush_abandoned() {
-  local f sid tpath root stage start dur
+  local f sid tpath root stage start dur fired
   f="$1"
   [ -f "$f" ] || return 0
   sid=$(hk_field_file "$f" "session_id")
@@ -607,10 +607,15 @@ hk_flush_abandoned() {
   # Same schema generation as a flushed line, carrying the subset a run that
   # never closed can honestly fill. It used to claim `3` forever, which made the
   # log lie about which generation wrote it -- the reader groups by that number.
-  hk_log_append "$(printf '{"schema_version":5,"timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","outcome":"abandoned"}' \
+  # An abandoned run that had tripped the breaker is the canonical sick run:
+  # expensive, unproductive, and it never even closed. That is worth carrying
+  # into the log rather than losing with the run file.
+  fired=0
+  grep -q '"drift_warned"' "$f" 2>/dev/null && fired=1
+  hk_log_append "$(printf '{"schema_version":6,"timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","drift_fired":%s,"outcome":"abandoned"}' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$root")" \
-    "$dur" "$(hk_json_esc "$stage")")"
+    "$dur" "$(hk_json_esc "$stage")" "$fired")"
   hk_run_clear "$f"
 }
 
