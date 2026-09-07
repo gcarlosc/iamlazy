@@ -149,9 +149,29 @@ host=$(hk_field_file "$TMP" "host"); [ -n "$host" ] || host="claude-code"
 # logged validation_result=passed on all seven attempts. The tests kept
 # passing; it was failing in the browser. "The command failed twice" would
 # never have fired. Cost per line did.
+#
+# The three numbers are DEFAULTS, overridable in ~/.iamlazy/config (KEY=value,
+# read with the same helper as every other sidecar). Recalibrating used to mean
+# editing the installed script and reinstalling, which is why four thin data
+# points have gone unchallenged since August -- and why the breaker is still the
+# one guarantee never exercised in production, on any host: reproducing it costs
+# a $3 run. A config file makes it a cheap experiment instead of an expensive
+# one. Whatever ends up in effect is logged with the run, because a breaker that
+# did not fire is only explainable if you know what it was measured against.
 DRIFT_MICRO_PER_LINE=80000      # $0.08 per changed line
 DRIFT_MIN_LINES=50
 DRIFT_MIN_COST=3000000          # $3.00 -- "expensive AND unproductive"
+
+hk_conf() {
+  local v
+  v=$(hk_kv "${HK_DIR}/config" "$1")
+  case "$v" in ''|*[!0-9]*) return 0 ;; esac
+  printf '%s' "$v"
+}
+v=$(hk_conf DRIFT_MICRO_PER_LINE); [ -n "$v" ] && DRIFT_MICRO_PER_LINE="$v"
+v=$(hk_conf DRIFT_MIN_LINES);      [ -n "$v" ] && DRIFT_MIN_LINES="$v"
+v=$(hk_conf DRIFT_MIN_COST);       [ -n "$v" ] && DRIFT_MIN_COST="$v"
+drift_thresholds="${DRIFT_MICRO_PER_LINE}/${DRIFT_MIN_LINES}/${DRIFT_MIN_COST}"
 
 if ! grep -q '"drift_warned"' "$TMP" 2>/dev/null \
    && [ "$stop_active" = 0 ] \
@@ -284,13 +304,13 @@ else
   cost_field="null"
 fi
 
-hk_log_append "$(printf '{"schema_version":4,"host":"%s","timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","outcome":"flushed"}' \
+hk_log_append "$(printf '{"schema_version":5,"host":"%s","timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","drift_thresholds":"%s","outcome":"flushed"}' \
   "$(hk_json_esc "$host")" "$now_iso" "$task_summary" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" \
   "$(hk_json_esc "$root")" "$(hk_json_esc "$base")" \
   "${duration:-null}" "$human_interventions" "${files_changed:-0}" "${lines_changed:-0}" \
   "$cost_field" "$(hk_json_esc "$unpriced")" "$d_out" "$d_cw" "$d_cr" \
   "$project_md" "$(hk_json_esc "$stage")" \
-  "$(hk_json_esc "$critic_findings")" "$signal")"
+  "$(hk_json_esc "$critic_findings")" "$signal" "$drift_thresholds")"
 
 hk_run_clear "$TMP"
 exit 0

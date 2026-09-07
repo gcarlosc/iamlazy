@@ -63,6 +63,8 @@ right.
 | 1 (pre-Layer 0) | self-reported: `reversibility`, `critic_mode`, `gate_verdict`, `outcome: success` |
 | 2 | derived by hooks: `task_summary`, `duration_seconds`, `files_changed`, `lines_changed`, `tokens_weighted`, `project_md`, `close_detected_via` |
 | 3 | `base_ref`, `stage_reached`, `critic_findings`, `outcome: abandoned`, `human_interventions` as a per-run delta |
+| 4 | `cost_usd` (dollars, model-aware, Critic included) with raw token components, replacing `tokens_weighted`; `host` |
+| 5 | `drift_thresholds`, the breaker's settings in effect for that run; `abandoned` lines stop claiming to be schema 3 |
 | 4 | `cost_usd` + `cost_unpriced` + raw `tokens_output` / `tokens_cache_write` / `tokens_cache_read`, replacing `tokens_weighted` |
 | 4 (additive, 2026-09-05) | `host`: `claude-code` when absent from the payload, otherwise what the host adapter declares (`opencode`). Added the moment a second host could write to the same log, so `/iamlazy-review` never averages across hosts. Not a version bump: readers that ignore it lose nothing. |
 

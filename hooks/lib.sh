@@ -604,7 +604,10 @@ hk_flush_abandoned() {
   start=$(hk_json_num "$f" "start_epoch")
   dur=null
   [ -n "$start" ] && dur=$(( $(date +%s) - start ))
-  hk_log_append "$(printf '{"schema_version":3,"timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","outcome":"abandoned"}' \
+  # Same schema generation as a flushed line, carrying the subset a run that
+  # never closed can honestly fill. It used to claim `3` forever, which made the
+  # log lie about which generation wrote it -- the reader groups by that number.
+  hk_log_append "$(printf '{"schema_version":5,"timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","outcome":"abandoned"}' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$root")" \
     "$dur" "$(hk_json_esc "$stage")")"

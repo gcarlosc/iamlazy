@@ -13,14 +13,17 @@ Show the human the last runs of the harness in a readable form.
 
 2. **You parse the JSON, not bash.** Each line is one JSON object.
 
-   **The file holds four schema generations, and that is expected.** Pre-Layer-0 lines are
+   **The file holds five schema generations, and that is expected.** Pre-Layer-0 lines are
    self-reported (`reversibility`, `critic_mode`, `gate_verdict`, `outcome: success`); `2` is
    derived by hooks; `3` adds `base_ref`, `stage_reached`, `critic_findings`, the `abandoned`
    outcome and a per-run `human_interventions`; `4` replaces `tokens_weighted` with `cost_usd`
-   plus the raw `tokens_output` / `tokens_cache_write` / `tokens_cache_read`. **Report what each
-   line actually has. Never carry a field across generations, and never infer a missing one** — a
-   run that predates a field did not score badly on it, it simply has no value, and those are
-   different facts.
+   plus the raw `tokens_output` / `tokens_cache_write` / `tokens_cache_read`, and names the `host`;
+   `5` adds `drift_thresholds` — the breaker's settings as `microUSD-per-line/min-lines/min-cost`,
+   logged because a breaker that did not fire is only interpretable against what it measured.
+   **Report what each line actually has. Never carry a field across generations, and never infer a
+   missing one** — a run that predates a field did not score badly on it, it simply has no value,
+   and those are different facts. An `abandoned` line carries only the subset a run that never
+   closed can honestly fill; its missing fields are not zeros.
 
    **A line with no `base_ref` has UNRELIABLE `files_changed` and `lines_changed`.** Those runs
    measured with a bare `git diff`, which shows only unstaged work, so anything staged or

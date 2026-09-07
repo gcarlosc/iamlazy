@@ -821,7 +821,7 @@ run_flush "$SEM" "$(stop_payload "$SEM" "$CLOSE_MSG" s "$SEMT/t.jsonl")" >/dev/n
 assert_grep '"task_summary":"Add rate limiting to the \\"login\\" endpoint"' "$SEM/.iamlazy/runs.jsonl" \
   "task_summary derivado del contrato, con las comillas ESCAPADAS (no borradas)"
 assert_grep '"project_md":"updated"' "$SEM/.iamlazy/runs.jsonl" "project_md derivado del diff"
-assert_grep '"schema_version":4' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
+assert_grep '"schema_version":5' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
 assert_grep '"cost_usd":0.5000' "$SEM/.iamlazy/runs.jsonl" "cost_usd derivado del transcript y la tabla de precios"
 assert_grep '"close_detected_via":"contract"' "$SEM/.iamlazy/runs.jsonl" \
   "PROJECT.md modificado no bloquea el cierre (es parte del cierre)"
@@ -1076,6 +1076,41 @@ case "$msout" in
   *) no "mensaje incorrecto sin parser (obtuvo: $msout)" ;;
 esac
 assert_grep 'dark' "$MS/settings.json" "sin parser, settings.json queda intacto"
+
+echo
+echo "umbrales del breaker: config, con los defaults como respaldo"
+
+# Recalibrar exigia editar el script instalado y reinstalar, y por eso el breaker
+# sigue siendo la unica garantia nunca ejercitada en produccion en ningun host:
+# reproducirla cuesta una corrida de $3. Con ~/.iamlazy/config es un experimento
+# de centavos. Lo que quede en efecto se registra en la linea, porque un breaker
+# que NO disparo solo se puede interpretar sabiendo contra que se midio.
+mk_cheap_run() { # $1 home -- $0.10 sobre 10 lineas = $0.01/linea: sana por default
+  mkdir -p "$1/.iamlazy"
+  printf '## Groups\n- [x] g1\n' > "$1/.iamlazy/contract.md"
+  printf 'x\n%.0s' $(seq 1 10) > "$1/f.txt"
+  mk_transcript "$1" 100000
+  open_run_tok "$1" "$1"; set_base "$1" "s" "$1"; rm -f "$1/.iamlazy/active/s.untracked"
+}
+
+DEFT="$(mkrepo)"; mk_cheap_run "$DEFT"
+if [ "$(flush_rc "$DEFT" "$(stop_payload "$DEFT" "$CLOSE_MSG" s "$DEFT/t.jsonl")")" = "2" ]; then
+  no "sin config, una corrida barata no debe disparar"
+else ok "sin config valen los umbrales por defecto"; fi
+assert_grep '"drift_thresholds":"80000/50/3000000"' "$DEFT/.iamlazy/runs.jsonl" "la linea registra los umbrales por defecto"
+
+LOWT="$(mkrepo)"; mk_cheap_run "$LOWT"
+printf 'DRIFT_MICRO_PER_LINE=5000\nDRIFT_MIN_LINES=5\nDRIFT_MIN_COST=50000\n' > "$LOWT/.iamlazy/config"
+if [ "$(flush_rc "$LOWT" "$(stop_payload "$LOWT" "$CLOSE_MSG" s "$LOWT/t.jsonl")")" = "2" ]; then
+  ok "los umbrales de ~/.iamlazy/config bajan el piso y el breaker dispara"
+else no "el breaker ignoro los umbrales del config"; fi
+
+# Un valor no numerico no puede convertirse en un umbral: `[ x -ge y ]` con
+# basura aborta la comparacion y el breaker quedaria mudo sin decirlo.
+BADT="$(mkrepo)"; mk_cheap_run "$BADT"
+printf 'DRIFT_MIN_LINES=muchas\nDRIFT_MICRO_PER_LINE=\n' > "$BADT/.iamlazy/config"
+run_flush "$BADT" "$(stop_payload "$BADT" "$CLOSE_MSG" s "$BADT/t.jsonl")" >/dev/null
+assert_grep '"drift_thresholds":"80000/50/3000000"' "$BADT/.iamlazy/runs.jsonl" "un umbral no numerico se ignora y vale el default"
 
 echo
 echo "human_interventions — delta donde se puede contar, null donde no"
