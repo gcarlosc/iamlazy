@@ -263,6 +263,43 @@ else
   ok "--model with --tool=both is refused"
 fi
 
+# ------------------------------------------------------- install --check
+# What is INSTALLED is what runs, and it drifts from the repo silently. Three
+# times in one day a fix was committed, this suite went green, and the machine
+# kept running the previous bytes -- once leaving a real run unable to close.
+echo
+echo "install --check (the drift doctor)"
+HC1="$(mktmp)"
+HOME="$HC1" "$SRC/install.sh" --tool=both >/dev/null 2>&1
+if HOME="$HC1" "$SRC/install.sh" --check >/dev/null 2>&1; then ok "--check passes right after an install"
+else no "--check fails on a machine the installer just set up"; fi
+
+printf '\n# drifted\n' >> "$HC1/.claude/iamlazy-hooks/flush-run.sh"
+checkout="$(HOME="$HC1" "$SRC/install.sh" --check 2>&1)"; check_rc=$?
+if [ "$check_rc" -eq 0 ]; then no "--check missed a hook that differs from the repo"
+else
+  case "$checkout" in
+    *flush-run.sh*) ok "--check catches a drifted hook and names it" ;;
+    *) no "--check failed without naming the drifted hook" ;;
+  esac
+fi
+# It reports; it never repairs. A checker that silently fixes things is one you
+# stop reading, and the repair belongs to the installer.
+assert_grep '# drifted' "$HC1/.claude/iamlazy-hooks/flush-run.sh" "--check reports, never repairs"
+
+# A hook on disk that nobody invokes is a file, not a guarantee.
+HC2="$(mktmp)"
+HOME="$HC2" "$SRC/install.sh" --tool=claude >/dev/null 2>&1
+python3 - "$HC2/.claude/settings.json" <<'PY' 2>/dev/null || true
+import json,sys
+p=sys.argv[1]; d=json.load(open(p))
+d["hooks"]["Stop"]=[]
+json.dump(d,open(p,"w"))
+PY
+if HOME="$HC2" "$SRC/install.sh" --check >/dev/null 2>&1; then
+  no "--check missed an installed hook that is no longer registered"
+else ok "--check catches an installed hook that is no longer registered"; fi
+
 # ---------------------------------------------------------------- uninstall
 echo
 echo "uninstall"

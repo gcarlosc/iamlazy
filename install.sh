@@ -31,10 +31,117 @@ templates/opencode/subagent-critic.frontmatter \
 templates/opencode/guarantees.md templates/opencode/gate.md \
 models.conf prices.conf DELTAS.md"
 
+# --------------------------------------------------------------------- check
+#
+# What is INSTALLED is what runs, and it drifts from the repo silently: three
+# times in one day a fix was committed, the suite went green, and the machine
+# kept running the previous bytes -- once leaving a run unable to close at all.
+# Nothing said so. This turns the project's own principle, "verify against the
+# running build, not the documentation", into a command.
+#
+# It reports and exits non-zero; it never repairs. Repairing is what install.sh
+# is for, and a checker that silently fixes things is a checker you stop reading.
+CHECK_FAIL=0
+c_ok()   { echo "  ok    $1"; }
+c_bad()  { echo "  BAD   $1" >&2; CHECK_FAIL=1; }
+c_skip() { echo "  --    $1"; }
+
+# c_same <repo file> <installed file> <label>
+c_same() {
+  if [ ! -f "$2" ]; then c_bad "$3: not installed ($2)"
+  elif cmp -s "$1" "$2"; then c_ok "$3"
+  else c_bad "$3: installed copy differs from this repo"; fi
+}
+
+run_check() {
+  echo "iamlazy check  (repo: $SRC)"
+
+  echo "claude code"
+  if [ -d "$CC_HOOK_DIR" ]; then
+    for h in "$SRC"/hooks/*.sh; do
+      c_same "$h" "$CC_HOOK_DIR/$(basename "$h")" "hook up to date: $(basename "$h")"
+    done
+    for h in open-run guard-agent guard-critic-bash track-edit flush-run end-run subagent-done; do
+      if grep -q "iamlazy-hooks/$h.sh" "$HOME/.claude/settings.json" 2>/dev/null; then
+        c_ok "registered: $h.sh"
+      else c_bad "installed but NOT registered in settings.json: $h.sh"; fi
+    done
+    # A guarantee that can be switched off is worth saying out loud.
+    if grep -q '"disableAllHooks"[[:space:]]*:[[:space:]]*true' "$HOME/.claude/settings.json" 2>/dev/null; then
+      c_bad "disableAllHooks is true: Layer 0 is installed and inert"
+    else c_ok "hooks are not disabled"; fi
+    if [ -f "$CC_CMD_DIR/iamlazy.md" ]; then
+      if grep -q '{{' "$CC_CMD_DIR/iamlazy.md"; then c_bad "installed prompt has an unfilled token"
+      else c_ok "prompt composed, no unfilled token"; fi
+    else c_bad "prompt not installed: $CC_CMD_DIR/iamlazy.md"; fi
+  else
+    c_skip "claude code: no hook directory, nothing installed"
+  fi
+
+  echo "opencode"
+  if [ -d "$OC_HOOK_DIR" ]; then
+    for h in "$SRC"/hooks/*.sh; do
+      c_same "$h" "$OC_HOOK_DIR/$(basename "$h")" "hook up to date: $(basename "$h")"
+    done
+    c_same "$SRC/adapters/opencode/iamlazy.ts" "$OC_PLUGIN_DIR/iamlazy.ts" "adapter up to date"
+    # The adapter is the registration on this host, and OpenCode refuses a module
+    # whose exports are not all functions -- silently, into its own log.
+    if [ -f "$OC_PLUGIN_DIR/iamlazy.ts" ] && grep -qE '^export (const|let|var) [A-Za-z_]+ *(:[^=]*)?= *["`0-9]' "$OC_PLUGIN_DIR/iamlazy.ts"; then
+      c_bad "adapter exports a non-function: OpenCode will refuse the whole plugin"
+    else c_ok "adapter exports look like functions"; fi
+    # A load failure only matters if it happened to the bytes installed NOW.
+    # The log keeps every past one forever, and reporting those would make this
+    # check cry wolf about a bug that was already fixed -- a guarantee that
+    # fires outside its domain is a defect, which is this project's own rule.
+    # ISO-8601 UTC strings compare correctly as strings, so the whole thing is
+    # one lexicographic comparison against the plugin's own mtime.
+    oc_log="$HOME/.local/share/opencode/log/opencode.log"
+    last_fail="$(grep 'failed to load plugin.*iamlazy' "$oc_log" 2>/dev/null | tail -1 \
+                 | sed -n 's/^timestamp=\([^ ]*\).*/\1/p')"
+    if [ -z "$last_fail" ]; then
+      c_ok "opencode has never failed to load the plugin"
+    else
+      mtime="$(stat -f %m "$OC_PLUGIN_DIR/iamlazy.ts" 2>/dev/null || stat -c %Y "$OC_PLUGIN_DIR/iamlazy.ts" 2>/dev/null)"
+      installed_at="$(date -u -r "$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+      if [ -n "$installed_at" ] && awk -v a="$last_fail" -v b="$installed_at" 'BEGIN{exit !(a>b)}'; then
+        c_bad "opencode failed to load the plugin at $last_fail, AFTER these bytes were installed"
+      else
+        c_ok "no plugin load failure since this adapter was installed (last was $last_fail)"
+      fi
+    fi
+  else
+    c_skip "opencode: no hook directory, nothing installed"
+  fi
+
+  echo "state"
+  if [ -f "$LOG_DIR/prices.conf" ]; then c_ok "price table present"
+  else c_bad "no price table: every cost will be null ($LOG_DIR/prices.conf)"; fi
+  if command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1; then
+    c_ok "a JSON parser is available for the installer"
+  else c_bad "no python: the installer cannot register hooks"; fi
+  n_active=0
+  for f in "$LOG_DIR"/active/*.json; do [ -f "$f" ] && n_active=$((n_active + 1)); done
+  if [ "$n_active" -eq 0 ]; then c_ok "no run left open"
+  else c_skip "$n_active run(s) currently open (fine mid-run; stale ones are swept at 24h)"; fi
+  # The close-by-banner path has died three times, twice over encoding. Prove the
+  # separator in the prompt still matches the pattern the hook greps for, in THIS
+  # locale -- which is the one production runs in, and not CI's.
+  if printf '── CIERRE · m · high ──' | grep -Eq '─[^"]{0,60}(CLOSE|CIERRE)|(CLOSE|CIERRE)[^"]{0,60}─'; then
+    c_ok "close banner matches under this locale (${LC_ALL:-${LANG:-unset}})"
+  else c_bad "close banner does NOT match under this locale: the close path is dead here"; fi
+
+  echo
+  if [ "$CHECK_FAIL" -eq 0 ]; then echo "all good."; else echo "PROBLEMS FOUND -- run install.sh to bring the machine back to this repo." >&2; fi
+  return "$CHECK_FAIL"
+}
+
 usage() {
   cat <<'EOF'
 iamlazy installer
   usage: install.sh [--tool=claude|opencode|both] [--model=<id>] [--no-hooks]
+         install.sh --check
+  --check compares what is INSTALLED against this repo and reports drift,
+    without changing anything. Exits non-zero when something is off.
   Auto-detects installed tools when --tool is omitted.
   --model=<id> sets BOTH roles (main + critic) for a single tool, persists the
     choice to models.conf, and reinstalls. Requires a single --tool (claude or
@@ -224,12 +331,14 @@ TOOL="auto"
 MODEL_OVERRIDE=""
 WITH_HOOKS=1
 HOOKS_REGISTERED=0
+DO_CHECK=0
 for arg in "$@"; do
   case "$arg" in
     --tool=*) TOOL="${arg#--tool=}" ;;
     --model=*) MODEL_OVERRIDE="${arg#--model=}" ;;
     --with-hooks) WITH_HOOKS=1 ;;
     --no-hooks) WITH_HOOKS=0 ;;
+    --check) DO_CHECK=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "iamlazy: unknown arg: $arg" >&2; usage; exit 1 ;;
   esac
@@ -262,6 +371,12 @@ else
       || { echo "iamlazy: failed to fetch $rel from $RAW" >&2; exit 1; }
   done
   SRC="$CLEANUP_TMP"
+fi
+
+# --check reads only; it must run before anything decides to write.
+if [ "$DO_CHECK" -eq 1 ]; then
+  run_check
+  exit $?
 fi
 
 # ---------- models ----------
