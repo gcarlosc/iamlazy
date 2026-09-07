@@ -16,10 +16,10 @@ A trigger written against a field that no longer exists is **unmeasurable**, not
 have been retired below rather than left to accumulate — 8 of 11 candidates were in that state on
 2026-09-05, which made the whole sweep noise.
 
-Fields a `[log]` trigger may use today (schema 4): `duration_seconds`, `human_interventions`,
-`files_changed`, `lines_changed`, `cost_usd`, `tokens_output` / `tokens_cache_write` /
-`tokens_cache_read`, `project_md`, `stage_reached`, `critic_findings`, `close_detected_via`,
-`outcome`, `base_ref`.
+Fields a `[log]` trigger may use today (schema 6): `host`, `duration_seconds`,
+`human_interventions`, `files_changed`, `lines_changed`, `cost_usd`, `tokens_output` /
+`tokens_cache_write` / `tokens_cache_read`, `project_md`, `stage_reached`, `critic_findings`,
+`close_detected_via`, `drift_thresholds`, `drift_fired`, `outcome`, `base_ref`.
 
 ---
 
@@ -75,6 +75,31 @@ this cannot be measured, and saying otherwise would be pretending.
 Trigger `[human]`: a controlled pair — the same diff reviewed twice, once by a Critic sharing the
 builder's model and once by a different one — comparing unique findings.
 Status: 0 recorded, and the `[log]` half is unmeasurable by construction.
+
+## Candidate 14 — Stop the close depending on a stage name the model invents (origin: audit D5)
+
+Idea: the close-by-banner path matches the exact token `CIERRE`/`CLOSE`, and the core declares six
+stage names "never invented". The model keeps inventing them anyway. Two ways out, and they are
+opposites, which is why this is a candidate and not a fix:
+
+- **Enforce the list.** `hk_stage` is deliberately shape-based — it records whatever word sits in
+  the banner position, so an undefined stage appears in the log as itself instead of vanishing.
+  Matching against a closed list would hide the drift rather than record it, so enforcement would
+  have to live in Layer 1, where it has already failed three times.
+- **Stop depending on the banner at all.** The contract path already closes runs without it; the
+  banner is the floor for the trivial path that has no ledger. Removing it means a trivial run can
+  only close by TTL, which trades a loud failure for a silent one — the trade this project keeps
+  refusing.
+
+Trigger `[log]`: **already fired.** 2 of the 5 runs that recorded a `stage_reached` used a name the
+core does not define — `EVALUACIÓN` (2026-09-05) and `RESPUESTA` (2026-09-07) — and `A5` did the
+same before the field existed. Three occurrences, two of them measurable.
+
+What makes it a candidate rather than a defect: **neither invented name broke a close.** Both runs
+closed by contract, which is the path that does not read the banner. The damage so far is confined
+to `stage_reached` being a name nobody can group by. Evaluate when a run actually fails to close
+because its banner said something else, or when the log has enough invented names to make
+`stage_reached` useless for comparison — whichever comes first.
 
 ## Candidate 13 — The gate has never rejected anything (origin: 28-run audit, 2026-08-22)
 
