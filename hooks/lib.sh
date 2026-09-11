@@ -202,6 +202,21 @@ hk_deny() {
   exit 0
 }
 
+# hk_ask <reason> -> permissionDecision "ask": Claude Code shows the human a
+# real approval prompt before the tool runs, carrying this reason. Confirmed
+# against the hooks schema in the installed plugin-dev skill (allow|deny|ask);
+# not yet confirmed live, same "documented, not observed" caveat this project
+# already carries for Stop's decision:block -- verify on a real run before
+# trusting the UI text, not just the JSON shape.
+#
+# A host whose adapter only recognises "deny" (OpenCode today) degrades this
+# to an allow: the tool runs with no prompt, exactly as before this existed.
+# That is deliberate, not a gap -- see the OpenCode adapter's own comment.
+hk_ask() {
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"%s"}}\n' "$1"
+  exit 0
+}
+
 hk_allow() { exit 0; }
 
 # ------------------------------------------------------- change accounting

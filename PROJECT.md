@@ -40,7 +40,7 @@ by the plugin, which is the registration there:
 | Hook | Event | Guarantees |
 |---|---|---|
 | `open-run.sh` | `UserPromptSubmit` | run identity from the real payload; stale-run sweep; refuses a permission bypass; **injects the run's state into the model's context** |
-| `guard-agent.sh` | `PreToolUse` `^(Agent\|Task)$` | only `iamlazy-critic` may be spawned |
+| `guard-agent.sh` | `PreToolUse` `^(Agent\|Task)$` | only `iamlazy-critic` may be spawned, and asks before it does |
 | `guard-critic-bash.sh` | `PreToolUse` `^Bash$` | inside the Critic, Bash cannot write: redirections, file commands, in-place edits, git mutations, installs |
 | `track-edit.sh` | `PostToolUse` on edit tools | every edit appended to `.iamlazy/journal.md`; the contract's location fixes `project_root` and `base_ref` |
 | `host-cost.sh` | OpenCode only, per completed message | a host that prices its own messages hands the figure over; accumulated into the run's cost sidecar, never re-priced |
@@ -117,8 +117,10 @@ justification; an undeclared deviation is an automatic reviewer finding.
 - A run **cannot close** with a changed file outside the declared `## Scope`, and is **told so**,
   naming the file — but only when it claims to be closing. A gate that blocks in silence cannot be
   obeyed; one that blocks mid-run, where groups are open by design, traps the human out.
-- A contract run **cannot close before its review returns**. Every box ticked is necessary and
-  never sufficient — Layer 1 puts review and close *after* the execution that ticks them.
+- A contract run **cannot close before its review returns**, unless the human **declines** the
+  Critic when asked to spawn it — that closes via the banner path, and the close report must
+  declare the decline. Every box ticked is necessary and never sufficient — Layer 1 puts review
+  and close *after* the execution that ticks them.
 - **The prompt never promises what its host does not enforce.** `{{GUARANTEES}}` is filled per
   host, and each host's text names the hooks it runs: the suite compares Claude Code's against
   `settings.json`'s registrations and OpenCode's against what the adapter invokes.
@@ -147,6 +149,11 @@ justification; an undeclared deviation is an automatic reviewer finding.
   `SubagentStop` is wrong the close falls back to the CLOSE banner — degraded accuracy, never a
   stuck run — but `critic_done` and `critic_findings` stay silently empty. Confirmed by contrast:
   `PreToolUse`'s `permissionDecisionReason` reaches the model, which read a denial and adapted.
+- **Spawning the Critic asks, on Claude Code — the UI behaviour is documented, not observed.**
+  `permissionDecision: "ask"` is confirmed against the installed hooks schema, not against a
+  real prompt yet: verify the reason text actually reaches the human before trusting it. On
+  OpenCode the same hook output degrades to an allow — its adapter only recognises `deny`, so
+  the Critic still always runs there, unchanged.
 - **The breaker's floors carry more weight than its ratio**, and $0.08/line rests on four runs from
   two projects. If it fires on a run that was fine, the threshold is wrong, not the run. Thresholds
   are hardcoded in `flush-run.sh`; only prices live in config.

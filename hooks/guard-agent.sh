@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # iamlazy Layer 0 — Guarantee 1: one writer.
 #
-# PreToolUse on the sub-agent tool. Denies every sub-agent except the Critic.
+# PreToolUse on the sub-agent tool. Denies every sub-agent except the Critic,
+# whose spawn it ASKS about rather than allowing outright (2026-09-11) -- a
+# real run on a small-looking task took long enough on the review that the
+# human wanted the choice up front. Declining still lets the run close: the
+# fallback that already exists for a SubagentStop that never arrives (see
+# hk_close_signal in lib.sh) covers "the human said no" the same way it
+# covers "the channel misfired" -- both mean critic_done never reaches 1.
+#
 # This replaces rule 6, which was prose and was violated 7 times across 2 runs.
 #
 # Matcher note, verified against real transcripts (2026-08-25): the tool is named
@@ -35,7 +42,7 @@ fi
 sub=$(hk_field "$payload" "subagent_type")
 
 if [ "$sub" = "iamlazy-critic" ]; then
-  hk_allow
+  hk_ask "iamlazy: about to spawn the Critic to review this run's diff. Approve for an independent review before closing; decline and the run closes without one, as a declared deviation."
 fi
 
 hk_deny "iamlazy: the Critic is the only sub-agent a run may spawn. Refused subagent_type='${sub:-unknown}'. Narrow the search and do it in this thread."

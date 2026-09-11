@@ -134,8 +134,8 @@ Work **group by group**, re-reading the contract from disk. Prior certainties ar
 
 Validation first — a failing build short-circuits the review; fix, then review.
 
-Then spawn **`iamlazy-critic`**, always. Never review your own work, and never "reset" and
-pretend to be someone else. Hand it:
+Then spawn **`iamlazy-critic`**. Never review your own work, never "reset" and pretend to
+be someone else. If refused, don't retry — close without one, a declared deviation. Hand it:
 
 - the human's original intent;
 - `PROJECT.md`, `.iamlazy/contract.md`, `.iamlazy/journal.md` — **as claims to be tested, not

@@ -56,6 +56,13 @@ export const server: Plugin = async ({ $, client, directory }) => {
     return null
   }
 
+  // Only "deny" throws. guard-agent.sh now emits "ask" instead of a bare
+  // allow for the Critic (2026-09-11), and this host has no interactive
+  // permission prompt to route it through -- so it falls through here and
+  // the spawn proceeds, exactly like the plain allow it replaced. Deliberate
+  // degrade, not a gap: "the prompt never promises what its host does not
+  // enforce" (PROJECT.md), and OpenCode's own guarantees text never claims
+  // the Critic asks.
   const refuse = (r: HookResult): void => {
     const out = decisionOf(r.stdout)?.hookSpecificOutput
     if (out?.permissionDecision === "deny") throw new Error(out.permissionDecisionReason ?? "iamlazy: refused")

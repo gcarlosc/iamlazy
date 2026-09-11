@@ -284,3 +284,40 @@ One measurement came free with the failure. The TUI footer reported **$0.01** fo
 store's own sum over the session and its child is **$0.0267**. The footer excludes the Critic's
 session — the same invisible ~14% that killed `tokens_weighted` in the first place. The run's cost
 is compared against the store, never against the footer.
+
+## Spawning the Critic asks first, on Claude Code
+
+2026-09-11. A run on `sperant` — a UI change that looked small enough to skip review — ran long on
+the Critic step, and the human wanted the choice of whether to spawn it at all, not just to sit
+through it once committed. Checked before acting: the contract touched three files (a composer
+icon, a modal string, a channel-kind prop threaded through), and the Critic found **3 real MEDIUM**
+findings on it — a permission-gate bypass, an AI-control-gate bypass, and the feature showing on a
+channel where it cannot work. "Small-looking" and "safe to skip" were not the same claim, and the
+review earned its cost on this exact run. That evidence argues for keeping the Critic mandatory by
+default, not for making it optional — the request was granted anyway, because the choice belongs to
+the human, not to how the harness felt about its own track record.
+
+`guard-agent.sh` used to `hk_allow` the Critic outright. It now `hk_ask`s: Claude Code's
+`permissionDecision` supports `"ask"` alongside `"allow"`/`"deny"` — confirmed against the hooks
+schema in the installed plugin-dev skill, not yet against a live prompt, so the reason text reaching
+the human is `documented, not observed` until a real run shows it, same caveat this project already
+carries for `Stop`'s `decision:block`.
+
+Declining had to not deadlock the harness. **A contract run cannot close before its review returns**
+is an invariant, and making the Critic skippable meant deciding what "skipped" closes into. The
+answer already existed: `hk_close_signal` already treats a contract run as closeable on the CLOSE
+banner alone when `critic_done` never reaches 1 — built for a `SubagentStop` that technically never
+arrives. A human declining the ask prompt produces the exact same state, `critic_done` never set, so
+it needed no new plumbing, only the model told to stop retrying and declare the decline in its close
+report as a deviation — the same place every other declared deviation already lives.
+
+OpenCode is unaffected on purpose. Its adapter's `refuse()` only throws on `"deny"`; `"ask"` falls
+through silently, so the Critic still always runs there with no prompt — the same behaviour as
+before this existed, because OpenCode has no interactive permission surface to route an ask through.
+`templates/opencode/guarantees.md` still says the review is unconditional there, and that stays
+true: the prompt never promises what its host does not enforce.
+
+Verified by mutation, both directions: reverting the guard back to `hk_allow` fails the new
+Claude Code assertion by name; forcing it to `hk_deny` for the Critic fails the OpenCode adapter's
+existing "task spawning iamlazy-critic passes" test, which was already covering this path without
+having been written for it.

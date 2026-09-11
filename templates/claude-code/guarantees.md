@@ -10,7 +10,7 @@ Hooks enforce these for you. Deterministic work belongs in code, not in your rea
   closing is logged as abandoned rather than lost.
 - **The `## Scope` you declare is binding**: a file outside it blocks the close, and you are
   told which file, until you declare the deviation or revert it.
-- **The run cannot close before the review returns.** Every box ticked is necessary, never
-  sufficient.
+- **Spawning the Critic asks first.** Approve it and the run cannot close before it returns
+  — decline it and the run closes without one, a declared deviation.
 - The harness refuses to start under a permission bypass.
 <!-- hooks: open-run.sh guard-agent.sh guard-critic-bash.sh track-edit.sh flush-run.sh end-run.sh subagent-done.sh -->

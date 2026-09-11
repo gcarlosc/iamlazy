@@ -104,6 +104,13 @@ assert_allow() {
   out="$(run_guard "$1" "$2")"
   if [ -z "$out" ]; then ok "$3"; else no "$3 (esperaba sin decision, obtuvo: $out)"; fi
 }
+assert_ask() {
+  out="$(run_guard "$1" "$2")"
+  case "$out" in
+    *'"permissionDecision":"ask"'*) ok "$3" ;;
+    *) no "$3 (esperaba ask, obtuvo: ${out:-<vacio>})" ;;
+  esac
+}
 assert_grep() {
   if [ -f "$2" ] && grep -q "$1" "$2" 2>/dev/null; then ok "$3"
   else no "$3 (no match for '$1' in $2)"; fi
@@ -151,9 +158,14 @@ assert_deny "$ACTIVE" \
 assert_deny "$ACTIVE" \
   "{$G,\"tool_name\":\"Task\",\"tool_input\":{\"subagent_type\":\"Explore\"}}" \
   "deniega bajo el nombre legacy Task"
-assert_allow "$ACTIVE" \
+# Spawning the Critic no longer allows outright: it asks, so a small-looking
+# task that turns out to need real review still gives the human the choice
+# up front, and closing without an answer never happens silently. Declining
+# still closes -- via the same banner fallback already covered below for a
+# SubagentStop that never arrives (guarantee 6).
+assert_ask "$ACTIVE" \
   "{$G,\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"iamlazy-critic\"}}" \
-  "permite al Critico"
+  "pregunta antes de spawnear al Critico, no permite directo"
 assert_allow "$ACTIVE" \
   "{$G,\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"}}" \
   "no interfiere con otros tools"
@@ -676,7 +688,11 @@ assert_grep '"stage_reached":"EJECUCIÓN"' "$REV/.iamlazy/runs.jsonl" "stage_rea
 
 # El respaldo importa tanto como el guard: si este build no emite SubagentStop,
 # o su payload no trae el session_id del padre, `critic_done` no llega nunca --
-# y sin esta salida toda corrida quedaria abierta hasta el barrido de 24h.
+# y sin esta salida toda corrida quedaria abierta hasta el barrido de 24h. Desde
+# que el guard PREGUNTA antes de spawnear al Critico (2026-09-11), este mismo
+# camino es tambien el que cierra cuando el humano dice que no: para el flush,
+# "el canal fallo" y "el humano declino" son indistinguibles, y las dos deben
+# poder cerrar.
 FB="$(mkrepo)"
 mkdir -p "$FB/.iamlazy"
 printf '## Groups\n- [x] g1\n' > "$FB/.iamlazy/contract.md"
