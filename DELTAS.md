@@ -101,6 +101,56 @@ to `stage_reached` being a name nobody can group by. Evaluate when a run actuall
 because its banner said something else, or when the log has enough invented names to make
 `stage_reached` useless for comparison — whichever comes first.
 
+## Candidate 15 — The close report renames the Critic's severities (origin: run audit, 2026-09-11)
+
+The Critic's prompt declares exactly four tags, `[HIGH]`/`[MEDIUM]`/`[LOW]`/`[INFO]`, and a final
+`findings: H/M/L/I` tally. The close report the human reads renames them. Measured in the OpenCode
+store across the logged `iamlazy` sessions, two undeclared vocabularies, one appearance each:
+
+- `0 critical / 0 major / 0 minor / 0 nit`
+- `0 high / 0 low / 1 info`
+
+Same shape as Candidate 14: the model inventing vocabulary at runtime where the prompt declared a
+closed set. The damage is narrower than D5's, and worth stating precisely — **`runs.jsonl` is not
+affected**. `critic_findings` is parsed by `subagent-done.sh` from the Critic's own final message,
+so the logged tally stays canonical; it is the human-facing sentence that drifts. In one of the two
+cases the rendering also dropped a count, reporting "0 findings" over a logged `0/0/0/1`.
+
+Why no fix is proposed: a static test cannot catch this. The existing Layer 0 / Layer 1 agreement
+tests compare two artifacts on disk — they cannot see a word the model chooses mid-run. Enforcing
+the vocabulary would have to live in Layer 1 prose, which is where D5 has already failed three
+times, so doing it again without evidence would repeat a known-bad move.
+
+Trigger `[human]`: 2+ runs where the renamed severities actually mislead — a human reads the close
+report and comes away with the wrong count or the wrong urgency. **Not** fired by the rename alone:
+`critical` instead of `[HIGH]` costs nothing if the number and the meaning survive.
+Status: 2 renames recorded, 1 with a dropped count; 0 cases of a human being misled.
+
+## Candidate 16 — Ship a planner agent so OpenCode's model split is portable (origin: 2026-09-11)
+
+On OpenCode the planner and the builder share a model, and not by choice. An agent's frontmatter
+`model:` pins that agent, so `OC_MAIN_MODEL` holds for the `iamlazy` agent; the gate then sends
+analysis to OpenCode's built-in `plan` agent, which pins **no** model and therefore inherits the
+live session model — the one entering `iamlazy` just set. Measured: 15 planner messages on
+`kimi-k2.7-code` while the configured OpenCode default was `deepseek-v4-pro`. Setting that default
+does not fix it.
+
+Today's answer is one block in the human's own `opencode.json`, verified to resolve:
+`"agent": { "plan": { "model": "..." } }`. It works, and it is not portable — a second machine, or
+anyone else installing iamlazy, gets the collapsed split silently.
+
+Idea: ship `iamlazy-plan`, a primary agent pinned to a new `OC_PLAN_MODEL`, and point the gate at
+it instead of OpenCode's built-in `plan`. The split would then live in `models.conf` like Claude
+Code's does, and the installer would never need to touch user config.
+
+Cost, stated so it is not discovered late: a third agent and template, a new `models.conf` knob,
+a rewrite of `templates/opencode/gate.md`, tests for the new agent, and re-earning the built-in
+plan agent's read-only guardrails — which are the reason the gate rides it in the first place.
+
+Trigger `[human]`: the `opencode.json` block becomes a real cost — a second machine to configure,
+or someone else installing iamlazy and getting the collapsed split without noticing.
+Status: 0 recorded. One machine, configured by hand, deliberately.
+
 ## Candidate 13 — The gate has never rejected anything (origin: 28-run audit, 2026-08-22)
 
 Observation, still the sharpest open question about the harness: across 29 logged runs the plan
