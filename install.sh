@@ -491,5 +491,7 @@ if [ "$do_claude" -eq 1 ]; then
   fi
 fi
 if [ "$do_opencode" -eq 1 ]; then
-  echo "  note: OpenCode needs a DeepSeek credential (env or opencode.json). Not configured by this installer."
+  echo "  note: OpenCode needs a credential for its provider (env or opencode.json). Not configured by this installer."
+  echo "  Analysis runs on OpenCode's built-in 'plan' agent, which pins no model and inherits"
+  echo "  your OpenCode default -- models.conf cannot reach it. Set that default yourself."
 fi

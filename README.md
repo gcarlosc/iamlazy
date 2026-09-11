@@ -135,9 +135,9 @@ different model-id namespaces.
 
 | Role | Set by | Claude Code | OpenCode |
 |---|---|---|---|
-| Planner (A1–A3) | `*_MAIN_MODEL` | `claude-opus-5` | `deepseek/deepseek-v4-pro` |
-| Builder (A4–A5) | **your session model** | see below | `deepseek/deepseek-v4-pro` |
-| Critic | `*_CRITIC_MODEL` | `claude-opus-5` | `deepseek/deepseek-v4-pro` |
+| Planner (A1–A3) | `CC_MAIN_MODEL` · **your OpenCode default** | `claude-opus-5` | inherited by the `plan` agent |
+| Builder (A4–A5) | **your session model** · `OC_MAIN_MODEL` | see below | `opencode-go/kimi-k2.7-code` |
+| Critic | `*_CRITIC_MODEL` | `claude-opus-5` | `opencode-go/deepseek-v4-pro` |
 
 **How far `models.conf` actually reaches on Claude Code.** A command's `model:` frontmatter
 overrides the model **for the current turn only** — the session model resumes at your next
@@ -162,8 +162,11 @@ policy, not a coin flip. **You will see which model is running**: every artifact
 the model and effort that produced it — `── A3 — PLAN · opus-5 · high ──` — read from the session
 transcript, never guessed. So the switch at the gate is visible exactly where it happens, and a
 switch you expected that never happened is just as visible. `CC_MAIN_MODEL` then acts as a floor: a strong planner even when the
-session is on something cheap. There is no equivalent on OpenCode — the primary agent's model
-*is* the session model and holds for the whole run.
+session is on something cheap. **OpenCode splits the same way, by a different mechanism:** an
+agent's frontmatter `model:` pins that agent, so `OC_MAIN_MODEL` holds for everything running as
+the `iamlazy` agent — contract, execution, close. Analysis is not one of them: the gate sends you
+to OpenCode's built-in `plan` agent, which pins no model and inherits your OpenCode default. So
+`OC_MAIN_MODEL` is the builder there, and the planner is yours to set outside this repo.
 
 **`*_CRITIC_MODEL` now covers every review.** This used to be the exception rather than the rule:
 with three review modes, `inline` and `same-thread-reset` ran *on the main thread* — 17 of 29 logged
@@ -176,9 +179,9 @@ reviewer that shares the builder's cannot see what the builder could not.
 > **Heads up:** the `CLAUDE_CODE_SUBAGENT_MODEL` environment variable, when set, silently
 > overrides `CC_CRITIC_MODEL`. Unset it if you want `models.conf` to apply.
 
-> **OpenCode requires a DeepSeek credential that you configure** — an API key in your
+> **OpenCode requires a credential for its provider that you configure** — an API key in your
 > environment or in `opencode.json`. The installer writes the `model` into the frontmatter;
-> it does **not** configure credentials.
+> it does **not** configure credentials, and it cannot reach the `plan` agent's model either.
 
 OpenCode model strings are exactly what `opencode models` lists (`provider/model`). Claude
 Code takes bare Anthropic model ids.
