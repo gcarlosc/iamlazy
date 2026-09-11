@@ -492,6 +492,8 @@ if [ "$do_claude" -eq 1 ]; then
 fi
 if [ "$do_opencode" -eq 1 ]; then
   echo "  note: OpenCode needs a credential for its provider (env or opencode.json). Not configured by this installer."
-  echo "  Analysis runs on OpenCode's built-in 'plan' agent, which pins no model and inherits"
-  echo "  your OpenCode default -- models.conf cannot reach it. Set that default yourself."
+  echo "  Analysis runs on OpenCode's built-in 'plan' agent, which pins no model and inherits the"
+  echo "  LIVE SESSION model -- the one entering 'iamlazy' just set. So the planner runs on"
+  echo "  $OC_MAIN_MODEL too, and your OpenCode default does not change that. To split them, pin"
+  echo "  it in your own opencode.json:  \"agent\": { \"plan\": { \"model\": \"...\" } }"
 fi

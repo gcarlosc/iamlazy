@@ -162,11 +162,24 @@ policy, not a coin flip. **You will see which model is running**: every artifact
 the model and effort that produced it — `── A3 — PLAN · opus-5 · high ──` — read from the session
 transcript, never guessed. So the switch at the gate is visible exactly where it happens, and a
 switch you expected that never happened is just as visible. `CC_MAIN_MODEL` then acts as a floor: a strong planner even when the
-session is on something cheap. **OpenCode splits the same way, by a different mechanism:** an
-agent's frontmatter `model:` pins that agent, so `OC_MAIN_MODEL` holds for everything running as
-the `iamlazy` agent — contract, execution, close. Analysis is not one of them: the gate sends you
-to OpenCode's built-in `plan` agent, which pins no model and inherits your OpenCode default. So
-`OC_MAIN_MODEL` is the builder there, and the planner is yours to set outside this repo.
+session is on something cheap.
+
+**OpenCode does not split on its own, and the reason is worth knowing.** An agent's frontmatter
+`model:` pins that agent, so `OC_MAIN_MODEL` holds for everything running as the `iamlazy` agent.
+The gate sends you to OpenCode's built-in `plan` agent for analysis — but that agent pins **no**
+model, so it inherits the **live session model**, which entering `iamlazy` just set to
+`OC_MAIN_MODEL`. Tab does not reset it. The planner therefore runs on the *builder's* model by
+default: measured on a real run, 15 planner messages on `kimi-k2.7-code` while the configured
+OpenCode default was `deepseek-v4-pro`. Setting that default does not fix it.
+
+To get the split, pin the built-in agent in your own `opencode.json`:
+
+```json
+{ "agent": { "plan": { "model": "opencode-go/deepseek-v4-pro" } } }
+```
+
+`models.conf` cannot do it for you — the `plan` agent is OpenCode's, and the installer never
+writes user config.
 
 **`*_CRITIC_MODEL` now covers every review.** This used to be the exception rather than the rule:
 with three review modes, `inline` and `same-thread-reset` ran *on the main thread* — 17 of 29 logged
