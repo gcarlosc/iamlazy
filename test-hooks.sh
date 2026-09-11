@@ -344,6 +344,19 @@ run_end "$END_DIR" '{"hook_event_name":"SessionEnd","session_id":"sid-end","reas
 assert_absent "$(runfile "$END_DIR" sid-end)" "SessionEnd limpia el estado de la corrida"
 assert_grep '"outcome":"abandoned"' "$END_DIR/.iamlazy/runs.jsonl" "SessionEnd registra la corrida como abandoned"
 assert_grep '"stage_reached":"CIERRE_PARCIAL"' "$END_DIR/.iamlazy/runs.jsonl" "la corrida abandonada dice en que etapa murio"
+assert_grep '"host":"claude-code"' "$END_DIR/.iamlazy/runs.jsonl" "sin host declarado, la abandonada es claude-code"
+
+# Una corrida de OpenCode que se abandona debe seguir siendo OpenCode en el
+# log. Faltaba: hk_flush_abandoned nunca leia el campo, asi que TODA corrida
+# de OpenCode que terminara sin cerrar se atribuia a claude-code -- encontrado
+# auditando runs.jsonl, no por un test. /iamlazy-review agrupa por este campo,
+# asi que una linea mal atribuida corrompe un conteo por host, no que se vea
+# incompleta.
+ENDOC="$(mktmp)"
+run_open "$ENDOC" '{"hook_event_name":"UserPromptSubmit","host":"opencode","session_id":"sid-oc","transcript_path":"","cwd":"'"$ENDOC"'","prompt":"/iamlazy tarea"}'
+printf 'EJECUCION' > "$ENDOC/.iamlazy/active/sid-oc.stage"
+run_end "$ENDOC" '{"hook_event_name":"SessionEnd","session_id":"sid-oc","reason":"logout","cwd":"'"$ENDOC"'"}'
+assert_grep '"host":"opencode"' "$ENDOC/.iamlazy/runs.jsonl" "una corrida de OpenCode abandonada sigue siendo opencode en el log"
 
 # SessionEnd de una sesion sin corrida no debe escribir nada.
 END2="$(mktmp)"

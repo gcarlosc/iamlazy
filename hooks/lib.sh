@@ -619,7 +619,7 @@ hk_log_append() {
 # a real line, including the stage it died at -- which is the one thing worth
 # knowing about it.
 hk_flush_abandoned() {
-  local f sid tpath root stage start dur fired
+  local f sid tpath root stage start dur fired host
   f="$1"
   [ -f "$f" ] || return 0
   sid=$(hk_field_file "$f" "session_id")
@@ -638,7 +638,14 @@ hk_flush_abandoned() {
   # into the log rather than losing with the run file.
   fired=0
   grep -q '"drift_warned"' "$f" 2>/dev/null && fired=1
-  hk_log_append "$(printf '{"schema_version":6,"timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","drift_fired":%s,"outcome":"abandoned"}' \
+  # Same default as flush-run.sh: absent means claude-code. Missing here meant
+  # every abandoned OpenCode run silently misattributed to the wrong host --
+  # found auditing the log, not by a test. `/iamlazy-review` groups by this
+  # field, so a mislabeled line corrupts a per-host count rather than just
+  # looking incomplete.
+  host=$(hk_field_file "$f" "host"); [ -n "$host" ] || host="claude-code"
+  hk_log_append "$(printf '{"schema_version":6,"host":"%s","timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","drift_fired":%s,"outcome":"abandoned"}' \
+    "$(hk_json_esc "$host")" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$root")" \
     "$dur" "$(hk_json_esc "$stage")" "$fired")"
