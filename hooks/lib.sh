@@ -93,6 +93,33 @@ hk_json_esc() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\000-\037'
 }
 
+# hk_utf8_cut <n> -> reads stdin, prints at most <n> CHARACTERS.
+#
+# `cut -c1-N` under a byte locale (the default almost everywhere hooks run,
+# per the same C-vs-UTF-8 divergence the close-banner regex was bitten by)
+# counts BYTES, not characters -- so it can split a multi-byte UTF-8 sequence
+# in half. Reproduced: a Task line in Spanish with an accented character
+# straddling byte 160 left a lone 0xC3 with its continuation byte cut off,
+# an invalid byte sequence inside what becomes a JSON string. Contracts are
+# written in the human's language, and this project's own is Spanish.
+#
+# Forcing a UTF-8 locale for this one call makes `cut -c` count characters
+# instead. Same locale list test.sh already searches for the banner-regex
+# matrix. If none exists on the system, printed unchanged rather than
+# byte-truncated: an oversized field is cosmetic, a split character is
+# invalid JSON, and an imprecise value beats a confidently wrong one.
+hk_utf8_cut() {
+  local n loc
+  n="$1"
+  for loc in en_US.UTF-8 C.UTF-8 en_US.utf8 C.utf8; do
+    if locale -a 2>/dev/null | grep -qix "$loc"; then
+      LC_ALL="$loc" cut -c "1-$n"
+      return
+    fi
+  done
+  cat
+}
+
 # ------------------------------------------------------------ run state
 #
 # One file per SESSION, under ~/.iamlazy/active/. It used to be a single global

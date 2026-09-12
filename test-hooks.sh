@@ -1004,6 +1004,33 @@ assert_grep '"close_detected_via":"contract"' "$SEM/.iamlazy/runs.jsonl" \
   "PROJECT.md modificado no bloquea el cierre (es parte del cierre)"
 assert_grep '"base_ref"' "$SEM/.iamlazy/runs.jsonl" "el log registra contra que base se midio"
 
+# task_summary no puede partir un caracter UTF-8 multibyte al truncar a 160.
+# `cut -c1-160` bajo un locale de bytes (C) cuenta BYTES, no caracteres: un
+# acento que caiga justo en el limite deja un byte de cabecera colgado sin su
+# continuacion, invalido dentro del JSON. Los contratos se escriben en el
+# idioma del humano, y el de este proyecto es espanol.
+UTFB="$(mkrepo)"
+UTFBT="$(mktmp)"
+mkdir -p "$UTFB/.iamlazy" "$UTFB/.iamlazy/active"
+filler=$(printf 'x%.0s' $(seq 1 159))
+printf '# Task\n%so resto del texto que sigue despues del corte\n\n## Groups\n- [x] g1\n' \
+  "${filler}ó" > "$UTFB/.iamlazy/contract.md"
+mk_transcript "$UTFBT" 100000
+mk_prices "$UTFB"
+printf '{"schema_version":5,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"start_models":"","critic_asked":1,"outcome":"incomplete"}' \
+  "$UTFBT/t.jsonl" "$UTFB" "$(date +%s)" > "$(runfile "$UTFB" s)"
+set_base "$UTFB" "s" "$UTFB"
+LC_ALL=C run_flush "$UTFB" "$(stop_payload "$UTFB" "$CLOSE_MSG" s "$UTFBT/t.jsonl")" >/dev/null
+if command -v python3 >/dev/null 2>&1; then
+  if python3 -c "
+import json
+for l in open('$UTFB/.iamlazy/runs.jsonl', encoding='utf-8'):
+    l = l.strip()
+    if l: json.loads(l)
+" 2>/dev/null; then ok "task_summary no parte un caracter UTF-8 al truncar (LC_ALL=C)"
+  else no "task_summary partio un caracter UTF-8 al truncar bajo LC_ALL=C"; fi
+fi
+
 if command -v python3 >/dev/null 2>&1; then
   if python3 -c "
 import json,sys

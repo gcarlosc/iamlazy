@@ -467,3 +467,20 @@ interactive TUI (a long-lived process, not a one-shot CLI call) shares this at a
 `session.deleted` between ordinary turns would be a much stranger thing for a continuously-running
 process to fire than for a CLI command to fire on exit. No PTY access from here to test the TUI
 directly, so that stays an open question, not a diagnosis.
+
+## `task_summary` could split a UTF-8 character in half
+
+Phase 1 of the audit named it (P2): `cut -c1-160` counts bytes under a byte locale, not
+characters, so a multi-byte UTF-8 character sitting across the 160th byte gets cut in half.
+Reproduced directly: 159 filler bytes, an `ó` straddling the boundary, `LC_ALL=C cut -c1-160`
+left a lone `0xC3` with its continuation byte dropped -- an invalid byte sequence inside what
+becomes a JSON string. Contracts are written in the human's language, and this project's own is
+Spanish, so accented characters sit in `task_summary` on essentially every real run.
+
+`hk_utf8_cut` (`hooks/lib.sh`) reuses the same UTF-8-locale search `test.sh` already runs for the
+close-banner regex matrix: forcing one of `en_US.UTF-8` / `C.UTF-8` / `en_US.utf8` / `C.utf8` makes
+`cut -c` count characters instead of bytes. When none exists on the system, the string is returned
+unchanged rather than byte-truncated -- an oversized field is cosmetic, a split character is
+invalid JSON, and this project's standing rule is that an imprecise value beats a confidently
+wrong one. Verified against the reproduction under `LC_ALL=C` explicitly, the worst case; verified
+by mutation that reverting to plain `cut -c1-160` fails exactly the new test and no other.

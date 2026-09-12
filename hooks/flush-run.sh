@@ -294,7 +294,7 @@ fi
 task_summary=""
 if [ -f "$contract" ]; then
   task_summary=$(awk '/^# Task/{f=1;next} /^#/{if(f)exit} f&&NF{print;exit}' "$contract" \
-    | tr '\t' ' ' | cut -c1-160)
+    | tr '\t' ' ' | hk_utf8_cut 160)
   task_summary=$(hk_json_esc "$task_summary")
 fi
 
