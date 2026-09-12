@@ -358,3 +358,47 @@ verbatim (contract complete, groups ticked, Critic never invoked, CLOSE banner p
 asserts the run stays open with the reason named. Verified by mutation on all three pieces —
 dropping the write in the guard, reverting the close check, and dropping the audible line each
 fail a distinct assertion by name, the middle one reproducing the original bug exactly.
+
+## The log could say what a run cost but not what answered it
+
+`runs.jsonl` recorded how long a run took, what it changed, how much it cost and how often the
+human intervened — everything except **which model produced any of it**. That gap turned two
+separate questions into transcript archaeology on the same day (2026-09-11): whether `opusplan`
+really switched at the gate on Claude Code, and why OpenCode's planner was answering on the
+builder's model. Both were settled by parsing session files by hand, one with Python and one
+against OpenCode's SQLite store. A harness whose whole argument is "measure it, do not assert it"
+was asserting its own model split.
+
+`models_seen` is `model:messages`, commonest first, ties broken by name so the field is stable.
+Counts rather than a bare list, because the count is what identifies the stage: `kimi:15
+deepseek:4` puts the review on deepseek and everything else on kimi, which is the actual question.
+Sub-agent transcripts are included — the Critic is usually the one model a run deliberately
+decorrelates, so omitting it would hide precisely the split the field exists to show. The snapshot
+suffix is kept, unlike the pricing path that strips it: pricing needs the id to resolve to a rate,
+this needs to report what ran.
+
+**The baseline is semantic, not positional.** A transcript accumulates the whole session, so the
+close subtracts what was already there — the same delta cost and interventions already take. The
+cheap implementation would have been a line offset recorded at open; a count per model was chosen
+instead so that a compaction rewriting the transcript cannot silently shift the window. A count
+that goes down is dropped rather than reported negative, the same clamp the token deltas use.
+
+**Both hosts, by different routes.** Claude Code is counted from the transcript. OpenCode has none
+— it prices its own messages and hands each figure over — so the model now rides along with the
+cost and `host-cost.sh` accumulates the tally message by message. `providerID/modelID` is the form
+`opencode models` prints and `models.conf` is written in, so the log reads in the same vocabulary
+as the config. Verified against a real assistant message in OpenCode's store before writing any of
+it. A host that sends no model contributes nothing: there is no `unknown` bucket, because in a log
+it would read like a real model.
+
+This unblocks Candidate 10, which had been sitting on `Trigger [log]: blocked — needs a
+models_seen field` since August, and gives Candidate 16 a `[log]` half it never had. Neither gets
+adopted for it; they get measurable, which is the whole point of the backlog.
+
+**One bug, caught by tests that had nothing to do with models.** Writing the tally into the cost
+sidecar as a trailing `[ -n "$models" ] && printf …` made the whole group exit non-zero whenever
+it was empty, so the `&& mv` never ran and the sidecar stopped accumulating **anything** — cost
+included. Four cost assertions failed and no model assertion did. Every line in that block is an
+`if` now. Verified by mutation on five pieces: ignoring the baseline, dropping the streaming-chunk
+de-duplication, skipping sub-agent transcripts, refusing the host's tally, and the adapter sending
+no model each fail a distinct assertion by name.

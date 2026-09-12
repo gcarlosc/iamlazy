@@ -172,6 +172,12 @@ export const server: Plugin = async ({ $, client, directory }) => {
         }
         if (!info.time.completed || costed.has(info.id)) return
         costed.add(info.id)
+        // `providerID/modelID` is the form `opencode models` prints and
+        // `models.conf` is written in, so the log reads in the same vocabulary
+        // the config does. Both fields are on the real assistant message
+        // (verified against the SQLite store, 2026-09-11); if either is absent
+        // the model is sent empty and the hook simply records nothing.
+        const m = info as { providerID?: string; modelID?: string }
         await run("host-cost.sh", {
           hook_event_name: "HostCost",
           session_id: root(info.sessionID),
@@ -179,6 +185,7 @@ export const server: Plugin = async ({ $, client, directory }) => {
           tokens_output: info.tokens.output,
           tokens_cache_write: info.tokens.cache.write,
           tokens_cache_read: info.tokens.cache.read,
+          model: m.providerID && m.modelID ? `${m.providerID}/${m.modelID}` : "",
         })
         return
       }

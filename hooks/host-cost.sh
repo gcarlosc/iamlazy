@@ -37,11 +37,25 @@ add() {
   printf '%s=%s\n' "$1" $((cur + delta))
 }
 
+# Which model produced this message. A host that prices its own messages has no
+# Claude-style transcript for the close to count models from, so the tally is
+# accumulated here message by message -- the same trade already made for cost.
+# Absent stays absent: a host that sends no model contributes nothing rather
+# than an "unknown" bucket that would read like a real model in the log.
+model=$(hk_field "$payload" "model")
+models=$(hk_kv "$f" models)
+if [ -n "$model" ]; then models=$(hk_models_bump "$models" "$model"); fi
+
+# Every line here is an `if`, never a `[ … ] && …`: a trailing test that fails
+# makes the whole group exit non-zero, the `&& mv` never runs, and the sidecar
+# silently stops accumulating anything at all -- cost included. Caught by the
+# cost tests, which had nothing to do with models.
 {
   add cost_micro
   add tokens_output
   add tokens_cache_write
   add tokens_cache_read
+  if [ -n "$models" ]; then printf 'models=%s\n' "$models"; fi
 } > "$f.new" && mv "$f.new" "$f"
 
 exit 0

@@ -124,6 +124,12 @@ fi
 set -- $(hk_token_components "$tpath" 2>/dev/null)
 start_out="${1:-0}"; start_cw="${2:-0}"; start_cr="${3:-0}"
 
+# Same baseline, for the same reason, applied to WHICH models answered: the
+# close reports what this run added, not every model the session ever used.
+# Semantic rather than positional (a count per model, not a line offset) so a
+# compaction that rewrites the transcript cannot silently shift the window.
+start_models=$(hk_models_run "$tpath")
+
 # Same reasoning for interruptions: the marker accumulates over the session, so
 # the close subtracts this baseline instead of reporting the session's total.
 # The field audit of 2026-08-21 found human_interventions undercounting; it was
@@ -140,9 +146,9 @@ fi
 host=$(hk_field "$payload" "host")
 [ -n "$host" ] || host="claude-code"
 
-printf '{"schema_version":4,"host":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":%s,"cost_priced":%s,"start_out":%s,"start_cw":%s,"start_cr":%s,"start_interventions":%s,"opened_at":"%s","outcome":"incomplete"}' \
+printf '{"schema_version":5,"host":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":%s,"cost_priced":%s,"start_out":%s,"start_cw":%s,"start_cr":%s,"start_interventions":%s,"start_models":"%s","opened_at":"%s","outcome":"incomplete"}' \
   "$(hk_json_esc "$host")" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$cwd")" \
   "$now_epoch" "$start_cost" "$cost_priced" "$start_out" "$start_cw" "$start_cr" \
-  "${start_interventions:-0}" "$now_iso" > "$RUN_FILE"
+  "${start_interventions:-0}" "$(hk_json_esc "$start_models")" "$now_iso" > "$RUN_FILE"
 
 hk_allow

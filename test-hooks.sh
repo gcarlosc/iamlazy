@@ -128,6 +128,13 @@ assert_grep() {
 assert_absent() {
   if [ -f "$1" ]; then no "$2 (still present: $1)"; else ok "$2"; fi
 }
+# El archivo tiene que EXISTIR y no contener el patron: un archivo que nunca se
+# escribio pasaria cualquier afirmacion de ausencia sin probar nada.
+assert_ungrep() {
+  if [ ! -f "$2" ]; then no "$3 (el archivo no existe: $2)"
+  elif grep -q "$1" "$2" 2>/dev/null; then no "$3 (match inesperado de '$1' en $2)"
+  else ok "$3"; fi
+}
 
 mkrepo() { # -> a git repo with one commit
   d="$(mktmp)"; git init -q "$d" >/dev/null 2>&1
@@ -836,7 +843,7 @@ open_run "$CBA" "$CBA" 30 s
 sed 's/}$/,"drift_warned":1}/' "$(runfile "$CBA" s)" > "$CBA/rf.tmp" && mv "$CBA/rf.tmp" "$(runfile "$CBA" s)"
 run_end "$CBA" '{"hook_event_name":"SessionEnd","session_id":"s","cwd":"'"$CBA"'"}'
 assert_grep '"drift_fired":1' "$CBA/.iamlazy/runs.jsonl" "una corrida abandonada recuerda que el breaker disparo"
-assert_grep '"schema_version":6' "$CBA/.iamlazy/runs.jsonl" "la linea abandonada declara el schema vigente"
+assert_grep '"schema_version":7' "$CBA/.iamlazy/runs.jsonl" "la linea abandonada declara el schema vigente"
 assert_grep '"tokens_output":947600' "$CB/.iamlazy/runs.jsonl" "los componentes crudos quedan para poder reprecificar"
 
 # Debajo del piso de lineas el ratio es ruido: el costo por linea SUBE cuanto
@@ -884,6 +891,77 @@ assert_grep '"cost_usd":null' "$UNP/.iamlazy/runs.jsonl" "un modelo sin precio d
 assert_grep 'modelo-del-futuro' "$UNP/.iamlazy/runs.jsonl" "el log NOMBRA el modelo que falta en prices.conf"
 assert_grep '"tokens_output":1000' "$UNP/.iamlazy/runs.jsonl" "los componentes crudos se guardan igual, para reprecificar despues"
 
+echo "guarantee 2 — models seen"
+
+# Que modelo respondio, y cuantas veces. La cuenta es lo que identifica la
+# etapa: una lista pelada solo dice que los dos aparecieron.
+#
+# El transcript trae msg_4 dos veces -- un mensaje se registra una vez por chunk
+# de streaming, asi que contarlos crudos inventa turnos que no existieron.
+MOD="$(mkrepo)"
+MODT="$(mktmp)"
+mkdir -p "$MOD/.iamlazy" "$MOD/.iamlazy/active"
+mk_prices "$MOD"
+printf '## Groups\n- [x] g1\n' > "$MOD/.iamlazy/contract.md"
+{
+  printf '{"model":"claude-sonnet-5","message":{"id":"msg_1","usage":{"output_tokens":1}}}\n'
+  printf '{"model":"claude-sonnet-5","message":{"id":"msg_2","usage":{"output_tokens":1}}}\n'
+  printf '{"model":"claude-sonnet-5","message":{"id":"msg_3","usage":{"output_tokens":1}}}\n'
+  printf '{"model":"claude-opus-5","message":{"id":"msg_4","usage":{"output_tokens":1}}}\n'
+  printf '{"model":"claude-opus-5","message":{"id":"msg_4","usage":{"output_tokens":1}}}\n'
+} > "$MODT/t.jsonl"
+printf '{"schema_version":5,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"start_models":"","critic_asked":1,"outcome":"incomplete"}' \
+  "$MODT/t.jsonl" "$MOD" "$(date +%s)" > "$(runfile "$MOD" s)"
+set_base "$MOD" "s" "$MOD"
+run_flush "$MOD" "$(stop_payload "$MOD" "$CLOSE_MSG" s "$MODT/t.jsonl")" >/dev/null
+assert_grep '"models_seen":"claude-sonnet-5:3 claude-opus-5:1"' "$MOD/.iamlazy/runs.jsonl" \
+  "el log nombra cada modelo con cuantos mensajes respondio, el mas usado primero"
+
+# El transcript acumula toda la SESION, no la corrida: lo que ya estaba antes de
+# abrir no se cobra aca. Mismo delta que el costo y las intervenciones.
+# Con la base restada quedan 1 y 1, y el empate se rompe por nombre para que el
+# campo sea estable entre corridas.
+MODB="$(mkrepo)"
+mkdir -p "$MODB/.iamlazy" "$MODB/.iamlazy/active"
+mk_prices "$MODB"
+printf '## Groups\n- [x] g1\n' > "$MODB/.iamlazy/contract.md"
+printf '{"schema_version":5,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"start_models":"claude-sonnet-5:2","critic_asked":1,"outcome":"incomplete"}' \
+  "$MODT/t.jsonl" "$MODB" "$(date +%s)" > "$(runfile "$MODB" s)"
+set_base "$MODB" "s" "$MODB"
+run_flush "$MODB" "$(stop_payload "$MODB" "$CLOSE_MSG" s "$MODT/t.jsonl")" >/dev/null
+assert_grep '"models_seen":"claude-opus-5:1 claude-sonnet-5:1"' "$MODB/.iamlazy/runs.jsonl" \
+  "lo que el modelo ya habia gastado antes de abrir la corrida no cuenta como suyo"
+
+# El Critic corre en su propio transcript, y suele ser el unico modelo que una
+# corrida decorrelaciona a proposito: omitirlo esconde justo el split que este
+# campo existe para mostrar.
+MODS="$(mkrepo)"
+MODST="$(mktmp)"
+mkdir -p "$MODS/.iamlazy" "$MODS/.iamlazy/active" "$MODST/t/subagents"
+mk_prices "$MODS"
+printf '## Groups\n- [x] g1\n' > "$MODS/.iamlazy/contract.md"
+printf '{"model":"claude-sonnet-5","message":{"id":"msg_9","usage":{"output_tokens":1}}}\n' > "$MODST/t.jsonl"
+printf '{"model":"claude-opus-5","message":{"id":"msg_C","usage":{"output_tokens":1}}}\n' > "$MODST/t/subagents/c.jsonl"
+printf '{"schema_version":5,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"start_models":"","critic_asked":1,"outcome":"incomplete"}' \
+  "$MODST/t.jsonl" "$MODS" "$(date +%s)" > "$(runfile "$MODS" s)"
+set_base "$MODS" "s" "$MODS"
+run_flush "$MODS" "$(stop_payload "$MODS" "$CLOSE_MSG" s "$MODST/t.jsonl")" >/dev/null
+assert_grep 'claude-opus-5:1' "$MODS/.iamlazy/runs.jsonl" \
+  "el modelo del Critic, que corre en su propio transcript, entra en la cuenta"
+
+# Una corrida abandonada es donde mas importa saber que modelo quemo los tokens:
+# las dos lineas mas largas del log nunca cerraron.
+MODA="$(mkrepo)"
+MODAT="$(mktmp)"
+mkdir -p "$MODA/.iamlazy/active"
+mk_prices "$MODA"
+printf '{"model":"claude-opus-5","message":{"id":"msg_A","usage":{"output_tokens":1}}}\n' > "$MODAT/t.jsonl"
+printf '{"schema_version":5,"session_id":"ab","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"start_models":"","outcome":"incomplete"}' \
+  "$MODAT/t.jsonl" "$MODA" "$(date +%s)" > "$(runfile "$MODA" ab)"
+run_end "$MODA" '{"hook_event_name":"SessionEnd","session_id":"ab","cwd":"'"$MODA"'"}'
+assert_grep '"models_seen":"claude-opus-5:1"' "$MODA/.iamlazy/runs.jsonl" \
+  "la corrida abandonada tambien registra con que modelo se gasto"
+
 echo "guarantee 2 — derived semantic fields"
 
 SEM="$(mkrepo)"
@@ -904,7 +982,7 @@ run_flush "$SEM" "$(stop_payload "$SEM" "$CLOSE_MSG" s "$SEMT/t.jsonl")" >/dev/n
 assert_grep '"task_summary":"Add rate limiting to the \\"login\\" endpoint"' "$SEM/.iamlazy/runs.jsonl" \
   "task_summary derivado del contrato, con las comillas ESCAPADAS (no borradas)"
 assert_grep '"project_md":"updated"' "$SEM/.iamlazy/runs.jsonl" "project_md derivado del diff"
-assert_grep '"schema_version":6' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
+assert_grep '"schema_version":7' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
 assert_grep '"cost_usd":0.5000' "$SEM/.iamlazy/runs.jsonl" "cost_usd derivado del transcript y la tabla de precios"
 assert_grep '"close_detected_via":"contract"' "$SEM/.iamlazy/runs.jsonl" \
   "PROJECT.md modificado no bloquea el cierre (es parte del cierre)"
@@ -1356,8 +1434,8 @@ assert_grep '"host":"claude-code"' "$(runfile "$HH" cc1)" "sin campo host, es Cl
 run_cost() { printf '%s' "$2" | HOME="$1" "$SRC/hooks/host-cost.sh" 2>/dev/null; }
 HK="$(mkrepo)"
 open_run "$HK" "$HK" 30 hc
-run_cost "$HK" '{"hook_event_name":"HostCost","session_id":"hc","host":"opencode","cost_micro":100000,"tokens_output":10,"tokens_cache_write":1,"tokens_cache_read":5}'
-run_cost "$HK" '{"hook_event_name":"HostCost","session_id":"hc","host":"opencode","cost_micro":250000,"tokens_output":15,"tokens_cache_write":2,"tokens_cache_read":7}'
+run_cost "$HK" '{"hook_event_name":"HostCost","session_id":"hc","host":"opencode","cost_micro":100000,"tokens_output":10,"tokens_cache_write":1,"tokens_cache_read":5,"model":"opencode-go/kimi-k2.7-code"}'
+run_cost "$HK" '{"hook_event_name":"HostCost","session_id":"hc","host":"opencode","cost_micro":250000,"tokens_output":15,"tokens_cache_write":2,"tokens_cache_read":7,"model":"opencode-go/deepseek-v4-pro"}'
 assert_grep '^cost_micro=350000$' "$HK/.iamlazy/active/hc.cost" "host-cost acumula el costo de dos mensajes"
 assert_grep '^tokens_output=25$' "$HK/.iamlazy/active/hc.cost" "host-cost acumula tokens_output"
 assert_grep '^tokens_cache_write=3$' "$HK/.iamlazy/active/hc.cost" "host-cost acumula cache_write"
@@ -1366,12 +1444,25 @@ run_cost "$HK" '{"hook_event_name":"Stop","session_id":"hc","cost_micro":999999}
 assert_grep '^cost_micro=350000$' "$HK/.iamlazy/active/hc.cost" "un evento que no es HostCost no toca el sidecar"
 run_cost "$HK" '{"hook_event_name":"HostCost","session_id":"nadie","cost_micro":5}'
 assert_absent "$HK/.iamlazy/active/nadie.cost" "sin corrida activa, host-cost es inerte"
+# Un host que tarifa sus mensajes no tiene transcript que contar, asi que la
+# cuenta de modelos se acumula mensaje a mensaje aca -- mismo trade que el costo.
+assert_grep '^models=opencode-go/deepseek-v4-pro:1 opencode-go/kimi-k2.7-code:1$' \
+  "$HK/.iamlazy/active/hc.cost" "host-cost acumula que modelo respondio cada mensaje"
 # ...y el cierre tarifa la corrida con exactamente lo acumulado.
 mkdir -p "$HK/.iamlazy"; printf '## Groups\n- [x] g1\n' > "$HK/.iamlazy/contract.md"
 set_base "$HK" hc "$HK"
 run_flush "$HK" "$(stop_payload "$HK" "$CLOSE_MSG" hc "")" >/dev/null
 assert_grep '"cost_usd":0.3500' "$HK/.iamlazy/runs.jsonl" "el cierre tarifa la corrida con lo que host-cost acumulo"
+assert_grep '"models_seen":"opencode-go/deepseek-v4-pro:1 opencode-go/kimi-k2.7-code:1"' \
+  "$HK/.iamlazy/runs.jsonl" "el cierre registra los modelos que el host fue informando, sin transcript"
 assert_absent "$HK/.iamlazy/active/hc.cost" "el cierre limpia el sidecar acumulado"
+
+# Un host que no manda el modelo no inventa un bucket "unknown", que en el log
+# se leeria como un modelo real.
+HKN="$(mkrepo)"
+open_run "$HKN" "$HKN" 30 hn
+run_cost "$HKN" '{"hook_event_name":"HostCost","session_id":"hn","host":"opencode","cost_micro":100,"tokens_output":1,"tokens_cache_write":0,"tokens_cache_read":0}'
+assert_ungrep '^models=' "$HKN/.iamlazy/active/hn.cost" "sin modelo en el evento, no se registra ninguno"
 
 echo
 echo "----------------------------------------"

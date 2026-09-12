@@ -43,7 +43,7 @@ by the plugin, which is the registration there:
 | `guard-agent.sh` | `PreToolUse` `^(Agent\|Task)$` | only `iamlazy-critic` may be spawned, and asks before it does |
 | `guard-critic-bash.sh` | `PreToolUse` `^Bash$` | inside the Critic, Bash cannot write: redirections, file commands, in-place edits, git mutations, installs |
 | `track-edit.sh` | `PostToolUse` on edit tools | every edit appended to `.iamlazy/journal.md`; the contract's location fixes `project_root` and `base_ref` |
-| `host-cost.sh` | OpenCode only, per completed message | a host that prices its own messages hands the figure over; accumulated into the run's cost sidecar, never re-priced |
+| `host-cost.sh` | OpenCode only, per completed message | a host that prices its own messages hands the figure over, with the model that wrote it; accumulated into the run's cost sidecar, never re-priced |
 | `flush-run.sh` | `Stop` | the log line is written, derived, never self-reported; **the scope gate speaks**; **circuit breaker** on dollars per changed line |
 | `end-run.sh` | `SessionEnd` | a run that ends without closing is logged as `abandoned`, not lost |
 | `subagent-done.sh` | `SubagentStop` | the review actually returned, and its `findings: H/M/L/I` tally |
@@ -163,10 +163,11 @@ justification; an undeclared deviation is an automatic reviewer finding.
   same hook output degrades to an allow — its adapter only recognises `deny`, so the Critic still
   always runs there, unchanged.
 - **The breaker's floors carry more weight than its ratio**, and $0.08/line rests on four runs from
-  two projects. If it fires on a run that was fine, the threshold is wrong, not the run. Thresholds
-  are hardcoded in `flush-run.sh`; only prices live in config.
+  two projects. If it fires on a run that was fine, the threshold is wrong, not the run. Its three
+  numbers default in `flush-run.sh` and are overridable in `~/.iamlazy/config`, so recalibrating is
+  an edit rather than a reinstall; whatever was in effect is logged with the run.
 - **`gate_verdict` stays underived** — it would come from `ExitPlanMode`, whose payload shape is
-  unconfirmed. `runs.jsonl` carries four schema generations; `/iamlazy-review` reports what each
+  unconfirmed. `runs.jsonl` carries several schema generations; `/iamlazy-review` reports what each
   line has and never infers across them.
 - **Hooks can be switched off.** `disableAllHooks` exists. Layer 0 is proof against forgetting,
   not proof against a decision.

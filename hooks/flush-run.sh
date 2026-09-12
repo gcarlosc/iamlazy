@@ -129,6 +129,15 @@ else
 fi
 host=$(hk_field_file "$TMP" "host"); [ -n "$host" ] || host="claude-code"
 
+# WHICH models answered this run, as a delta against the baseline taken at open.
+# Two sources, same precedence the cost already uses: a host that prices its own
+# messages also names their model (see host-cost.sh), and only a host with a
+# Claude-style transcript can be counted from one. Empty is the honest value on
+# a host that offers neither -- the same posture as a null cost.
+models_seen=$(hk_kv "$COSTF" models)
+[ -n "$models_seen" ] || \
+  models_seen=$(hk_models_delta "$(hk_models_run "$tpath")" "$(hk_field_file "$TMP" "start_models")")
+
 # ---------------------------------------------------------------- Guarantee 5
 # Circuit breaker. Persisting without a new hypothesis is the failure, not the
 # virtue. The signal is arithmetic, not judgement: weighted cost per changed
@@ -330,11 +339,11 @@ fi
 drift_fired=0
 grep -q '"drift_warned"' "$TMP" 2>/dev/null && drift_fired=1
 
-hk_log_append "$(printf '{"schema_version":6,"host":"%s","timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","drift_thresholds":"%s","drift_fired":%s,"outcome":"flushed"}' \
+hk_log_append "$(printf '{"schema_version":7,"host":"%s","timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","models_seen":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","drift_thresholds":"%s","drift_fired":%s,"outcome":"flushed"}' \
   "$(hk_json_esc "$host")" "$now_iso" "$task_summary" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" \
   "$(hk_json_esc "$root")" "$(hk_json_esc "$base")" \
   "${duration:-null}" "$human_interventions" "${files_changed:-0}" "${lines_changed:-0}" \
-  "$cost_field" "$(hk_json_esc "$unpriced")" "$d_out" "$d_cw" "$d_cr" \
+  "$cost_field" "$(hk_json_esc "$unpriced")" "$(hk_json_esc "$models_seen")" "$d_out" "$d_cw" "$d_cr" \
   "$project_md" "$(hk_json_esc "$stage")" \
   "$(hk_json_esc "$critic_findings")" "$signal" "$drift_thresholds" "$drift_fired")"
 

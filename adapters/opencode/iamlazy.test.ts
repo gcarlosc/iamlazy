@@ -200,6 +200,11 @@ test("completed assistant messages, main thread and child, accumulate once each 
   expect(cost).toContain("tokens_output=40\n")
   expect(cost).toContain("tokens_cache_write=80\n")
   expect(cost).toContain("tokens_cache_read=60\n")
+  // The model rides along with the cost, as `providerID/modelID`. This host
+  // leaves no Claude-style transcript, so the message it prices is the only
+  // place its model is ever visible -- and the same de-duplication applies:
+  // two completed messages here, not the four events that were sent.
+  expect(cost).toContain("models=p/m:2\n")
   expect(existsSync(sidecar(C, "cost"))).toBe(false)
 })
 

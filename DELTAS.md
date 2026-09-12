@@ -16,10 +16,10 @@ A trigger written against a field that no longer exists is **unmeasurable**, not
 have been retired below rather than left to accumulate — 8 of 11 candidates were in that state on
 2026-09-05, which made the whole sweep noise.
 
-Fields a `[log]` trigger may use today (schema 6): `host`, `duration_seconds`,
-`human_interventions`, `files_changed`, `lines_changed`, `cost_usd`, `tokens_output` /
-`tokens_cache_write` / `tokens_cache_read`, `project_md`, `stage_reached`, `critic_findings`,
-`close_detected_via`, `drift_thresholds`, `drift_fired`, `outcome`, `base_ref`.
+Fields a `[log]` trigger may use today (schema 7): `host`, `duration_seconds`,
+`human_interventions`, `files_changed`, `lines_changed`, `cost_usd`, `models_seen`,
+`tokens_output` / `tokens_cache_write` / `tokens_cache_read`, `project_md`, `stage_reached`,
+`critic_findings`, `close_detected_via`, `drift_thresholds`, `drift_fired`, `outcome`, `base_ref`.
 
 ---
 
@@ -70,11 +70,13 @@ run, so that knob works. What remains is the case where the session model and `C
 happen to be equal. Note the asymmetry between hosts: OpenCode can cross *providers* for free;
 Claude Code is Anthropic-only, so there the knob is tier, not family — and lowering the Critic's
 tier contradicts the fact that it earns its cost.
-Trigger `[log]`: **blocked** — needs a `models_seen` field, which is not derived yet. Until then
-this cannot be measured, and saying otherwise would be pretending.
+Trigger `[log]`: **unblocked 2026-09-11** — `models_seen` now records which models answered a run
+and how often, so a run where builder and Critic shared one model is readable from the log.
+Fires on 2+ runs whose `models_seen` names a single model.
 Trigger `[human]`: a controlled pair — the same diff reviewed twice, once by a Critic sharing the
 builder's model and once by a different one — comparing unique findings.
-Status: 0 recorded, and the `[log]` half is unmeasurable by construction.
+Status: 0 recorded. The `[log]` half was unmeasurable until the field existed; it has no history
+behind it, so it starts counting from the runs logged after that date, not before.
 
 ## Candidate 14 — Stop the close depending on a stage name the model invents (origin: audit D5)
 
@@ -147,6 +149,8 @@ Cost, stated so it is not discovered late: a third agent and template, a new `mo
 a rewrite of `templates/opencode/gate.md`, tests for the new agent, and re-earning the built-in
 plan agent's read-only guardrails — which are the reason the gate rides it in the first place.
 
+Trigger `[log]`: 2+ OpenCode runs whose `models_seen` names one model where two were configured —
+the collapse, which used to be invisible until someone thought to check, is now in the log.
 Trigger `[human]`: the `opencode.json` block becomes a real cost — a second machine to configure,
 or someone else installing iamlazy and getting the collapsed split without noticing.
 Status: 0 recorded. One machine, configured by hand, deliberately.
@@ -166,6 +170,25 @@ Trigger `[log]` + `[human]`: 2+ runs where `critic_findings` shows a `[HIGH]` wh
 already visible in the approved `.iamlazy/contract.md` — the falsifiable version of "the human is
 not really reading", checkable against the contract on disk.
 Status: 0 recorded.
+
+## Candidate 17 — The close banner names a model that did not write it (origin: 2026-09-11)
+
+Found within minutes of `models_seen` existing, which is the argument for having built it. The
+README promises every artifact banner carries "the model and effort that produced it — read from
+the session transcript, never guessed". Measured against the transcript of the `--lang=it` run
+(session `7f32cddc`): `ANÁLISIS` and `CONTRATO` both declared `claude-opus-5` and were both really
+written by it, while `CIERRE` declared `claude-opus-5` **twice** and was really written by
+`claude-sonnet-5` both times. Under `opusplan` the switch happens at the gate, so by the close the
+banner is repeating the model from before it — the exact case the banner exists to make visible is
+the one it gets wrong, and it reads as authoritative either way.
+
+Idea: derive the close banner's model the way the cost is derived, or stop printing a model there
+rather than print a stale one. An honest omission beats a confident wrong value — the standing
+rule in `PROJECT.md`, applied to the one number a human reads on every single run.
+
+Trigger `[log]`: 2+ runs whose `models_seen` names a model the close banner did not, on a host
+where the banner claims to be derived. Now checkable; it was not before.
+Status: 1 recorded (session `7f32cddc`, both of its close banners).
 
 ---
 

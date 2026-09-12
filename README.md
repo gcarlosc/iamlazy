@@ -283,8 +283,9 @@ knowing before you trust a green run.
 Don't take the harness on faith. During the first month, run a few comparable tasks both
 ways — with `/iamlazy`, and with the bare tool plus a good `CLAUDE.md` — and compare three
 questions: did the gate catch something real? did any work have to be undone? what was the
-total time? Each run logs a `tokens_weighted` figure derived from the session transcript, not
-estimated, so cost is comparable across runs. `runs.jsonl` + `/iamlazy-review` are half the
+total time? Each run logs a `cost_usd` figure derived from the session transcript and a price
+table, not estimated, so cost is comparable across runs — and a `models_seen` tally, so a run is
+comparable against what actually answered it rather than what the config said would. `runs.jsonl` + `/iamlazy-review` are half the
 instrumentation — and the review also
 sweeps `DELTAS.md`'s triggers against your runs, reporting which ones fired, so the backlog
 tells you when it has evidence instead of waiting to be asked. If iamlazy does not clearly win,

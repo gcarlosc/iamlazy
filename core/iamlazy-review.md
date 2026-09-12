@@ -13,7 +13,7 @@ Show the human the last runs of the harness in a readable form.
 
 2. **You parse the JSON, not bash.** Each line is one JSON object.
 
-   **The file holds five schema generations, and that is expected.** Pre-Layer-0 lines are
+   **The file holds several schema generations, and that is expected.** Pre-Layer-0 lines are
    self-reported (`reversibility`, `critic_mode`, `gate_verdict`, `outcome: success`); `2` is
    derived by hooks; `3` adds `base_ref`, `stage_reached`, `critic_findings`, the `abandoned`
    outcome and a per-run `human_interventions`; `4` replaces `tokens_weighted` with `cost_usd`
@@ -23,7 +23,8 @@ Show the human the last runs of the harness in a readable form.
    adds `drift_fired`, whether it actually stopped that run. **Report how many runs it fired on,
    and against which thresholds.** Its numbers rest on four runs from two projects, so that count
    is the evidence for keeping or moving them — and a run it fired on that turned out fine means
-   the threshold is wrong, not the run.
+   the threshold is wrong, not the run. `7` adds `models_seen` — which models answered the run and
+   how many messages each one wrote, commonest first, the Critic's own included.
    **Report what each line actually has. Never carry a field across generations, and never infer a
    missing one** — a run that predates a field did not score badly on it, it simply has no value,
    and those are different facts. An `abandoned` line carries only the subset a run that never
@@ -57,6 +58,12 @@ Show the human the last runs of the harness in a readable form.
    - **`close_detected_via`** — `contract` means the run closed against its own ledger;
      `banner` means it closed on the weaker text signal, which is the path with no contract to
      check. A run expected to have a contract that closed via `banner` is worth a question.
+   - **`models_seen` answers "what actually ran", which is not what the config says.** It reads
+     `model:messages`, commonest first. A model split that was configured and did not happen is
+     visible here and nowhere else — the case that produced this field was a planner pinned to one
+     model and answering on another. Report it when the mix is surprising for the host, and say
+     nothing when it is not; an empty value means the host offers no way to know, never that one
+     model ran.
 
    Keep it to conclusions — no internal mechanics, no raw JSON dumped at the human.
 

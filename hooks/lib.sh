@@ -632,6 +632,104 @@ hk_token_components() {
   ' "$t"
 }
 
+# ------------------------------------------------------- models seen
+#
+# WHICH model produced a run, as "model:messages model:messages", commonest
+# first. The log already carried what a run cost and how long it took, but not
+# what answered it -- so "which model ran the planner?" could only be settled by
+# parsing a transcript by hand, which is exactly how two sessions were spent
+# (2026-09-11: opusplan's switch at the gate on Claude Code, and OpenCode's
+# `plan` agent inheriting the builder's model instead of the configured one).
+#
+# Counts, not a bare list. A list says both models appeared; the counts are what
+# identify the stage -- a run reading `kimi:15 deepseek:4` puts the review on
+# deepseek and everything else on kimi, which is the actual question being asked.
+#
+# The snapshot suffix is NOT stripped here, unlike the pricing path: pricing
+# needs `claude-opus-5-20260201` to resolve to a rate, this needs to report what
+# really ran.
+
+# hk_model_counts <file> -> "model:count " per model in ONE transcript.
+# De-duplicated by message id for the same reason hk_cost_micro does it: a
+# transcript records the same assistant message once per streaming chunk, and
+# counting them naively reports turns that never happened.
+hk_model_counts() {
+  local t
+  t="$1"
+  [ -n "$t" ] && [ -f "$t" ] || return 0
+  awk '
+    {
+      if (!match($0, /"usage":\{/)) next
+      id = ""
+      if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) id = substr($0, RSTART, RLENGTH)
+      if (id != "" && (id in seen)) next
+      if (id != "") seen[id] = 1
+      if (!match($0, /"model":"[^"]+"/)) next
+      n[substr($0, RSTART+9, RLENGTH-10)]++
+    }
+    END { for (m in n) printf "%s:%d ", m, n[m] }
+  ' "$t" 2>/dev/null
+}
+
+# hk_models_sum -> reads "model:count" tokens on stdin, adds up the repeats and
+# prints them commonest first, ties broken by name so the field is stable.
+# The count is matched at the END of the token, never split on the first `:`, so
+# a provider-qualified id keeps working.
+hk_models_sum() {
+  tr ' ' '\n' | awk '
+    {
+      if (!match($0, /:[0-9]+$/)) next
+      n[substr($0, 1, RSTART-1)] += substr($0, RSTART+1)
+    }
+    END { for (m in n) printf "%d %s\n", n[m], m }
+  ' | sort -k1,1nr -k2,2 | awk '{ printf "%s:%s ", $2, $1 }' | sed 's/ $//'
+}
+
+# hk_models_run <transcript> -> the models of the main transcript AND every
+# sub-agent's, summed. The Critic runs in its own file, and it is usually the
+# one model a run deliberately decorrelated -- omitting it would hide the split
+# this field exists to show.
+hk_models_run() {
+  local t dir f
+  t="$1"
+  { hk_model_counts "$t"
+    dir="${t%.jsonl}/subagents"
+    for f in "$dir"/*.jsonl; do
+      [ -f "$f" ] && hk_model_counts "$f"
+    done
+  } | hk_models_sum
+}
+
+# hk_models_delta <now> <baseline> -> what THIS run added.
+#
+# The transcript accumulates the whole session, so the baseline taken at open is
+# subtracted here -- the same shape cost and interventions already use. A model
+# whose count did not grow is dropped rather than reported as zero, and a count
+# that went DOWN (a compaction rewrote the file) is dropped too, which is the
+# same clamp the token deltas apply.
+hk_models_delta() {
+  awk -v now="$1" -v base="$2" '
+    BEGIN {
+      c = split(base, b, " ")
+      for (i = 1; i <= c; i++)
+        if (match(b[i], /:[0-9]+$/)) was[substr(b[i], 1, RSTART-1)] = substr(b[i], RSTART+1)
+      c = split(now, a, " ")
+      for (i = 1; i <= c; i++) {
+        if (!match(a[i], /:[0-9]+$/)) continue
+        m = substr(a[i], 1, RSTART-1)
+        d = substr(a[i], RSTART+1) - (m in was ? was[m] : 0)
+        if (d > 0) printf "%s:%d ", m, d
+      }
+    }' | hk_models_sum
+}
+
+# hk_models_bump <current> <model> -> current with one more message for <model>.
+# For hosts that price their own messages and hand them over one at a time
+# (see host-cost.sh); they have no transcript for the counting path to read.
+hk_models_bump() {
+  printf '%s %s:1 ' "$1" "$2" | hk_models_sum
+}
+
 # ------------------------------------------------------- abandoned runs
 
 # hk_log_append <line> -> append one JSON line, guaranteeing the separator.
@@ -651,7 +749,7 @@ hk_log_append() {
 # a real line, including the stage it died at -- which is the one thing worth
 # knowing about it.
 hk_flush_abandoned() {
-  local f sid tpath root stage start dur fired host
+  local f sid tpath root stage start dur fired host models
   f="$1"
   [ -f "$f" ] || return 0
   sid=$(hk_field_file "$f" "session_id")
@@ -676,11 +774,17 @@ hk_flush_abandoned() {
   # field, so a mislabeled line corrupts a per-host count rather than just
   # looking incomplete.
   host=$(hk_field_file "$f" "host"); [ -n "$host" ] || host="claude-code"
-  hk_log_append "$(printf '{"schema_version":6,"host":"%s","timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","drift_fired":%s,"outcome":"abandoned"}' \
+  # An abandoned run still spent what it spent, on some model. This is the run
+  # where that matters most -- the log's two longest lines are abandoned ones --
+  # so the field is filled here the same way the close fills it: the host's own
+  # tally when it priced its messages, the transcript delta otherwise.
+  models=$(hk_kv "$(hk_cost_file "$f")" models)
+  [ -n "$models" ] || models=$(hk_models_delta "$(hk_models_run "$tpath")" "$(hk_field_file "$f" "start_models")")
+  hk_log_append "$(printf '{"schema_version":7,"host":"%s","timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","models_seen":"%s","drift_fired":%s,"outcome":"abandoned"}' \
     "$(hk_json_esc "$host")" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$root")" \
-    "$dur" "$(hk_json_esc "$stage")" "$fired")"
+    "$dur" "$(hk_json_esc "$stage")" "$(hk_json_esc "$models")" "$fired")"
   hk_run_clear "$f"
 }
 
