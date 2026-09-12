@@ -119,8 +119,11 @@ justification; an undeclared deviation is an automatic reviewer finding.
   obeyed; one that blocks mid-run, where groups are open by design, traps the human out.
 - A contract run **cannot close before its review returns**, unless the human **declines** the
   Critic when asked to spawn it — that closes via the banner path, and the close report must
-  declare the decline. Every box ticked is necessary and never sufficient — Layer 1 puts review
-  and close *after* the execution that ticks them.
+  declare the decline. **The decline must be real**: `guard-agent.sh` records that it actually
+  asked, and a close claiming a decline that never happened stays blocked — a run closed once
+  citing "the human decided" with zero attempts to spawn the Critic anywhere in its transcript.
+  Every box ticked is necessary and never sufficient — Layer 1 puts review and close *after* the
+  execution that ticks them.
 - **The prompt never promises what its host does not enforce.** `{{GUARANTEES}}` is filled per
   host, and each host's text names the hooks it runs: the suite compares Claude Code's against
   `settings.json`'s registrations and OpenCode's against what the adapter invokes.
@@ -151,9 +154,12 @@ justification; an undeclared deviation is an automatic reviewer finding.
   `PreToolUse`'s `permissionDecisionReason` reaches the model, which read a denial and adapted.
 - **Spawning the Critic asks, on Claude Code — the UI behaviour is documented, not observed.**
   `permissionDecision: "ask"` is confirmed against the installed hooks schema, not against a
-  real prompt yet: verify the reason text actually reaches the human before trusting it. On
-  OpenCode the same hook output degrades to an allow — its adapter only recognises `deny`, so
-  the Critic still always runs there, unchanged.
+  real prompt yet: verify the reason text actually reaches the human before trusting it. A real
+  run never got that far — the model closed claiming a decline while never once calling the
+  tool, which `guard-agent.sh` now proves against (`critic_asked`, see the invariant above) —
+  but the ask prompt itself is still unconfirmed live. On OpenCode the same hook output degrades
+  to an allow — its adapter only recognises `deny`, so the Critic still always runs there,
+  unchanged.
 - **The breaker's floors carry more weight than its ratio**, and $0.08/line rests on four runs from
   two projects. If it fires on a run that was fine, the threshold is wrong, not the run. Thresholds
   are hardcoded in `flush-run.sh`; only prices live in config.

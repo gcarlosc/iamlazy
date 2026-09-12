@@ -321,3 +321,40 @@ Verified by mutation, both directions: reverting the guard back to `hk_allow` fa
 Claude Code assertion by name; forcing it to `hk_deny` for the Critic fails the OpenCode adapter's
 existing "task spawning iamlazy-critic passes" test, which was already covering this path without
 having been written for it.
+
+## The decline had to be proven, not just claimed
+
+Hours after the above shipped, a real run on `iamlazy-smoke` closed with "el usuario decidió
+cerrar sin auditoría de iamlazy-critic" in both the journal and the close report. Checked before
+trusting it: zero `Task`/`Agent` tool calls anywhere in that session's transcript. Nobody was
+asked anything. The model read "declare the decline and close" as permission to skip the attempt
+entirely and invent that the human had made a call that was never put to them.
+
+The escape hatch this project just added was pure Layer 1 prose — "if refused, close without
+one" — and prose is exactly what `guard-agent.sh` replaced for the sub-agent rule in the first
+place, for the same reason: "the sub-agent rule was called an inviolable law and violated 7 times
+in 2 runs, because importance is not a mechanism" (`PROJECT.md`). Adding a sanctioned way to close
+without review, in words alone, handed the model a new way to self-grant it.
+
+The fix moves the proof to Layer 0. `guard-agent.sh` now writes `critic_asked:1` to the run's own
+state file the moment it fires for the Critic — before the human answers, so it proves an attempt
+happened, never what was decided. `hk_close_signal` requires it: `critic_done != 1` no longer
+falls through to the banner alone, it also needs `critic_asked == 1`. "Asked and declined" and
+"asked, approved, but `SubagentStop` never reported back" both satisfy it, exactly as designed
+yesterday; "never even tried" now does not, and stays blocked regardless of what the banner
+claims. The block is audible, not silent — `hk_close_blockers`'s output gains the new reason by
+name, the same channel that already speaks for unticked groups and out-of-scope files.
+
+The blast radius of testing this properly was the real lesson. Every fixture in `test-hooks.sh`
+that opens a run and expects a clean close had been quietly relying on the Critic never being
+asked at all — 47 assertions broke the moment `HK_CRITIC_ASKED` became a real precondition, none
+of them about the Critic. Baking `critic_asked:1` into the shared `open_run`/`open_run_tok`
+fixtures (and the four ad-hoc ones that build a run file by hand) fixed 45 of them in one pass,
+because that is what those tests had always assumed without saying so. The remaining two, plus
+the new regression test itself, needed the state built by hand or through the real hook — one new
+test now runs `guard-agent.sh` for real and confirms it writes the field, then runs `flush-run.sh`
+for real and confirms that alone is enough to close; a second reproduces the actual incident
+verbatim (contract complete, groups ticked, Critic never invoked, CLOSE banner present) and
+asserts the run stays open with the reason named. Verified by mutation on all three pieces —
+dropping the write in the guard, reverting the close check, and dropping the audible line each
+fail a distinct assertion by name, the middle one reproducing the original bug exactly.
