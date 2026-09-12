@@ -168,7 +168,7 @@ non-determinism here. Set `"model"` in `~/.claude/settings.json`, or in a projec
 `opusplan` runs Opus during plan mode and switches to Sonnet on execution. Since iamlazy's gate
 rides on native plan mode, that switch lands exactly on the plan/build boundary — a declared
 policy, not a coin flip. **You will see which model is running**: every artifact banner carries
-the model and effort that produced it — `── A3 — PLAN · opus-5 · high ──` — read from the session
+the model and effort that produced it — `── CONTRACT · opus-5 · high ──` — read from the session
 transcript, never guessed. So the switch at the gate is visible exactly where it happens, and a
 switch you expected that never happened is just as visible. `CC_MAIN_MODEL` then acts as a floor: a strong planner even when the
 session is on something cheap.

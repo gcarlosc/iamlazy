@@ -1,5 +1,5 @@
 ---
-description: Adversarial read-only reviewer for iamlazy — low reversibility or structural-floor escalation.
+description: Adversarial read-only reviewer for iamlazy — always spawned, every run.
 mode: subagent
 model: {{CRITIC_MODEL}}
 permission:
