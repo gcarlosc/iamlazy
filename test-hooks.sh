@@ -52,7 +52,7 @@ open_run() { # $1 home  $2 cwd  $3 start_epoch_delta  [$4 sid]
   sid="${4:-sid-x}"
   mkdir -p "$1/.iamlazy/active"
   mk_prices "$1"
-  printf '{"schema_version":4,"session_id":"%s","transcript_path":"/x.jsonl","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"outcome":"incomplete"}' \
+  printf '{"schema_version":4,"session_id":"%s","transcript_path":"/x.jsonl","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"critic_asked":1,"outcome":"incomplete"}' \
     "$sid" "$2" "$(($(date +%s)-${3:-30}))" > "$(runfile "$1" "$sid")"
 }
 
@@ -73,8 +73,18 @@ mk_transcript() { # <dir> <micro_usd>: all output tokens on opus-5 (25 micro eac
 open_run_tok() { # $1 home $2 cwd -- opens with a zero cost baseline
   mkdir -p "$1/.iamlazy/active"
   mk_prices "$1"
-  printf '{"schema_version":4,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"outcome":"incomplete"}' \
+  printf '{"schema_version":4,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"critic_asked":1,"outcome":"incomplete"}' \
     "$2/t.jsonl" "$2" "$(date +%s)" > "$(runfile "$1" s)"
+}
+
+# mark_critic_asked <home> <sid> -- simulate guard-agent.sh having already
+# fired for the Critic on a run opened via the real open-run.sh (which does
+# not set this itself; only guard-agent.sh does). Tests unrelated to the
+# ask/decline mechanism use this so they keep testing what they were written
+# for, matching what a real run looks like by the time it reaches the close.
+mark_critic_asked() {
+  f="$(runfile "$1" "${2:-sid-x}")"
+  sed 's/}$/,"critic_asked":1}/' "$f" > "$f.new" && mv "$f.new" "$f"
 }
 
 stop_payload() { # $1 cwd  $2 message  [$3 sid]  [$4 transcript]
@@ -701,6 +711,39 @@ set_base "$FB" "sid-x" "$FB"
 run_flush "$FB" "$(stop_payload "$FB" "$CLOSE_MSG")" >/dev/null
 assert_absent "$(runfile "$FB")" "sin SubagentStop, el banner de CIERRE sigue cerrando (respaldo)"
 
+# El bug real que esto arregla (2026-09-11): una corrida en produccion cerro
+# con "el humano decidio no revisar" en el journal, pero CERO llamadas a la
+# tool Agent/Task en todo el transcript -- a nadie se le pregunto nada. El
+# modelo se auto-otorgo el permiso que "declarado como desviacion" existe para
+# pedir. Sin critic_asked, el banner de CIERRE por si solo no alcanza.
+NEVER="$(mkrepo)"
+mkdir -p "$NEVER/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$NEVER/.iamlazy/contract.md"
+open_run "$NEVER" "$NEVER" 5   # NO se llama a mark_critic_asked: nunca se pregunto
+sed 's/,"critic_asked":1//' "$(runfile "$NEVER")" > "$(runfile "$NEVER").new" && mv "$(runfile "$NEVER").new" "$(runfile "$NEVER")"
+set_base "$NEVER" "sid-x" "$NEVER"
+neverout="$(run_flush "$NEVER" "$(stop_payload "$NEVER" "$CLOSE_MSG")")"
+if [ -f "$(runfile "$NEVER")" ]; then ok "sin pedirle nada al Critic, el banner de CIERRE NO cierra"
+else no "cerro sin que el Critic fuera invocado ni una vez (el bug real)"; fi
+case "$neverout" in
+  *'nunca fue invocado'*) ok "el bloqueo NOMBRA que el Critic nunca fue invocado" ;;
+  *) no "no se explico por que se bloqueo (obtuvo: ${neverout:-<vacio>})" ;;
+esac
+
+# End-to-end: guard-agent.sh REAL pregunta y GRABA la prueba; flush-run.sh REAL
+# la lee y cierra. Ningun test hasta aca conectaba ambos hooks -- todos
+# fabricaban critic_asked a mano en el archivo de la corrida.
+E2E="$(mkrepo)"
+mkdir -p "$E2E/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$E2E/.iamlazy/contract.md"
+open_run "$E2E" "$E2E" 5
+sed 's/,"critic_asked":1//' "$(runfile "$E2E")" > "$(runfile "$E2E").new" && mv "$(runfile "$E2E").new" "$(runfile "$E2E")"
+set_base "$E2E" "sid-x" "$E2E"
+run_guard "$E2E" "{$G,\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"iamlazy-critic\"}}" >/dev/null
+assert_grep '"critic_asked":1' "$(runfile "$E2E")" "guard-agent.sh real graba la prueba de la pregunta"
+run_flush "$E2E" "$(stop_payload "$E2E" "$CLOSE_MSG")" >/dev/null
+assert_absent "$(runfile "$E2E")" "y con esa prueba, flush-run.sh real cierra por el banner"
+
 # Un sub-agente que no es el critic no cuenta como revision.
 NC="$(mkrepo)"
 mkdir -p "$NC/.iamlazy"
@@ -819,7 +862,7 @@ CB3="$(mkrepo)"
 printf 'x\n%.0s' $(seq 1 230) > "$CB3/f.txt"
 mk_transcript "$CB3" 23690000
 mkdir -p "$CB3/.iamlazy/active"; mk_prices "$CB3"
-printf '{"schema_version":4,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":22000000,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"outcome":"incomplete"}' \
+printf '{"schema_version":4,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":22000000,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"critic_asked":1,"outcome":"incomplete"}' \
   "$CB3/t.jsonl" "$CB3" "$(date +%s)" > "$(runfile "$CB3" s)"
 set_base "$CB3" "s" "$CB3"; rm -f "$CB3/.iamlazy/active/s.untracked"
 if [ "$(flush_rc "$CB3" "$(stop_payload "$CB3" "$CLOSE_MSG" s "$CB3/t.jsonl")")" = "2" ]; then no "una 2da corrida no debe heredar el costo de la 1ra (usar delta)"; else ok "el breaker mide el DELTA de la corrida, no el total de sesion"; fi
@@ -852,7 +895,7 @@ git -C "$SEM" add -A; git -C "$SEM" commit -q -m init
 mkdir -p "$SEM/.iamlazy/active"
 mk_transcript "$SEMT" 500000
 mk_prices "$SEM"
-printf '{"schema_version":4,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"outcome":"incomplete"}' \
+printf '{"schema_version":4,"session_id":"s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":1,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"critic_asked":1,"outcome":"incomplete"}' \
   "$SEMT/t.jsonl" "$SEM" "$(date +%s)" > "$(runfile "$SEM" s)"
 set_base "$SEM" "s" "$SEM"
 echo x > "$SEM/src/a.rb"
@@ -1132,6 +1175,7 @@ mkdir -p "$LATE/.iamlazy"; mk_prices "$LATE"
 run_open "$LATE" '{"hook_event_name":"UserPromptSubmit","session_id":"s","transcript_path":"'"$LATE/t.jsonl"'","cwd":"'"$LATE"'","prompt":"/iamlazy tarea"}'
 assert_grep '"cost_priced":1' "$(runfile "$LATE" s)" "sin transcript todavia, la linea base es cero y la corrida es tarifable"
 assert_grep '"start_cost":0' "$(runfile "$LATE" s)" "y la linea base es exactamente cero, no un desconocido"
+mark_critic_asked "$LATE" s   # no es lo que este test verifica; sin esto no cierra
 mk_transcript "$LATE" 500000            # el transcript aparece recien ahora
 printf '## Groups\n- [x] g1\n' > "$LATE/.iamlazy/contract.md"
 set_base "$LATE" "s" "$LATE"
@@ -1240,6 +1284,7 @@ HID="$(mkrepo)"
 mkdir -p "$HID/.iamlazy"; mk_prices "$HID"
 printf 'Request interrupted by user\n' > "$HID/t.jsonl"
 run_open "$HID" '{"hook_event_name":"UserPromptSubmit","session_id":"sid-x","transcript_path":"'"$HID/t.jsonl"'","cwd":"'"$HID"'","prompt":"/iamlazy tarea"}'
+mark_critic_asked "$HID" sid-x   # no es lo que este test verifica; sin esto no cierra
 printf 'Request interrupted by user\nRequest interrupted by user\n' >> "$HID/t.jsonl"
 printf '## Groups\n- [x] g1\n' > "$HID/.iamlazy/contract.md"
 set_base "$HID" "sid-x" "$HID"
@@ -1252,7 +1297,7 @@ assert_grep '"human_interventions":2' "$HID/.iamlazy/runs.jsonl" "human_interven
 HIN="$(mkrepo)"
 mkdir -p "$HIN/.iamlazy/active"; mk_prices "$HIN"
 printf '## Groups\n- [x] g1\n' > "$HIN/.iamlazy/contract.md"
-printf '{"schema_version":4,"host":"opencode","session_id":"s","transcript_path":"","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":0,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"outcome":"incomplete"}' \
+printf '{"schema_version":4,"host":"opencode","session_id":"s","transcript_path":"","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":0,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"critic_asked":1,"outcome":"incomplete"}' \
   "$HIN" "$(date +%s)" > "$(runfile "$HIN" s)"
 set_base "$HIN" "s" "$HIN"
 run_flush "$HIN" "$(stop_payload "$HIN" "$CLOSE_MSG" s "")" >/dev/null
@@ -1289,7 +1334,7 @@ assert_absent "$HC/.iamlazy/active/s.cost" "hk_run_clear tambien limpia el sidec
 HC2="$(mkrepo)"
 mkdir -p "$HC2/.iamlazy/active"; mk_prices "$HC2"
 printf '## Groups\n- [x] g1\n' > "$HC2/.iamlazy/contract.md"
-printf '{"schema_version":4,"host":"opencode","session_id":"s","transcript_path":"","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":0,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"outcome":"incomplete"}' \
+printf '{"schema_version":4,"host":"opencode","session_id":"s","transcript_path":"","cwd":"%s","start_epoch":%s,"start_cost":0,"cost_priced":0,"start_out":0,"start_cw":0,"start_cr":0,"start_interventions":0,"critic_asked":1,"outcome":"incomplete"}' \
   "$HC2" "$(date +%s)" > "$(runfile "$HC2" s)"
 set_base "$HC2" "s" "$HC2"
 printf 'cost_micro=500000\n' > "$HC2/.iamlazy/active/s.cost"

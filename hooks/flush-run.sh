@@ -64,6 +64,10 @@ stage=$(cat "$(hk_stage_file "$TMP")" 2>/dev/null)
 # Whether the Critic has returned. Recorded by subagent-done.sh on SubagentStop;
 # hk_close_signal refuses to close a contract run before the review lands.
 HK_CRITIC_DONE=$(hk_json_num "$TMP" "critic_done")
+# Whether guard-agent.sh actually asked about it THIS run. Recorded on
+# PreToolUse, before the human answers -- proof an attempt happened, which is
+# what makes "declared as a deviation" honest instead of self-granted.
+HK_CRITIC_ASKED=$(hk_json_num "$TMP" "critic_asked")
 critic_findings=$(cat "$(hk_findings_file "$TMP")" 2>/dev/null)
 
 # --- changed-file accounting (needed by the circuit breaker, so computed first)
@@ -223,12 +227,23 @@ if ! signal=$(hk_close_signal "$payload" "$contract" "$root" "$base" "$ubase"); 
   # the same list is not.
   if [ "$stop_active" = 0 ] && hk_has_close_banner "$payload"; then
     blockers=$(hk_close_blockers "$root" "$contract" "$base" "$ubase")
+    # Same silent-block failure this section already exists to fix, on a new
+    # surface: a run closed 2026-09-11 claiming "the human declined the
+    # Critic" with zero Task/Agent calls anywhere in its transcript -- nobody
+    # was ever asked. HK_CRITIC_ASKED is proof an attempt happened; its
+    # absence is named here exactly like a missing group or an out-of-scope
+    # file, not left for hk_close_signal to refuse in silence.
+    if [ "$HK_CRITIC_DONE" != "1" ] && [ "$HK_CRITIC_ASKED" != "1" ]; then
+      crit_line="el Critic nunca fue invocado en esta corrida: no hay una llamada real a la tool que este hook haya visto"
+      if [ -n "$blockers" ]; then blockers=$(printf '%s\n%s' "$blockers" "$crit_line")
+      else blockers="$crit_line"; fi
+    fi
     if [ -n "$blockers" ]; then
       gate=$(hk_gate_file "$TMP")
       if [ "$blockers" != "$(cat "$gate" 2>/dev/null)" ]; then
         printf '%s' "$blockers" > "$gate"
         one_line=$(printf '%s' "$blockers" | tr '\n' ' ' | tr -d '\\"')
-        printf '{"decision":"block","reason":"iamlazy: la corrida no puede cerrar todavia. %s Declara el desvio agregando la ruta a ## Scope en .iamlazy/contract.md con su justificacion, o revertí el archivo. Marca los grupos con - [x] a medida que su comando de aceptacion pasa.","systemMessage":"iamlazy: cierre bloqueado -- %s"}\n' \
+        printf '{"decision":"block","reason":"iamlazy: la corrida no puede cerrar todavia. %s Si es alcance o grupos: declara el desvio en ## Scope con su justificacion, o revertí el archivo, y marca los grupos con - [x]. Si es el Critic: spawnealo de verdad -- si te rechaza, recien ahi podes cerrar sin revision.","systemMessage":"iamlazy: cierre bloqueado -- %s"}\n' \
           "$one_line" "$one_line"
         printf 'iamlazy: close blocked -- %s\n' "$one_line" >&2
         exit 2

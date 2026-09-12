@@ -42,6 +42,10 @@ fi
 sub=$(hk_field "$payload" "subagent_type")
 
 if [ "$sub" = "iamlazy-critic" ]; then
+  # Recorded BEFORE the ask, not after: this is proof an attempt happened,
+  # not proof of what the human answered. hk_close_signal reads it to refuse
+  # "declared as a deviation" when nothing was ever attempted -- see lib.sh.
+  hk_set_field "$HK_RUN_TMP" "critic_asked" "1"
   hk_ask "iamlazy: about to spawn the Critic to review this run's diff. Approve for an independent review before closing; decline and the run closes without one, as a declared deviation."
 fi
 

@@ -18,6 +18,15 @@ HK_RUN_TMP=""
 # Set by the caller before hk_close_signal: "1" when the Critic has returned.
 HK_CRITIC_DONE=""
 
+# Set by the caller before hk_close_signal: "1" when guard-agent.sh actually
+# asked about spawning the Critic THIS run -- proof of an attempt, never the
+# model's word for it. Without this, "declare the decline and close" (added
+# 2026-09-11) was a prose escape hatch a model could grant itself: a real run
+# closed with "the human decided not to review" in the journal while zero
+# Task/Agent calls appear anywhere in its transcript. The human was never
+# asked. See hk_close_signal.
+HK_CRITIC_ASKED=""
+
 # Git's empty-tree hash. The base_ref for a repository with no commits yet, so
 # a greenfield run still has something to diff against.
 HK_EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -429,8 +438,16 @@ hk_close_signal() {
   payload="$1"; contract="$2"; root="$3"; base="$4"; basefile="$5"
   if [ -f "$contract" ] && [ -n "$base" ]; then
     [ -n "$(hk_close_blockers "$root" "$contract" "$base" "$basefile")" ] && return 1
-    if [ "$HK_CRITIC_DONE" != "1" ] && ! hk_has_close_banner "$payload"; then
-      return 1
+    if [ "$HK_CRITIC_DONE" != "1" ]; then
+      # Closing without a review needs Layer 0 proof an attempt happened --
+      # guard-agent.sh actually asking about the Critic -- never just this
+      # turn's banner and the model's say-so. HK_CRITIC_ASKED is set only by
+      # that hook firing, so "asked and declined" and "asked, approved, but
+      # SubagentStop never reported back" both satisfy it; "never even tried"
+      # does not, and stays blocked regardless of what the banner claims.
+      if [ "$HK_CRITIC_ASKED" != "1" ] || ! hk_has_close_banner "$payload"; then
+        return 1
+      fi
     fi
     echo "contract"; return 0
   fi
