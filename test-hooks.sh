@@ -1029,6 +1029,8 @@ for l in open('$UTFB/.iamlazy/runs.jsonl', encoding='utf-8'):
     if l: json.loads(l)
 " 2>/dev/null; then ok "task_summary no parte un caracter UTF-8 al truncar (LC_ALL=C)"
   else no "task_summary partio un caracter UTF-8 al truncar bajo LC_ALL=C"; fi
+else
+  no "python3 ausente: no se pudo validar el UTF-8 de task_summary"
 fi
 
 if command -v python3 >/dev/null 2>&1; then
