@@ -22,6 +22,7 @@
 # about either costs nothing: it falls back to the CLOSE banner, so a run can
 # never be trapped open by an event that does not arrive.
 set -u
+# shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
 
 payload=$(cat)

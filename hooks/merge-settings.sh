@@ -25,6 +25,7 @@ SETTINGS="${1:?usage: merge-settings.sh <settings.json> <hook-dir> [--remove]}"
 HOOKDIR="${2:?missing hook dir}"
 MODE="${3:-install}"
 
+# shellcheck disable=SC2016  # embedded Python, not shell -- $vars are its own, passed via argv
 MERGE_PY='
 import json, sys, collections, os
 

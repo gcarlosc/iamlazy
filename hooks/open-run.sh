@@ -9,6 +9,7 @@
 # separate, later event per the hooks doc), so matching "/iamlazy" here is the
 # earliest point where "a run is starting" is a fact, not a guess.
 set -u
+# shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
 
 payload=$(cat)
@@ -121,6 +122,7 @@ else
   if [ -n "$start_cost" ]; then cost_priced=1; else cost_priced=0; start_cost=0; fi
 fi
 
+# shellcheck disable=SC2046  # word splitting is the point: "N N N" into $1 $2 $3
 set -- $(hk_token_components "$tpath" 2>/dev/null)
 start_out="${1:-0}"; start_cw="${2:-0}"; start_cr="${3:-0}"
 

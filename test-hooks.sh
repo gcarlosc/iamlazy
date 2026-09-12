@@ -158,7 +158,10 @@ fi
 
 echo "sintaxis"
 for f in "$SRC"/hooks/*.sh "$SRC"/test-hooks.sh; do
-  s="${f#$SRC/}"
+  # $SRC quoted INSIDE the expansion too: same class of bug as hk_rel_path
+  # (SC2295) -- a checkout path with a glob character would read as a pattern
+  # here instead of literal text, and the strip would silently fail.
+  s="${f#"$SRC"/}"
   if bash -n "$f" 2>/dev/null; then ok "$s parsea"; else no "$s parsea"; fi
 done
 
@@ -328,6 +331,7 @@ echo "acuerdo Layer 0 / Layer 1 — el prompt del Critic no pide lo que el guard
 # un comando esta siendo mandado o desaconsejado, y una advertencia bien escrita
 # ("nunca `git add -N`") se leeria como una contradiccion. La forma del prompt
 # esta bajo nuestro control, la heuristica de leerlo no.
+# shellcheck disable=SC2016  # grep pattern, not shell expansion
 crit_cmds="$(grep -o '`[^`]*`' "$SRC/critic/iamlazy-critic.md" | tr -d '`' \
   | grep -E '^(git|npm|pnpm|yarn|cargo|go|rg|grep|cat|sed|awk|head|tail|find|fd)([[:space:]]|$)' \
   | sort -u)"
@@ -563,6 +567,17 @@ NOTRACE_DIR="$(mktmp)"
 run_track "$NOTRACE_DIR" '{"hook_event_name":"PostToolUse","session_id":"sid-x","tool_name":"Edit","cwd":"'"$NOTRACE_DIR"'","tool_input":{"file_path":"'"$NOTRACE_DIR"'/src/foo.ts"}}'
 assert_absent "$NOTRACE_DIR/.iamlazy/journal.md" "sin corrida activa no traza nada"
 
+# A project path holding a glob-special character (a folder named "Client
+# [Acme]" is not exotic) used to defeat the prefix strip: `${2#$1/}` reads an
+# unquoted $1 as a PATTERN, not literal text, so the path never stripped and
+# the absolute path leaked into the journal instead of a relative one.
+GLOB_DIR="$(mktmp)/proj [x]"
+mkdir -p "$GLOB_DIR"
+open_run "$GLOB_DIR" "$GLOB_DIR" 5
+run_track "$GLOB_DIR" '{"hook_event_name":"PostToolUse","session_id":"sid-x","tool_name":"Edit","cwd":"'"$GLOB_DIR"'","tool_input":{"file_path":"'"$GLOB_DIR"'/src/foo.ts"}}'
+assert_grep 'Edit src/foo.ts' "$GLOB_DIR/.iamlazy/journal.md" \
+  "un path de proyecto con caracteres de glob ([, ]) igual se traza relativo"
+
 SELFEDIT_DIR="$(mkrepo)"
 open_run "$SELFEDIT_DIR" "$SELFEDIT_DIR" 5
 run_track "$SELFEDIT_DIR" '{"hook_event_name":"PostToolUse","session_id":"sid-x","tool_name":"Write","cwd":"'"$SELFEDIT_DIR"'","tool_input":{"file_path":"'"$SELFEDIT_DIR"'/.iamlazy/contract.md"}}'
@@ -610,6 +625,7 @@ echo "guarantee 4 — patrones de Scope como los escribe un modelo"
 
 # Dos habitos inofensivos producian violaciones fantasma (verificado 2026-09-05):
 # envolver la ruta en backticks, y escribir un directorio con barra final.
+# shellcheck disable=SC2016  # literal markdown, not shell expansion
 for variant in '- `src/*`' '- src/' '- src/  '; do
   PAT="$(mkrepo)"
   mkdir -p "$PAT/src" "$PAT/.iamlazy"
@@ -1076,6 +1092,7 @@ echo "acuerdo Layer 0 / Layer 1 — el vocabulario de etapas es UNO solo"
 # misma. La etapa de cierre se deriva por POSICION: es la ultima de cada lista,
 # porque el orden del prompt es el orden de sus secciones y cerrar es la ultima.
 PROMPT="$SRC/core/iamlazy.md"
+# shellcheck disable=SC2016  # grep pattern, not shell expansion
 PROMPT_BANNER="$(grep -o '`──[^`]*──`' "$PROMPT" | head -1 | tr -d '`')"
 SEP="$(printf '%s' "$PROMPT_BANNER" | grep -o '^[^ ]*')"
 
@@ -1122,10 +1139,11 @@ for loc in C ${UTF8_LOCALE:-C}; do
     else closes=0; fi
     if [ "$st" = "$EN_CLOSE" ] || [ "$st" = "$ES_CLOSE" ]; then exp=1; else exp=0; fi
     if [ "$closes" = "$exp" ]; then
-      [ "$exp" = 1 ] && ok "[$loc] $st dispara el cierre" || ok "[$loc] $st NO dispara el cierre"
+      if [ "$exp" = 1 ]; then ok "[$loc] $st dispara el cierre"
+      else ok "[$loc] $st NO dispara el cierre"; fi
     else
-      [ "$exp" = 1 ] && no "[$loc] $st debia disparar el cierre (los hooks no conocen la etapa que el prompt declara)" \
-                     || no "[$loc] $st NO debia disparar el cierre"
+      if [ "$exp" = 1 ]; then no "[$loc] $st debia disparar el cierre (los hooks no conocen la etapa que el prompt declara)"
+      else no "[$loc] $st NO debia disparar el cierre"; fi
     fi
   done
 done

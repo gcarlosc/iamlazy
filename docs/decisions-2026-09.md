@@ -402,3 +402,31 @@ included. Four cost assertions failed and no model assertion did. Every line in 
 `if` now. Verified by mutation on five pieces: ignoring the baseline, dropping the streaming-chunk
 de-duplication, skipping sub-agent transcripts, refusing the host's tally, and the adapter sending
 no model each fail a distinct assertion by name.
+
+## shellcheck enters CI, and finds a real bug within minutes
+
+Phase 1 of the 2026-09-05 robustness audit listed "T2: shellcheck, bash -n completo" as unstarted.
+Running shellcheck locally for the first time, at style severity, on every script the project
+ships (25 findings) sorted into three groups: intentional idioms shellcheck cannot tell from
+mistakes (unquoted glob patterns in `case`, deliberate word-splitting via `set --`, embedded
+Python, template placeholders like `$ARGUMENTS` that belong to the host, not to bash), a
+`SC2181`/`SC2015` style preference already met better elsewhere in the same files, and one real
+bug: `hk_rel_path`, `${2#$1/}`, reads an unquoted `$1` as a glob PATTERN rather than literal text.
+A project path containing `[`, `]`, `*` or `?` — "Client [Acme]" is not an exotic folder name —
+would defeat the prefix strip silently, and every journal line for that project would carry the
+absolute path instead of the relative one `## Scope` is written against. Reproduced with such a
+path before trusting the fix; the same bug, same fix, was hiding a second time in
+`test-hooks.sh`'s own syntax-check loop.
+
+**Every silenced finding carries why, inline, at the line it applies to** — `# shellcheck disable=`
+comments, not a blanket exclusion in a config file, because a project-wide suppression would also
+have hidden `hk_rel_path`. The two `models.conf`/`lib.sh` sourcing paths needed `-x` to actually
+resolve rather than just being named in a `source=` directive: without it, shellcheck reports
+`SC1091` regardless of the directive unless the sourced file happens to be in the same invocation's
+file list — worth knowing, since it means the CI command's flag matters as much as the comments do.
+
+CI gets a `lint` job: `bash -n` on every script (cheap, and the exact debt named `bash -n completo`
+in the audit), then `shellcheck -x --severity=style` for source-following, and a clean report is
+the gate — zero tolerance, because reintroducing style-level severity here is what turned up the
+real bug in the first place. Not run on the bash 3.2 matrix: shellcheck reasons about a script
+independent of which interpreter later runs it.

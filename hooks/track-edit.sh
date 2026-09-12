@@ -14,6 +14,7 @@
 # guard below) so the hook never logs the harness writing to its own ledger
 # as if it were a code change.
 set -u
+# shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
 
 payload=$(cat)

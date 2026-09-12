@@ -209,6 +209,7 @@ install_claude() {
     render "$SRC/templates/claude-code/command-iamlazy.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"
     compose_core "$SRC/core/iamlazy.md" \
       "$SRC/templates/claude-code/guarantees.md" "$SRC/templates/claude-code/gate.md"
+    # shellcheck disable=SC2016  # $ARGUMENTS is Claude Code's own placeholder, not ours
     printf '\n\n---\n\n**Request:** $ARGUMENTS\n'
   } | write_file "$CC_CMD_DIR/iamlazy.md"
   {
@@ -230,6 +231,7 @@ install_opencode() {
   } | write_file "$OC_AGENT_DIR/iamlazy.md"
   {
     render "$SRC/templates/opencode/command-iamlazy.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
+    # shellcheck disable=SC2016  # $ARGUMENTS is OpenCode's own placeholder, not ours
     printf '\n$ARGUMENTS\n'
   } | write_file "$OC_CMD_DIR/iamlazy.md"
   {
@@ -380,6 +382,7 @@ if [ "$DO_CHECK" -eq 1 ]; then
 fi
 
 # ---------- models ----------
+# shellcheck source=models.conf
 . "$SRC/models.conf"
 
 # ---------- pick tools ----------

@@ -29,6 +29,26 @@ jobs:
       - name: test suite
         run: ./test.sh
 
+  # Static checks, separate from the behavioural suite above: a script can pass
+  # every test and still be one untested branch away from a syntax error, or
+  # rely on a pattern that only works by accident (SC2295 was exactly that --
+  # a real bug in hk_rel_path, unquoted glob expansion, found by running
+  # shellcheck locally rather than by any test failing). `-x` follows sourced
+  # files (lib.sh, models.conf) so their own content is checked too, not just
+  # the `.` line. Everything left unflagged is either fixed or has an inline
+  # `# shellcheck disable=` directive naming why it is intentional.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n on every script this project ships
+        run: |
+          for f in hooks/*.sh install.sh uninstall.sh test.sh test-hooks.sh; do
+            bash -n "$f" || { echo "::error file=$f::fails to parse"; exit 1; }
+          done
+      - name: shellcheck, source-following, at style severity
+        run: shellcheck -x --shell=bash --severity=style hooks/*.sh install.sh uninstall.sh test.sh test-hooks.sh
+
   # PROJECT.md claims bash 3.2 compatibility (the macOS system shell). `env bash`
   # on a runner can resolve to a newer Homebrew bash, which would let a bashism
   # pass unnoticed. Force the system shell so the claim is actually tested.

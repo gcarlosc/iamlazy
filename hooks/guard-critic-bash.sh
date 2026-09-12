@@ -18,6 +18,7 @@
 # writing: `npm test` may create fixtures, and that is fine and intended. This
 # closes the discipline hole, not every path to disk.
 set -u
+# shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
 
 payload=$(cat)

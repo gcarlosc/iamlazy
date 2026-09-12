@@ -192,6 +192,7 @@ HOME="$H" "$SRC/install.sh" --tool=both >/dev/null 2>&1
 assert_grep "99.00" "$H/.iamlazy/prices.conf" "re-install does NOT clobber your edited price table"
 
 # Model projection: the placeholder must be gone and the configured id present.
+# shellcheck source=models.conf
 . "$SRC/models.conf"
 assert_no_grep "{{MAIN_MODEL}}"   "$H/.claude/commands/iamlazy.md" "no unsubstituted MAIN_MODEL"
 assert_no_grep "{{CRITIC_MODEL}}" "$H/.claude/agents/iamlazy-critic.md" "no unsubstituted CRITIC_MODEL"
@@ -353,8 +354,7 @@ if [ -x "$SRC/test-hooks.sh" ]; then
     # merged output down to `FAIL` lines was hiding the second half -- when
     # git refused to commit for want of an identity, CI reported six wrong
     # numbers and swallowed the `Author identity unknown` that explained them.
-    hookerr="$(LC_ALL="$loc" "$SRC/test-hooks.sh" 2>&1 >/dev/null)"
-    if [ "$?" -eq 0 ]; then
+    if hookerr="$(LC_ALL="$loc" "$SRC/test-hooks.sh" 2>&1 >/dev/null)"; then
       ok "test-hooks.sh passes under LC_ALL=$loc"
     else
       no "test-hooks.sh fails under LC_ALL=$loc"
@@ -375,8 +375,7 @@ echo "opencode adapter (delegating to bun test)"
 # the false green this suite exists to refuse.
 if command -v bun >/dev/null 2>&1; then
   ok "bun available: $(bun --version)"
-  adout="$(cd "$SRC" && bun test adapters/opencode/iamlazy.test.ts 2>&1)"
-  if [ "$?" -eq 0 ]; then
+  if adout="$(cd "$SRC" && bun test adapters/opencode/iamlazy.test.ts 2>&1)"; then
     ok "adapter translation suite passes ($(printf '%s\n' "$adout" | grep -Eo '[0-9]+ pass' | head -1))"
   else
     no "adapter translation suite fails (bun test)"

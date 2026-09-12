@@ -12,6 +12,7 @@
 # What it cannot cover is a killed process, which is what hk_sweep_stale in
 # open-run.sh is for. Two mechanisms because they fail differently.
 set -u
+# shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
 
 payload=$(cat)

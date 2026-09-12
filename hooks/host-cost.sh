@@ -20,6 +20,7 @@
 # reviewer's cost lands in the run's figure -- it was 14% of one measured run,
 # and invisible.
 set -u
+# shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
 
 payload=$(cat)

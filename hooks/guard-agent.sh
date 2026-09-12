@@ -19,6 +19,7 @@
 # The guard is per-SESSION (2026-09-05). It used to key off one global run file,
 # so an open run denied sub-agents in every other session on the machine.
 set -u
+# shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
 
 payload=$(cat)

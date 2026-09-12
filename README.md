@@ -270,8 +270,12 @@ was dead wherever the hooks really run while CI went green for weeks.
 
 CI runs it on every push across Linux and macOS, plus one job that invokes it through `/bin/bash`
 specifically — that is the bash 3.2 this project claims to support, and `env bash` on a runner
-can quietly resolve to a newer one. Locally, `git config core.hooksPath .githooks` installs a
-pre-push hook that refuses to push a red suite.
+can quietly resolve to a newer one. A separate `lint` job runs `bash -n` on every script and
+`shellcheck -x` at style severity — source-following, so `lib.sh` and `models.conf` get checked
+too, not just the line that sources them. Its first real run found a genuine bug (`hk_rel_path`
+silently failing on a project path with a glob character in it), which is the argument for keeping
+it at style severity rather than only the defaults. Locally, `git config core.hooksPath .githooks`
+installs a pre-push hook that refuses to push a red suite.
 
 What it does **not** cover: a live `/iamlazy` run. The contract, the gate and the review are still
 correct by construction of the prompt. Layer 0 closed part of that debt — a hook script reading JSON

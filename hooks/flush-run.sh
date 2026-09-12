@@ -14,6 +14,7 @@
 # place on disk for the model to leave them. This guarantees the LINE exists,
 # not that it is complete.
 set -u
+# shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
 
 payload=$(cat)
@@ -121,6 +122,7 @@ else
   [ -n "$run_cost" ] || unpriced=$(hk_unpriced_run "$tpath")
 
   # Raw components, as deltas, so the run can be repriced after a table fix.
+  # shellcheck disable=SC2046  # word splitting is the point: "N N N" into $1 $2 $3
   set -- $(hk_token_components "$tpath" 2>/dev/null)
   d_out=$(( ${1:-0} - $(hk_json_num "$TMP" "start_out"|| echo 0) ))
   d_cw=$((  ${2:-0} - $(hk_json_num "$TMP" "start_cw" || echo 0) ))

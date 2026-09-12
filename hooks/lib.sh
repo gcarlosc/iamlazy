@@ -339,6 +339,7 @@ hk_scope_violations() {
   for f in $changed; do
     ok=0
     for pat in $patterns; do
+      # shellcheck disable=SC2254  # $pat is meant to glob-match, not to be literal
       case "$f" in
         $pat) ok=1; break ;;
       esac
@@ -473,7 +474,13 @@ hk_journal_append() {
 # unchanged if it does not live under cwd.
 hk_rel_path() {
   case "$2" in
-    "$1"/*) printf '%s' "${2#$1/}" ;;
+    # $1 quoted INSIDE the expansion too, not just around it: a project path
+    # containing a glob character (`[`, `]`, `*`, `?` -- not exotic, a folder
+    # named "Client [Acme]" has one) would otherwise be read as a pattern by
+    # the `#` operator instead of a literal prefix, and the strip would
+    # silently fail -- found by shellcheck (SC2295), reproduced with such a
+    # path before trusting the fix.
+    "$1"/*) printf '%s' "${2#"$1"/}" ;;
     *) printf '%s' "$2" ;;
   esac
 }
