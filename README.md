@@ -16,6 +16,13 @@ It is deliberately **not** built for multi-hour sessions. A long run is a sympto
 the log took nearly two hours to produce 230 lines across 3 files, after seven different attempts —
 **24x worse per line** than a normal run. Making that visible, and stopping it, is the point.
 
+**One thread, and one writer.** The value is the chain — plan, diff, review — held over a *single*
+context; split it across delegated agents and each one re-derives what the last already knew. That
+is why no sub-agent but the reviewer may be spawned, and why it is a hook rather than a request. A
+delegated writer also hides its own cost: `runs.jsonl` accounts the main thread, so work handed off
+never reaches the number you would use to judge whether the harness is worth keeping. If a search
+feels too big for this thread, narrow it — do not hand it off.
+
 ### Two layers, and the difference matters
 
 The harness separates what it **guarantees** from what it **asks** — because five of its six old
@@ -24,7 +31,7 @@ The harness separates what it **guarantees** from what it **asks** — because f
 | Layer 0 — guaranteed | Layer 1 — asked |
 |---|---|
 | Hook scripts you cannot bypass | The prompt: judgement |
-| Only the reviewer may be spawned | How to analyse, what to ask |
+| Only the reviewer may be spawned, and spawning it asks first | How to analyse, what to ask |
 | Run identity, timing and the log line | How to write the contract |
 | Every edit traced automatically | Surgical edits, what the reviewer gets |
 | No close while a file sits outside the declared scope | Tone, order, conclusions first |
@@ -67,9 +74,11 @@ judgement.
 5. **Execution** — group by group, re-reading the contract from disk. A path outside the declared
    scope stops the work instead of being absorbed. **Two attempts, then stop:** a second attempt
    must declare what changes in the hypothesis; a third means the hypothesis is wrong.
-6. **Review** — always a **separate** read-only sub-agent, never a "reset" of the same thread. It
-   gets the contract and journal **as claims to be tested, not context to be trusted**, and
-   **derives its own diff** from paths — you do not get to choose what your auditor sees.
+6. **Review** — always a **separate** read-only sub-agent, never a "reset" of the same thread.
+   **Spawning it asks first:** approve it and the run cannot close before it returns; decline it
+   and the run closes without one, a declared deviation. It gets the contract and journal **as
+   claims to be tested, not context to be trusted**, and **derives its own diff** from paths —
+   you do not get to choose what your auditor sees.
 7. **Close** — the report, plus the proposed `PROJECT.md` update as a diff.
 
 **What the reviewer is for.** You can test whether the feature works. What you cannot see is *what
@@ -280,6 +289,13 @@ instrumentation — and the review also
 sweeps `DELTAS.md`'s triggers against your runs, reporting which ones fired, so the backlog
 tells you when it has evidence instead of waiting to be asked. If iamlazy does not clearly win,
 the right conclusion is to cut it down, not to defend it.
+
+**The same standard applies to the harness itself.** Every idea that sounded good and was not
+adopted lives in `DELTAS.md` behind a trigger — the condition, written in advance, under which it
+becomes worth re-opening. A fired trigger prompts an **evaluation, never an adoption**, and a
+trigger written against a field that no longer exists is retired rather than left looking unfired.
+It is the rule the two layers run on, pointed at the backlog: an idea does not get in by being
+important, it gets in by being checkable.
 
 ## Uninstall
 
