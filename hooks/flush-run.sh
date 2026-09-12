@@ -341,13 +341,13 @@ fi
 drift_fired=0
 grep -q '"drift_warned"' "$TMP" 2>/dev/null && drift_fired=1
 
-hk_log_append "$(printf '{"schema_version":7,"host":"%s","timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","models_seen":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","drift_thresholds":"%s","drift_fired":%s,"outcome":"flushed"}' \
+hk_log_append "$(printf '{"schema_version":8,"host":"%s","timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","models_seen":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","drift_thresholds":"%s","drift_fired":%s,"hooks_version":"%s","outcome":"flushed"}' \
   "$(hk_json_esc "$host")" "$now_iso" "$task_summary" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" \
   "$(hk_json_esc "$root")" "$(hk_json_esc "$base")" \
   "${duration:-null}" "$human_interventions" "${files_changed:-0}" "${lines_changed:-0}" \
   "$cost_field" "$(hk_json_esc "$unpriced")" "$(hk_json_esc "$models_seen")" "$d_out" "$d_cw" "$d_cr" \
   "$project_md" "$(hk_json_esc "$stage")" \
-  "$(hk_json_esc "$critic_findings")" "$signal" "$drift_thresholds" "$drift_fired")"
+  "$(hk_json_esc "$critic_findings")" "$signal" "$drift_thresholds" "$drift_fired" "$(hk_json_esc "$(hk_hooks_version)")")"
 
 hk_run_clear "$TMP"
 exit 0

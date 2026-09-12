@@ -519,6 +519,12 @@ hk_rel_path() {
 # hk_prices -> path of the price table.
 hk_prices() { printf '%s/prices.conf' "$HK_DIR"; }
 
+# hk_hooks_version -> the git SHA (or content fingerprint) install.sh stamped
+# at install time, or empty on an install that predates this field. Read
+# fresh every call rather than cached: a reinstall mid-session should be
+# reflected in the very next run it opens.
+hk_hooks_version() { cat "${HK_DIR}/hooks_version" 2>/dev/null; }
+
 # hk_cost_micro <transcript> [prices] -> cost in MICRO-dollars, or nothing when
 # a model in the transcript is missing from the price table.
 #
@@ -814,11 +820,11 @@ hk_flush_abandoned() {
   # tally when it priced its messages, the transcript delta otherwise.
   models=$(hk_kv "$(hk_cost_file "$f")" models)
   [ -n "$models" ] || models=$(hk_models_delta "$(hk_models_run "$tpath")" "$(hk_field_file "$f" "start_models")")
-  hk_log_append "$(printf '{"schema_version":7,"host":"%s","timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","models_seen":"%s","drift_fired":%s,"outcome":"abandoned"}' \
+  hk_log_append "$(printf '{"schema_version":8,"host":"%s","timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","models_seen":"%s","hooks_version":"%s","drift_fired":%s,"outcome":"abandoned"}' \
     "$(hk_json_esc "$host")" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$root")" \
-    "$dur" "$(hk_json_esc "$stage")" "$(hk_json_esc "$models")" "$fired")"
+    "$dur" "$(hk_json_esc "$stage")" "$(hk_json_esc "$models")" "$(hk_json_esc "$(hk_hooks_version)")" "$fired")"
   hk_run_clear "$f"
 }
 

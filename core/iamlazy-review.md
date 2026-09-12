@@ -24,7 +24,11 @@ Show the human the last runs of the harness in a readable form.
    and against which thresholds.** Its numbers rest on four runs from two projects, so that count
    is the evidence for keeping or moving them — and a run it fired on that turned out fine means
    the threshold is wrong, not the run. `7` adds `models_seen` — which models answered the run and
-   how many messages each one wrote, commonest first, the Critic's own included.
+   how many messages each one wrote, commonest first, the Critic's own included. `8` adds
+   `hooks_version` — the git SHA (or content fingerprint, on a `curl|bash` install with no `.git`)
+   of the enforcement code that wrote this line, stamped once at install time. Useful for exactly
+   one question: was this run before or after a given fix landed. Empty on any install that
+   predates this field — not a bug, that install simply never stamped one.
    **Report what each line actually has. Never carry a field across generations, and never infer a
    missing one** — a run that predates a field did not score badly on it, it simply has no value,
    and those are different facts. An `abandoned` line carries only the subset a run that never

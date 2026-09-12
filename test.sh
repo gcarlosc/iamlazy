@@ -183,6 +183,10 @@ if cmp -s "$H/.config/opencode/iamlazy-hooks/lib.sh" "$H/.claude/iamlazy-hooks/l
 else no "the two hook copies differ (lib.sh)"; fi
 assert_file "$H/.iamlazy/DELTAS.md"                 "DELTAS mirror created"
 assert_file "$H/.iamlazy/prices.conf"               "price table installed"
+assert_file "$H/.iamlazy/hooks_version"             "hooks_version stamped"
+if [ "$(cat "$H/.iamlazy/hooks_version" 2>/dev/null)" = "$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null)" ]; then
+  ok "hooks_version is this checkout's git SHA"
+else no "hooks_version does not match \`git rev-parse --short HEAD\`"; fi
 
 # prices.conf is CONFIG, not a generated mirror. The human edits it when rates
 # change, and an installer that overwrites that edit makes the cost figure
@@ -313,6 +317,7 @@ assert_absent "$H/.config/opencode/plugins/iamlazy.ts" "opencode plugin removed"
 if [ -d "$H/.config/opencode/iamlazy-hooks" ]; then no "opencode hook dir removed"
 else ok "opencode hook dir removed"; fi
 assert_absent "$H/.iamlazy/DELTAS.md"               "DELTAS mirror removed"
+assert_absent "$H/.iamlazy/hooks_version"           "hooks_version stamp removed"
 assert_grep "user data" "$H/.iamlazy/runs.jsonl"    "runs.jsonl preserved (invariant)"
 
 # Uninstall must refuse to remove a file that is not ours.

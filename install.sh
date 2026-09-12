@@ -470,6 +470,28 @@ if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_opencode" -eq 1 ]; then
 EOF
 fi
 
+# The version that WROTE a run's log line, not the version the repo currently
+# is: stamped once here, read back by flush-run.sh at every close. `--check`
+# already catches drift byte-for-byte, which is strictly more precise than a
+# version string could be -- this is for the question `--check` cannot answer,
+# which came up twice tonight: "was this weird run before or after the fix?"
+# Prefer the git SHA (a clone+run install, so $SRC/.git is real and the SHA
+# names an exact, inspectable commit); a curl|bash install has no .git, so
+# fall back to a content fingerprint (cksum, POSIX and on every platform this
+# project targets, unlike shasum/sha1sum's macOS-vs-Linux naming split) of
+# every file that enforces something -- the hooks AND the OpenCode adapter,
+# since both are Layer 0.
+if [ "$WITH_HOOKS" -eq 1 ]; then
+  mkdir -p "$LOG_DIR"
+  if [ -d "$SRC/.git" ] && command -v git >/dev/null 2>&1 \
+     && ver="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null)" && [ -n "$ver" ]; then
+    printf '%s\n' "$ver" > "$LOG_DIR/hooks_version"
+  else
+    cat "$SRC"/hooks/*.sh "$SRC/adapters/opencode/iamlazy.ts" 2>/dev/null \
+      | cksum | awk '{print $1}' > "$LOG_DIR/hooks_version"
+  fi
+fi
+
 echo
 echo "done."
 echo "  log dir:  $LOG_DIR"

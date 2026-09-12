@@ -117,7 +117,9 @@ The installer:
   on OpenCode,
 - projects `models.conf` into each file's frontmatter,
 - is **idempotent** (re-run any time) and **never clobbers** a file that isn't iamlazy's,
-- creates `~/.iamlazy/` for the run log.
+- creates `~/.iamlazy/` for the run log,
+- stamps `~/.iamlazy/hooks_version` (a git SHA, or a content fingerprint on a `curl|bash` install
+  with no `.git`) so every log line can say which version of the enforcement code wrote it.
 
 ## Use
 

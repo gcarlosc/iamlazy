@@ -16,10 +16,11 @@ A trigger written against a field that no longer exists is **unmeasurable**, not
 have been retired below rather than left to accumulate — 8 of 11 candidates were in that state on
 2026-09-05, which made the whole sweep noise.
 
-Fields a `[log]` trigger may use today (schema 7): `host`, `duration_seconds`,
+Fields a `[log]` trigger may use today (schema 8): `host`, `duration_seconds`,
 `human_interventions`, `files_changed`, `lines_changed`, `cost_usd`, `models_seen`,
-`tokens_output` / `tokens_cache_write` / `tokens_cache_read`, `project_md`, `stage_reached`,
-`critic_findings`, `close_detected_via`, `drift_thresholds`, `drift_fired`, `outcome`, `base_ref`.
+`hooks_version`, `tokens_output` / `tokens_cache_write` / `tokens_cache_read`, `project_md`,
+`stage_reached`, `critic_findings`, `close_detected_via`, `drift_thresholds`, `drift_fired`,
+`outcome`, `base_ref`.
 
 ---
 

@@ -859,7 +859,7 @@ open_run "$CBA" "$CBA" 30 s
 sed 's/}$/,"drift_warned":1}/' "$(runfile "$CBA" s)" > "$CBA/rf.tmp" && mv "$CBA/rf.tmp" "$(runfile "$CBA" s)"
 run_end "$CBA" '{"hook_event_name":"SessionEnd","session_id":"s","cwd":"'"$CBA"'"}'
 assert_grep '"drift_fired":1' "$CBA/.iamlazy/runs.jsonl" "una corrida abandonada recuerda que el breaker disparo"
-assert_grep '"schema_version":7' "$CBA/.iamlazy/runs.jsonl" "la linea abandonada declara el schema vigente"
+assert_grep '"schema_version":8' "$CBA/.iamlazy/runs.jsonl" "la linea abandonada declara el schema vigente"
 assert_grep '"tokens_output":947600' "$CB/.iamlazy/runs.jsonl" "los componentes crudos quedan para poder reprecificar"
 
 # Debajo del piso de lineas el ratio es ruido: el costo por linea SUBE cuanto
@@ -978,6 +978,42 @@ run_end "$MODA" '{"hook_event_name":"SessionEnd","session_id":"ab","cwd":"'"$MOD
 assert_grep '"models_seen":"claude-opus-5:1"' "$MODA/.iamlazy/runs.jsonl" \
   "la corrida abandonada tambien registra con que modelo se gasto"
 
+echo "guarantee 2 — hooks_version"
+
+# Stamped once by install.sh at ~/.iamlazy/hooks_version, read back at every
+# close: not what --check compares (that is byte-for-byte, strictly more
+# precise), but the question --check cannot answer -- which version of the
+# enforcement code produced THIS log line, for a run reviewed after a fix
+# landed.
+HV="$(mkrepo)"
+mkdir -p "$HV/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$HV/.iamlazy/contract.md"
+open_run "$HV" "$HV" 5
+set_base "$HV" "sid-x" "$HV"
+printf 'abc1234\n' > "$HV/.iamlazy/hooks_version"
+run_flush "$HV" "$(stop_payload "$HV" "$CLOSE_MSG")" >/dev/null
+assert_grep '"hooks_version":"abc1234"' "$HV/.iamlazy/runs.jsonl" \
+  "el cierre estampa la version de los hooks que lo escribieron"
+
+HVA="$(mkrepo)"
+mkdir -p "$HVA/.iamlazy"
+open_run "$HVA" "$HVA" 5
+printf 'def5678\n' > "$HVA/.iamlazy/hooks_version"
+run_end "$HVA" '{"hook_event_name":"SessionEnd","session_id":"sid-x","cwd":"'"$HVA"'"}'
+assert_grep '"hooks_version":"def5678"' "$HVA/.iamlazy/runs.jsonl" \
+  "la corrida abandonada tambien estampa la version de los hooks"
+
+# Un install anterior a este campo no dejo el archivo: vacio, no un valor
+# inventado.
+HVN="$(mkrepo)"
+mkdir -p "$HVN/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$HVN/.iamlazy/contract.md"
+open_run "$HVN" "$HVN" 5
+set_base "$HVN" "sid-x" "$HVN"
+run_flush "$HVN" "$(stop_payload "$HVN" "$CLOSE_MSG")" >/dev/null
+assert_grep '"hooks_version":""' "$HVN/.iamlazy/runs.jsonl" \
+  "sin archivo hooks_version, el campo queda vacio, no inventado"
+
 echo "guarantee 2 — derived semantic fields"
 
 SEM="$(mkrepo)"
@@ -998,7 +1034,7 @@ run_flush "$SEM" "$(stop_payload "$SEM" "$CLOSE_MSG" s "$SEMT/t.jsonl")" >/dev/n
 assert_grep '"task_summary":"Add rate limiting to the \\"login\\" endpoint"' "$SEM/.iamlazy/runs.jsonl" \
   "task_summary derivado del contrato, con las comillas ESCAPADAS (no borradas)"
 assert_grep '"project_md":"updated"' "$SEM/.iamlazy/runs.jsonl" "project_md derivado del diff"
-assert_grep '"schema_version":7' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
+assert_grep '"schema_version":8' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
 assert_grep '"cost_usd":0.5000' "$SEM/.iamlazy/runs.jsonl" "cost_usd derivado del transcript y la tabla de precios"
 assert_grep '"close_detected_via":"contract"' "$SEM/.iamlazy/runs.jsonl" \
   "PROJECT.md modificado no bloquea el cierre (es parte del cierre)"
