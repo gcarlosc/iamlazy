@@ -190,6 +190,40 @@ Trigger `[log]`: 2+ runs whose `models_seen` names a model the close banner did 
 where the banner claims to be derived. Now checkable; it was not before.
 Status: 1 recorded (session `7f32cddc`, both of its close banners).
 
+## Candidate 18 — OpenCode's Layer 0 goes inert the moment a human answers in a new process
+(origin: 2026-09-11, real end-to-end `opencode run`)
+
+Idea: detect and refuse to silently continue a `/iamlazy` conversation once its run tracking is
+gone, instead of letting the rest of the conversation proceed on prose alone.
+
+What was found: `command.execute.before` opens the run correctly (`open-run.sh` logged
+`stage_reached:"ANALYSIS"`), but the CLI process exit that follows — the ordinary shape of
+`opencode run`'s own `--continue` workflow, not a crash — fires `session.deleted`, which
+`end-run.sh` treats as an ordinary exit and flushes the run as `abandoned`. The human's reply then
+arrives in a **new process**, with no active run file. Everything after that point — writing the
+contract, editing files, spawning `iamlazy-critic` as a real, correctly-modeled sub-agent, closing
+— ran with zero Layer 0 enforcement. It was all correct in this run because the model happened to
+follow the prose correctly; nothing structural would have caught it if it had not.
+
+This is the same failure class as the very first `guard-agent.sh` gap this backlog's Candidate
+list has already fixed once (a fabricated "the human declined" close) and once more since (the
+`AskUserQuestion` channel) — Layer 0 silently not being there, rather than Layer 0 refusing
+something. The difference is the cause: not a prompt choosing a different channel, but the host's
+own process lifecycle.
+
+Two things this needs before a fix is designed, not after: (1) whether the interactive TUI shares
+this (a long-lived process might never fire `session.deleted` between ordinary turns — unconfirmed,
+no PTY access to test it from here); (2) if it does, whether `chat.message` reopening a run when a
+reply continues an agent that was mid-`/iamlazy` is enough, or whether the fix has to live in
+`hk_guard` refusing to proceed silently when a session that WAS tracked no longer is.
+Trigger `[human]`: reported as a real interactive-TUI session losing its run mid-conversation —
+would confirm this is not a `opencode run`-only artifact.
+Trigger `[log]`: an OpenCode run in `runs.jsonl` whose `outcome` is `abandoned` at an early
+`stage_reached` while its own transcript/session shows work continuing past that point — not
+directly checkable from `runs.jsonl` alone today, since the abandoned line carries no pointer to
+what came after it.
+Status: 1 recorded (the run above, `opencode run --continue`, never in the interactive TUI).
+
 ---
 
 ## Rejected — lower the auto-compact window (evaluated 2026-08-22)

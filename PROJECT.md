@@ -174,16 +174,25 @@ justification; an undeclared deviation is an automatic reviewer finding.
 - **The Critic's Bash guard reads the command string, not the process.** It stops the shell from
   writing; it does not stop a program the Critic legitimately runs — `npm test` may create
   fixtures, and that is intended. The discipline hole is closed, the hermetic seal is not.
-- **OpenCode's Layer 0 is tested against the real hooks and unexercised in production.** Every
-  export of the plugin must be a **function**: OpenCode calls each one, refuses the whole module
-  otherwise, and says so only in `~/.local/share/opencode/log/opencode.log` — `opencode debug
-  info` keeps listing the plugin either way, because it lists what it discovered, not what
-  loaded. That log is where to look, and a run that leaves no line in `runs.jsonl` is where to
-  look first. What no run has shown yet is whether `command.execute.before` fires for markdown
-  commands, whether a `throw` shows its reason to the model, and whether the gate's block fed
-  back through `session.promptAsync` makes it continue. A Critic spawned in the **background**
-  returns before it has reviewed and is not counted as a review; the prompt asks for the
-  foreground. The artifact lists each one with its fallback.
+- **A real end-to-end OpenCode run (2026-09-11, `opencode run`, disposable repo) confirmed one
+  question and raised a more serious one.** `command.execute.before` does fire for `/iamlazy`:
+  `open-run.sh` ran, logged `stage_reached:"ANALYSIS"`. But between that turn and the human's
+  reply approving the contract, the CLI's one-shot process exit fired `session.deleted` —
+  `end-run.sh` flushed the run as `abandoned` before a human ever answered. The reply that
+  followed (`--continue`, in a NEW process) wrote the contract, edited both files, ran the tests,
+  correctly spawned `iamlazy-critic` as a real sub-agent (right model, right session, its own
+  re-verification) and closed — all of it true on its own merits, and **all of it with zero Layer
+  0 tracking active**: no run file existed, so the scope gate, the Critic guard and the close
+  signal were never consulted. Had the diff strayed out of scope, or the Critic call been faked,
+  nothing would have caught it. This is unconfirmed for the interactive TUI (a long-lived process
+  might never fire `session.deleted` between ordinary turns) — what is confirmed is that
+  `opencode run`'s documented `--continue` workflow, which is exactly how a script or a second
+  CLI invocation resumes a conversation, silently degrades every OpenCode guarantee back to prose
+  the moment a human answer arrives in a separate process. See DELTAS Candidate 18.
+  Still unconfirmed, for a different reason now (nothing ever got far enough to trigger either):
+  whether a `throw` shows its reason to the model, and whether the gate's block fed back through
+  `session.promptAsync` makes it continue. A Critic spawned in the **background** returns before
+  it has reviewed and is not counted as a review; the prompt asks for the foreground.
 - **`curl | bash` requires `IAMLAZY_RAW_BASE`**; offline is clone+run.
 
 Why the design is what it is: `docs/decisions-2026-09.md` (the unchecked suppositions, the gate's

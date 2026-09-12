@@ -430,3 +430,40 @@ in the audit), then `shellcheck -x --severity=style` for source-following, and a
 the gate — zero tolerance, because reintroducing style-level severity here is what turned up the
 real bug in the first place. Not run on the bash 3.2 matrix: shellcheck reasons about a script
 independent of which interpreter later runs it.
+
+## The real OpenCode run S1 needed found something bigger than S1
+
+`PROJECT.md`'s debt named three unconfirmed things about OpenCode's Layer 0: whether
+`command.execute.before` fires for markdown commands, whether a `throw` reaches the model with its
+reason, and whether the gate's block via `session.promptAsync` makes the model continue. Getting a
+real answer meant a real end-to-end run — `opencode run` against a disposable repo, `--continue`
+to answer the contract question, `--format json` to see the raw event stream rather than trust the
+rendered text.
+
+The first question got a clean answer: `command.execute.before` fires, `open-run.sh` ran,
+`stage_reached:"ANALYSIS"` landed in the log. The other two never got tested, because between that
+turn and the reply approving the contract, `opencode run`'s own process exited — the ordinary shape
+of its `--continue` workflow, not a crash — and fired `session.deleted`. `end-run.sh` treats that as
+an ordinary exit (its own comment says so: "clear, resume, logout, prompt_input_exit") and flushed
+the run as `abandoned`. The reply then arrived in a NEW process, with no run file left to guard
+anything.
+
+What followed looked completely correct: the model wrote `.iamlazy/contract.md`, edited both files
+in scope, ran the tests, spawned `iamlazy-critic` as a genuine separate sub-agent — right
+`subagent_type`, right session (`parentID` pointing at the parent), right model
+(`opencode-go/deepseek-v4-pro`, exactly `OC_CRITIC_MODEL`), a real independent re-verification
+(it re-ran `./test.sh` itself rather than trusting the diff) — and closed, reporting the Critic's
+approval. Every word of that report was true. None of it was checked by Layer 0: no active run
+file existed for any of it, so the scope gate, the Critic guard and the close signal were never
+consulted. `runs.jsonl` shows exactly this: one line, `outcome:"abandoned"`, `stage_reached:
+"ANALYSIS"`, `models_seen` naming only the builder's 7 messages before the contract — the entire
+correct second half, Critic included, left no trace.
+
+This is the same shape of gap the `critic_asked` fix closed twice already — Layer 0 not being
+there, rather than Layer 0 refusing something — except the cause this time is not a prompt
+choosing a different channel, it is the host's own process lifecycle. Recorded as DELTAS Candidate
+18 rather than fixed on the spot: the open question that has to be answered first is whether the
+interactive TUI (a long-lived process, not a one-shot CLI call) shares this at all, since a
+`session.deleted` between ordinary turns would be a much stranger thing for a continuously-running
+process to fire than for a CLI command to fire on exit. No PTY access from here to test the TUI
+directly, so that stays an open question, not a diagnosis.
