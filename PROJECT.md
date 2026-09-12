@@ -144,22 +144,24 @@ justification; an undeclared deviation is an automatic reviewer finding.
   is now `cost_usd`: model-aware, Critic included, `null` rather than partial when a model is
   missing from `prices.conf`, with raw token components kept so a run can be repriced from the
   record. History and calibration: `docs/measurement-history.md`.
-- **Some channels are documented, not observed — on Claude Code.** `Stop`'s
-  `{"decision":"block","reason":…}` and `SubagentStop` carrying the parent `session_id`. Both are
-  now observed on OpenCode, where the adapter reads that JSON itself; that says nothing about
-  whether Claude Code honours it. The breaker and the scope gate emit every
+- **`SubagentStop`'s parent `session_id` is documented, not observed — on Claude Code.** `Stop`'s
+  `{"decision":"block","reason":…}` is now confirmed on both hosts: a live run (2026-09-11,
+  `iamlazy-smoke`, session `7f32cddc`) hit the block, read the reason in its own transcript, and
+  acted on it — reverted an out-of-scope file, re-invoked the Critic for real. `SubagentStop`
+  itself is still only observed on OpenCode, where the adapter reads that JSON directly; that says
+  nothing about whether Claude Code honours it. The breaker and the scope gate emit every
   documented channel at once (decision, `systemMessage`, stderr, exit 2) so one of them lands; if
   `SubagentStop` is wrong the close falls back to the CLOSE banner — degraded accuracy, never a
   stuck run — but `critic_done` and `critic_findings` stay silently empty. Confirmed by contrast:
   `PreToolUse`'s `permissionDecisionReason` reaches the model, which read a denial and adapted.
-- **Spawning the Critic asks, on Claude Code — the UI behaviour is documented, not observed.**
-  `permissionDecision: "ask"` is confirmed against the installed hooks schema, not against a
-  real prompt yet: verify the reason text actually reaches the human before trusting it. A real
-  run never got that far — the model closed claiming a decline while never once calling the
-  tool, which `guard-agent.sh` now proves against (`critic_asked`, see the invariant above) —
-  but the ask prompt itself is still unconfirmed live. On OpenCode the same hook output degrades
-  to an allow — its adapter only recognises `deny`, so the Critic still always runs there,
-  unchanged.
+- **Spawning the Critic asks, on Claude Code — now confirmed live.** A real run (2026-09-11,
+  `iamlazy-smoke`, session `7f32cddc`) hit the native permission prompt with the hook's reason
+  text rendered, the human declined it for real, and `critic_asked` recorded the attempt — so the
+  close that followed cited an honest decline instead of a fabricated one. The earlier gap this
+  closed: the same run's model first tried to fake the decline through `AskUserQuestion`, a tool
+  `guard-agent.sh` never sees, and got blocked until it went through the real tool. On OpenCode the
+  same hook output degrades to an allow — its adapter only recognises `deny`, so the Critic still
+  always runs there, unchanged.
 - **The breaker's floors carry more weight than its ratio**, and $0.08/line rests on four runs from
   two projects. If it fires on a run that was fine, the threshold is wrong, not the run. Thresholds
   are hardcoded in `flush-run.sh`; only prices live in config.
