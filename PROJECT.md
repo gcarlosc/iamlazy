@@ -15,11 +15,12 @@ stopping it is the point.
 ## Stack and conventions
 
 - **Pure bash + files.** Zero external deps (no MCP, no npm/pip/**no jq**). `curl` only for the
-  `curl | bash` path; `python3` only inside the installer, to merge settings JSON. **One declared
-  exception:** `adapters/opencode/iamlazy.ts`, the OpenCode plugin. It translates OpenCode's
+  `curl | bash` path; `python3` only inside the installer, to merge settings JSON. **Declared
+  exceptions:** `adapters/opencode/iamlazy.ts`, the OpenCode V1 plugin. It translates OpenCode's
   events into the hooks' payloads and decides nothing — a test greps it for harness logic. Its
   only import is a type, erased by OpenCode's own Bun; Bun is required to run its tests, never
-  at runtime.
+  at runtime. `adapters/opencode-v2/iamlazy.ts` is a second, not-yet-committed exception with a
+  REAL npm dependency (`@opencode/plugin`, build-time only) — see the debt bullet below.
 - **bash 3.2 compatible** (macOS default): no `declare -A`, POSIX sh probes, no globs in `[ -f ]`.
   Enforced by CI, which runs `test.sh` under `/bin/bash` on macOS.
 - **Prompts are markdown, one source.** `core/` + `critic/`, with `{{GUARANTEES}}` and `{{GATE}}`
@@ -44,8 +45,8 @@ by the plugin, which is the registration there:
 | `guard-critic-bash.sh` | `PreToolUse` `^Bash$` | inside the Critic, Bash cannot write: redirections, file commands, in-place edits, git mutations, installs |
 | `track-edit.sh` | `PostToolUse` on edit tools | every edit appended to `.iamlazy/journal.md`; the contract's location fixes `project_root` and `base_ref` |
 | `host-cost.sh` | OpenCode only, per completed message | a host that prices its own messages hands the figure over, with the model that wrote it; accumulated into the run's cost sidecar, never re-priced |
-| `flush-run.sh` | `Stop` | the log line is written, derived, never self-reported; **the scope gate speaks**; **circuit breaker** on dollars per changed line |
-| `end-run.sh` | `SessionEnd` | a run that ends without closing is logged as `abandoned`, not lost |
+| `flush-run.sh` | `Stop` | the log line is written **exactly once**, derived, never self-reported; **the scope gate speaks**; **circuit breaker** on dollars per changed line |
+| `end-run.sh` | `SessionEnd` | a run that ends without closing is logged as `abandoned`, not lost — **exactly once**, same claim as a real close |
 | `subagent-done.sh` | `SubagentStop` | the review actually returned, and its `findings: H/M/L/I` tally |
 
 **Layer 1 — asked** (`core/iamlazy.md`, ≤200 lines). Judgement: analysis, questions, the contract,
@@ -193,6 +194,28 @@ justification; an undeclared deviation is an automatic reviewer finding.
   whether a `throw` shows its reason to the model, and whether the gate's block fed back through
   `session.promptAsync` makes it continue. A Critic spawned in the **background** returns before
   it has reviewed and is not counted as a review; the prompt asks for the foreground.
+- **A separate OpenCode V2 adapter exists at `adapters/opencode-v2/iamlazy.ts`**, targeting the
+  native `@opencode/plugin` API (v2.0.x) rather than V1's `@opencode-ai/plugin`. Unlike V1's
+  adapter, it has a real runtime dependency and must be bundled (`build.sh`, `bun build
+  --target=bun`) before a V2 daemon can load it — a loose, unbundled file fails with `Cannot find
+  package '@opencode/plugin'` even with the package correctly installed nearby, because the
+  compiled daemon does not perform normal module resolution for a dynamically-loaded local plugin.
+  Built, mutation-tested, and validated live end-to-end (contract → edits → a real two-cycle
+  Critic review → automatic close) against a real v2.0.1 daemon; see its own `README.md` and
+  `docs/decisions-2026-09.md`. `install.sh --tool=opencode-v2` installs it (builds from a real
+  checkout, refuses cleanly under `curl|bash` or without `bun`); `--check` and `uninstall.sh`
+  know its shape too. It is never auto-selected -- `--tool=opencode` still means V1, and `auto`
+  never picks V2 -- which is what keeps this the same "candidate, not committed" status as
+  Candidate 18 above, deliberately, rather than a side effect of wiring it in. Its
+  `@opencode/plugin` dependency (build-time only, never at runtime) is a second declared exception
+  to the "zero external deps" rule below, on top of V1's type-only one. `test.sh` now covers the
+  installer's V2 path (a real install + build, byte-for-byte switching between V1/V2 leaves no
+  stale shape, `--check`/`uninstall.sh` on it) -- bun is a hard requirement there already, same as
+  V1's own adapter test. What is NOT wired in yet is the adapter's own 6-test `bun test` suite
+  (`adapters/opencode-v2/`, distinct from the installer test): running it by default would add a
+  real network `bun install` the FIRST time a checkout builds it, which `test.sh`'s installer
+  coverage above already pays once bun+a real checkout are present -- whether to also gate CI on
+  the adapter's own suite is a separate, still-open decision.
 - **`curl | bash` requires `IAMLAZY_RAW_BASE`**; offline is clone+run.
 
 Why the design is what it is: `docs/decisions-2026-09.md` (the unchecked suppositions, the gate's

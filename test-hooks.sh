@@ -419,6 +419,47 @@ assert_absent "$LEG/.iamlazy/run.tmp.json" "el run.tmp.json del layout viejo se 
 assert_grep 'legacy-sid' "$LEG/.iamlazy/runs.jsonl" "la corrida del layout viejo queda registrada"
 
 echo
+echo "un cierre no se cuenta dos veces — el mismo run, invocado concurrentemente"
+
+# Reproduce el bug real: un run de OpenCode V2 quedo logueado TRES veces,
+# byte-identico, porque el daemon instancia el plugin mas de una vez y cada
+# instancia vio el mismo evento terminal. flush-run.sh pasaba hk_guard,
+# calculaba el mismo cierre y appendeaba su propia linea, todas antes de que
+# cualquiera borrara el archivo del run. hk_claim_close cierra esa ventana con
+# `>` bajo noclobber (O_EXCL), atomico sin libreria de locks.
+CONC="$(mkrepo)"
+mkdir -p "$CONC/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$CONC/.iamlazy/contract.md"
+open_run "$CONC" "$CONC" 5
+set_base "$CONC" "sid-x" "$CONC"
+CONC_PAYLOAD="$(stop_payload "$CONC" "$CLOSE_MSG")"
+for _ in 1 2 3 4 5 6; do
+  run_flush "$CONC" "$CONC_PAYLOAD" >/dev/null &
+done
+wait
+n=$(grep -c '"session_id":"sid-x"' "$CONC/.iamlazy/runs.jsonl" 2>/dev/null)
+if [ "${n:-0}" = "1" ]; then ok "seis flush-run.sh concurrentes sobre el mismo cierre -> una sola linea"
+else no "seis invocaciones concurrentes escribieron $n lineas, no 1"; fi
+assert_absent "$(runfile "$CONC" sid-x)" "y el archivo del run quedo limpio, no huerfano"
+rf="$(runfile "$CONC" sid-x)"
+assert_absent "${rf%.json}.closing" "la marca de claim se limpia junto con el resto"
+
+# El mismo defecto, en el OTRO lugar que hace log_append + run_clear: una
+# corrida vieja, barrida por varios /iamlazy concurrentes en sesiones
+# distintas (hk_sweep_stale recorre TODOS los archivos activos en cada uno).
+CONCSTALE="$(mktmp)"
+mkdir -p "$CONCSTALE/.iamlazy/active"
+printf '{"schema_version":8,"session_id":"vieja-conc","transcript_path":"/x.jsonl","cwd":"%s","start_epoch":%s,"outcome":"incomplete"}' \
+  "$CONCSTALE" "$(($(date +%s)-90000))" > "$(runfile "$CONCSTALE" vieja-conc)"
+for i in 1 2 3 4 5 6; do
+  run_open "$CONCSTALE" '{"hook_event_name":"UserPromptSubmit","session_id":"otra-'"$i"'","transcript_path":"/z.jsonl","cwd":"'"$CONCSTALE"'","prompt":"hola"}' >/dev/null &
+done
+wait
+n=$(grep -c '"session_id":"vieja-conc"' "$CONCSTALE/.iamlazy/runs.jsonl" 2>/dev/null)
+if [ "${n:-0}" = "1" ]; then ok "seis barridos concurrentes sobre la misma corrida vieja -> una sola linea abandoned"
+else no "seis barridos concurrentes escribieron $n lineas, no 1"; fi
+
+echo
 echo "guarantee 2 — the log exists (mechanical skeleton)"
 
 MID_DIR="$(mktmp)"

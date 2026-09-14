@@ -53,6 +53,30 @@ c_same() {
   else c_bad "$3: installed copy differs from this repo"; fi
 }
 
+# c_load_failure <plugin file> -- shared by both OpenCode adapter shapes. A
+# load failure only matters if it happened to the bytes installed NOW: the
+# log keeps every past one forever, and reporting those would make this check
+# cry wolf about a bug already fixed -- a guarantee firing outside its domain
+# is a defect, this project's own rule. ISO-8601 UTC strings compare
+# correctly as strings, so the whole thing is one lexicographic comparison
+# against the plugin file's own mtime.
+c_load_failure() {
+  oc_log="$HOME/.local/share/opencode/log/opencode.log"
+  last_fail="$(grep 'failed to load plugin.*iamlazy' "$oc_log" 2>/dev/null | tail -1 \
+               | sed -n 's/^timestamp=\([^ ]*\).*/\1/p')"
+  if [ -z "$last_fail" ]; then
+    c_ok "opencode has never failed to load the plugin"
+    return 0
+  fi
+  mtime="$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null)"
+  installed_at="$(date -u -r "$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
+  if [ -n "$installed_at" ] && awk -v a="$last_fail" -v b="$installed_at" 'BEGIN{exit !(a>b)}'; then
+    c_bad "opencode failed to load the plugin at $last_fail, AFTER these bytes were installed"
+  else
+    c_ok "no plugin load failure since this adapter was installed (last was $last_fail)"
+  fi
+}
+
 run_check() {
   echo "iamlazy check  (repo: $SRC)"
 
@@ -83,31 +107,38 @@ run_check() {
     for h in "$SRC"/hooks/*.sh; do
       c_same "$h" "$OC_HOOK_DIR/$(basename "$h")" "hook up to date: $(basename "$h")"
     done
-    c_same "$SRC/adapters/opencode/iamlazy.ts" "$OC_PLUGIN_DIR/iamlazy.ts" "adapter up to date"
-    # The adapter is the registration on this host, and OpenCode refuses a module
-    # whose exports are not all functions -- silently, into its own log.
-    if [ -f "$OC_PLUGIN_DIR/iamlazy.ts" ] && grep -qE '^export (const|let|var) [A-Za-z_]+ *(:[^=]*)?= *["`0-9]' "$OC_PLUGIN_DIR/iamlazy.ts"; then
-      c_bad "adapter exports a non-function: OpenCode will refuse the whole plugin"
-    else c_ok "adapter exports look like functions"; fi
-    # A load failure only matters if it happened to the bytes installed NOW.
-    # The log keeps every past one forever, and reporting those would make this
-    # check cry wolf about a bug that was already fixed -- a guarantee that
-    # fires outside its domain is a defect, which is this project's own rule.
-    # ISO-8601 UTC strings compare correctly as strings, so the whole thing is
-    # one lexicographic comparison against the plugin's own mtime.
-    oc_log="$HOME/.local/share/opencode/log/opencode.log"
-    last_fail="$(grep 'failed to load plugin.*iamlazy' "$oc_log" 2>/dev/null | tail -1 \
-                 | sed -n 's/^timestamp=\([^ ]*\).*/\1/p')"
-    if [ -z "$last_fail" ]; then
-      c_ok "opencode has never failed to load the plugin"
+    # Two adapter shapes can be installed here: V1's loose, dependency-free
+    # iamlazy.ts, or V2's bundled iamlazy.js (adapters/opencode-v2/). They are
+    # mutually exclusive on purpose -- the daemon must never find both -- so
+    # disk state, not a remembered install choice, decides which checks run.
+    if [ -f "$OC_PLUGIN_DIR/iamlazy.js" ]; then
+      # V2's deployed file is a bundle: comparing it byte-for-byte against the
+      # source would mean rebuilding here, which needs bun and a network
+      # `bun install` -- this check stays read-only and cheap, so it verifies
+      # the invariants a bad V2 install actually broke in production instead.
+      if grep -q "$MARKER" "$OC_PLUGIN_DIR/iamlazy.js" 2>/dev/null; then
+        c_ok "V2 adapter installed by this installer"
+      else c_bad "V2 adapter present but not ours: $OC_PLUGIN_DIR/iamlazy.js"; fi
+      if grep -q '"@opencode/plugin"' "$OC_PLUGIN_DIR/iamlazy.js" 2>/dev/null; then
+        c_bad "V2 adapter still imports @opencode/plugin: it was not bundled, and the daemon cannot load it"
+      else c_ok "V2 adapter looks bundled (no unresolved @opencode/plugin import)"; fi
+      if [ -f "$OC_PLUGIN_DIR/iamlazy.ts" ] || [ -d "$OC_PLUGIN_DIR/iamlazy" ]; then
+        c_bad "stale V1 adapter shape alongside V2 ($OC_PLUGIN_DIR/iamlazy.ts or iamlazy/): the daemon will try to load both"
+      else c_ok "no stale V1 adapter shape alongside V2"; fi
+      if [ -f "$OC_CMD_DIR/iamlazy.md" ]; then
+        c_bad "commands/iamlazy.md present: duplicates the /iamlazy command V2's plugin registers itself"
+      else c_ok "no duplicate commands/iamlazy.md (V2 registers /iamlazy itself)"; fi
+      c_load_failure "$OC_PLUGIN_DIR/iamlazy.js"
+    elif [ -f "$OC_PLUGIN_DIR/iamlazy.ts" ]; then
+      c_same "$SRC/adapters/opencode/iamlazy.ts" "$OC_PLUGIN_DIR/iamlazy.ts" "adapter up to date"
+      # The adapter is the registration on this host, and OpenCode refuses a
+      # module whose exports are not all functions -- silently, into its own log.
+      if grep -qE '^export (const|let|var) [A-Za-z_]+ *(:[^=]*)?= *["`0-9]' "$OC_PLUGIN_DIR/iamlazy.ts"; then
+        c_bad "adapter exports a non-function: OpenCode will refuse the whole plugin"
+      else c_ok "adapter exports look like functions"; fi
+      c_load_failure "$OC_PLUGIN_DIR/iamlazy.ts"
     else
-      mtime="$(stat -f %m "$OC_PLUGIN_DIR/iamlazy.ts" 2>/dev/null || stat -c %Y "$OC_PLUGIN_DIR/iamlazy.ts" 2>/dev/null)"
-      installed_at="$(date -u -r "$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
-      if [ -n "$installed_at" ] && awk -v a="$last_fail" -v b="$installed_at" 'BEGIN{exit !(a>b)}'; then
-        c_bad "opencode failed to load the plugin at $last_fail, AFTER these bytes were installed"
-      else
-        c_ok "no plugin load failure since this adapter was installed (last was $last_fail)"
-      fi
+      c_bad "opencode hooks installed but no adapter found (neither iamlazy.ts nor iamlazy.js in $OC_PLUGIN_DIR)"
     fi
   else
     c_skip "opencode: no hook directory, nothing installed"
@@ -138,14 +169,19 @@ run_check() {
 usage() {
   cat <<'EOF'
 iamlazy installer
-  usage: install.sh [--tool=claude|opencode|both] [--model=<id>] [--no-hooks]
+  usage: install.sh [--tool=claude|opencode|opencode-v2|both] [--model=<id>] [--no-hooks]
          install.sh --check
   --check compares what is INSTALLED against this repo and reports drift,
     without changing anything. Exits non-zero when something is off.
-  Auto-detects installed tools when --tool is omitted.
+  Auto-detects installed tools when --tool is omitted -- EXCEPT opencode-v2,
+    which is never auto-selected. It targets OpenCode's native v2.0.x plugin
+    API (a candidate host, not a committed one -- see PROJECT.md) and needs a
+    cloned checkout plus bun to build its adapter; it always requires this
+    exact flag. `--tool=opencode` keeps meaning OpenCode V1.
   --model=<id> sets BOTH roles (main + critic) for a single tool, persists the
-    choice to models.conf, and reinstalls. Requires a single --tool (claude or
-    opencode) because their model-id namespaces differ.
+    choice to models.conf, and reinstalls. Requires a single --tool (claude,
+    opencode or opencode-v2) because model-id namespaces differ per tool, not
+    per adapter version -- opencode-v2 shares OpenCode's.
   Layer 0 hooks are installed and registered BY DEFAULT. On Claude Code they
     are registered in settings.json; on OpenCode a plugin translates its events
     into the same hooks. They are what makes the harness's guarantees actual
@@ -155,6 +191,9 @@ iamlazy installer
   --no-hooks skips them. The harness still runs, but every guarantee degrades
     back to prose -- which is the failure mode Layer 0 exists to remove.
   For curl|bash installs, set IAMLAZY_RAW_BASE to the raw file base URL.
+    opencode-v2 refuses under curl|bash: its adapter has a real npm dependency
+    that has to be bundled from a real checkout, and there is nothing to
+    build it with here. Clone the repo instead.
 EOF
 }
 
@@ -222,26 +261,49 @@ install_claude() {
   } | write_file "$CC_AGENT_DIR/iamlazy-critic.md"
 }
 
-install_opencode() {
-  mkdir -p "$OC_CMD_DIR" "$OC_AGENT_DIR"
+# Shared by both OpenCode adapter versions: the agent prompts (Layer 1 body +
+# the Critic) are the same regardless of which plugin API registers them --
+# confirmed live, a real V2 run used the "iamlazy" agent and its Critic ran on
+# the pinned OC_CRITIC_MODEL exactly like V1.
+install_opencode_agents() {
+  mkdir -p "$OC_AGENT_DIR"
   {
     render "$SRC/templates/opencode/primary-iamlazy.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
     compose_core "$SRC/core/iamlazy.md" \
       "$SRC/templates/opencode/guarantees.md" "$SRC/templates/opencode/gate.md"
   } | write_file "$OC_AGENT_DIR/iamlazy.md"
   {
-    render "$SRC/templates/opencode/command-iamlazy.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
-    # shellcheck disable=SC2016  # $ARGUMENTS is OpenCode's own placeholder, not ours
-    printf '\n$ARGUMENTS\n'
-  } | write_file "$OC_CMD_DIR/iamlazy.md"
+    render "$SRC/templates/opencode/subagent-critic.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
+    cat "$SRC/critic/iamlazy-critic.md"
+  } | write_file "$OC_AGENT_DIR/iamlazy-critic.md"
+}
+
+# /iamlazy-review is a plain command on both versions -- neither plugin
+# registers it itself, unlike /iamlazy on V2.
+install_opencode_review_command() {
+  mkdir -p "$OC_CMD_DIR"
   {
     render "$SRC/templates/opencode/command-review.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
     cat "$SRC/core/iamlazy-review.md"
   } | write_file "$OC_CMD_DIR/iamlazy-review.md"
+}
+
+install_opencode() {
+  install_opencode_agents
+  mkdir -p "$OC_CMD_DIR"
   {
-    render "$SRC/templates/opencode/subagent-critic.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
-    cat "$SRC/critic/iamlazy-critic.md"
-  } | write_file "$OC_AGENT_DIR/iamlazy-critic.md"
+    render "$SRC/templates/opencode/command-iamlazy.frontmatter" "$OC_MAIN_MODEL" "$OC_CRITIC_MODEL"
+    # shellcheck disable=SC2016  # $ARGUMENTS is OpenCode's own placeholder, not ours
+    printf '\n$ARGUMENTS\n'
+  } | write_file "$OC_CMD_DIR/iamlazy.md"
+  install_opencode_review_command
+}
+
+# V2's plugin registers /iamlazy itself (ctx.command.transform); a static
+# commands/iamlazy.md here would duplicate it. See adapters/opencode-v2/README.md.
+install_opencode_v2() {
+  install_opencode_agents
+  install_opencode_review_command
 }
 
 
@@ -271,9 +333,58 @@ install_hooks() {
 # OpenCode has no settings.json hooks block; it has plugins. The adapter IS the
 # registration there: it translates OpenCode's events into the payloads the same
 # hooks already read, so Layer 0 stays one implementation with two entry points.
+#
+# V1 and V2's adapters are mutually exclusive shapes at the SAME plugin
+# directory, and OpenCode auto-discovers every loose file in it -- leaving the
+# other version's file behind means the daemon tries to load both. Each
+# installer removes the other's shape before writing its own, so switching
+# between them on one machine always ends in a clean, unambiguous state.
 install_opencode_hooks() {
   copy_hooks "$OC_HOOK_DIR"
+  if [ -f "$OC_PLUGIN_DIR/iamlazy.js" ]; then
+    rm -f "$OC_PLUGIN_DIR/iamlazy.js"
+    echo "  removed stale V2 adapter ($OC_PLUGIN_DIR/iamlazy.js) -- V1 loads iamlazy.ts only"
+  fi
   write_file "$OC_PLUGIN_DIR/iamlazy.ts" < "$SRC/adapters/opencode/iamlazy.ts"
+}
+
+# The V2 adapter has a real runtime import (@opencode/plugin) the daemon
+# cannot resolve when it dynamically loads a local plugin file or directory --
+# see adapters/opencode-v2/README.md. It must be bundled into one
+# dependency-free file first, which needs bun and a real checkout: curl|bash
+# has neither a .git nor adapters/opencode-v2/package.json to build from, so
+# this refuses cleanly there rather than deploying something broken.
+build_opencode_v2_plugin() {
+  v2dir="$SRC/adapters/opencode-v2"
+  if [ ! -d "$SRC/.git" ]; then
+    echo "iamlazy: opencode-v2 needs a cloned checkout to build from (curl|bash has none)." >&2
+    echo "  Clone the repo and run install.sh --tool=opencode-v2 from there." >&2
+    exit 1
+  fi
+  if ! command -v bun >/dev/null 2>&1; then
+    echo "iamlazy: opencode-v2 needs bun to build its adapter (https://bun.sh)." >&2
+    echo "  @opencode/plugin is a build-time dependency only -- never part of the deployed bundle." >&2
+    exit 1
+  fi
+  ( cd "$v2dir" && ./build.sh ) || { echo "iamlazy: building the OpenCode V2 adapter failed." >&2; exit 1; }
+}
+
+install_opencode_v2_hooks() {
+  v2dir="$SRC/adapters/opencode-v2"
+  copy_hooks "$OC_HOOK_DIR"
+  build_opencode_v2_plugin
+  if [ -f "$OC_PLUGIN_DIR/iamlazy.ts" ] || [ -d "$OC_PLUGIN_DIR/iamlazy" ]; then
+    rm -rf "$OC_PLUGIN_DIR/iamlazy.ts" "$OC_PLUGIN_DIR/iamlazy"
+    echo "  removed stale V1 adapter shape ($OC_PLUGIN_DIR/iamlazy.ts or iamlazy/) -- V2 loads iamlazy.js only"
+  fi
+  # V2 registers /iamlazy itself; a leftover static command file from a
+  # previous V1 install would duplicate it -- confirmed the exact failure the
+  # original V1->V2 migration had to fix by hand.
+  if [ -f "$OC_CMD_DIR/iamlazy.md" ] && grep -q "$MARKER" "$OC_CMD_DIR/iamlazy.md" 2>/dev/null; then
+    rm -f "$OC_CMD_DIR/iamlazy.md"
+    echo "  removed $OC_CMD_DIR/iamlazy.md -- V2's plugin registers /iamlazy itself"
+  fi
+  write_file "$OC_PLUGIN_DIR/iamlazy.js" < "$v2dir/dist/iamlazy.js"
 }
 
 print_hook_block() {
@@ -388,19 +499,26 @@ fi
 # ---------- pick tools ----------
 do_claude=0
 do_opencode=0
+do_opencode_v2=0
 case "$TOOL" in
   claude) do_claude=1 ;;
   opencode) do_opencode=1 ;;
+  opencode-v2) do_opencode_v2=1 ;;
   both) do_claude=1; do_opencode=1 ;;
+  # opencode-v2 is deliberately NEVER auto-selected, even with opencode
+  # present: it is still a candidate host (PROJECT.md), needs bun and a real
+  # checkout to build, and V1/V2 are mutually exclusive at the same plugin
+  # path -- auto-picking one for you is exactly the silent promotion this
+  # project's own backlog convention refuses. Ask for it by name.
   auto)
     if command -v claude >/dev/null 2>&1 || [ -d "$HOME/.claude" ]; then do_claude=1; fi
     if command -v opencode >/dev/null 2>&1 || [ -d "$HOME/.config/opencode" ]; then do_opencode=1; fi
     ;;
-  *) echo "iamlazy: unknown --tool=$TOOL (use claude|opencode|both)" >&2; exit 1 ;;
+  *) echo "iamlazy: unknown --tool=$TOOL (use claude|opencode|opencode-v2|both)" >&2; exit 1 ;;
 esac
 
-if [ "$do_claude" -eq 0 ] && [ "$do_opencode" -eq 0 ]; then
-  echo "iamlazy: neither claude nor opencode detected. Force with --tool=claude|opencode|both." >&2
+if [ "$do_claude" -eq 0 ] && [ "$do_opencode" -eq 0 ] && [ "$do_opencode_v2" -eq 0 ]; then
+  echo "iamlazy: neither claude nor opencode detected. Force with --tool=claude|opencode|opencode-v2|both." >&2
   exit 1
 fi
 
@@ -414,8 +532,8 @@ persist_model() {
 }
 
 if [ -n "$MODEL_OVERRIDE" ]; then
-  if [ "$do_claude" -eq 1 ] && [ "$do_opencode" -eq 1 ]; then
-    echo "iamlazy: --model requires a single --tool=claude|opencode (namespaces differ)." >&2
+  if [ "$do_claude" -eq 1 ] && { [ "$do_opencode" -eq 1 ] || [ "$do_opencode_v2" -eq 1 ]; }; then
+    echo "iamlazy: --model requires a single --tool=claude|opencode|opencode-v2 (namespaces differ)." >&2
     exit 1
   fi
   if [ "$do_claude" -eq 1 ]; then
@@ -450,11 +568,18 @@ if [ "$do_opencode" -eq 1 ]; then
   echo "OpenCode -> $OC_MAIN_MODEL (main) / $OC_CRITIC_MODEL (critic)"
   install_opencode
 fi
+if [ "$do_opencode_v2" -eq 1 ]; then
+  echo "OpenCode V2 -> $OC_MAIN_MODEL (main) / $OC_CRITIC_MODEL (critic)"
+  install_opencode_v2
+fi
 if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_claude" -eq 1 ]; then
   install_hooks
 fi
 if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_opencode" -eq 1 ]; then
   install_opencode_hooks
+fi
+if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_opencode_v2" -eq 1 ]; then
+  install_opencode_v2_hooks
 fi
 
 if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_claude" -eq 1 ]; then
@@ -467,6 +592,22 @@ if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_opencode" -eq 1 ]; then
   into the same hooks, now in $OC_HOOK_DIR. Plugins load at startup, so restart
   any running OpenCode. Cost comes from OpenCode's own per-message pricing. There
   is no permission-bypass refusal: OpenCode has no such mode.
+EOF
+fi
+if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_opencode_v2" -eq 1 ]; then
+  cat <<EOF
+
+  LAYER 0 ON OPENCODE V2: $OC_PLUGIN_DIR/iamlazy.js (built from
+  adapters/opencode-v2/, bundled -- the source has a real @opencode/plugin
+  import the daemon cannot resolve on its own) translates events into the
+  same hooks, now in $OC_HOOK_DIR. The daemon caches a plugin's load state
+  for its whole process lifetime: neither editing this file nor calling
+  POST /api/plugin/await-activation re-evaluates it. Restart the daemon
+  (opencode service restart) and confirm with:
+    opencode api GET /api/plugin --param 'location[directory]=<project>'
+  looking for "id":"iamlazy" and "state":{"status":"active"}. Cost comes
+  from OpenCode's own per-message pricing. There is no permission-bypass
+  refusal: OpenCode has no such mode.
 EOF
 fi
 
@@ -487,7 +628,11 @@ if [ "$WITH_HOOKS" -eq 1 ]; then
      && ver="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null)" && [ -n "$ver" ]; then
     printf '%s\n' "$ver" > "$LOG_DIR/hooks_version"
   else
-    cat "$SRC"/hooks/*.sh "$SRC/adapters/opencode/iamlazy.ts" 2>/dev/null \
+    # Whichever OpenCode adapter this install actually chose -- V1's default,
+    # unless opencode-v2 was named explicitly.
+    adapter_src="$SRC/adapters/opencode/iamlazy.ts"
+    [ "$do_opencode_v2" -eq 1 ] && adapter_src="$SRC/adapters/opencode-v2/iamlazy.ts"
+    cat "$SRC"/hooks/*.sh "$adapter_src" 2>/dev/null \
       | cksum | awk '{print $1}' > "$LOG_DIR/hooks_version"
   fi
 fi
@@ -515,7 +660,7 @@ if [ "$do_claude" -eq 1 ]; then
     echo "  overrides CC_CRITIC_MODEL ('$CC_CRITIC_MODEL'). Unset it to use the value above."
   fi
 fi
-if [ "$do_opencode" -eq 1 ]; then
+if [ "$do_opencode" -eq 1 ] || [ "$do_opencode_v2" -eq 1 ]; then
   echo "  note: OpenCode needs a credential for its provider (env or opencode.json). Not configured by this installer."
   echo "  Analysis runs on OpenCode's built-in 'plan' agent, which pins no model and inherits the"
   echo "  LIVE SESSION model -- the one entering 'iamlazy' just set. So the planner runs on"

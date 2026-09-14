@@ -1,0 +1,13 @@
+{
+  "name": "iamlazy-opencode-v2-adapter",
+  "private": true,
+  "description": "Build-only package.json: @opencode/plugin is needed to bundle iamlazy.ts, never at Layer 0 runtime -- the built dist/iamlazy.js is fully self-contained.",
+  "type": "module",
+  "dependencies": {
+    "@opencode/plugin": "2.0.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "typescript": "^5.8.2"
+  }
+}

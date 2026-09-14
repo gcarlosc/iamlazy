@@ -264,6 +264,16 @@ if ! signal=$(hk_close_signal "$payload" "$contract" "$root" "$base" "$ubase"); 
   exit 0
 fi
 
+# hk_close_signal just confirmed THIS Stop is the real close. A host can
+# deliver the same terminal event to this hook more than once for one
+# session -- OpenCode's daemon instantiates its plugin repeatedly, and every
+# instance's subscription sees the same event -- so without a claim here,
+# every concurrent invocation would compute the same close and each append
+# its own line below before any of them reached hk_run_clear. Reproduced in
+# production: one real run logged three times, byte-identical. The loser
+# exits clean: the close it wanted already happened, on another invocation.
+hk_claim_close "$TMP" || exit 0
+
 start_epoch=$(hk_json_num "$TMP" "start_epoch")
 now_epoch=$(date +%s)
 duration=""

@@ -46,6 +46,17 @@ mktmp() { d="$(mktemp -d)"; TMPDIRS="$TMPDIRS $d"; echo "$d"; }
 cleanup() { for d in $TMPDIRS; do rm -rf "$d"; done; }
 trap cleanup EXIT
 
+# cp_repo <dest> -- a few tests need a disposable copy of the whole repo
+# (rewriting models.conf in place, or simulating a checkout with no .git).
+# adapters/opencode-v2/node_modules is a real (if gitignored) directory once
+# built -- 213MB on this machine -- and `cp -R` copying it made this suite
+# 8+ seconds slower per call for a directory neither test needs. `tar` piping
+# through an exclude list copies only what the tests actually read.
+cp_repo() {
+  tar -C "$SRC" -c --exclude=.git --exclude=adapters/opencode-v2/node_modules \
+    --exclude=adapters/opencode-v2/dist -f - . 2>/dev/null | tar -C "$1" -xf - 2>/dev/null
+}
+
 # ---------------------------------------------------------------- syntax
 echo "syntax"
 # Globbed, not listed. A list you have to remember to extend is the failure mode
@@ -251,8 +262,7 @@ assert_grep "SOMEONE ELSE'S PLUGIN" "$H2/.config/opencode/plugins/iamlazy.ts" "u
 echo
 echo "--model override"
 CP="$(mktmp)"
-cp -R "$SRC/." "$CP/" 2>/dev/null
-rm -rf "$CP/.git"
+cp_repo "$CP"
 H3="$(mktmp)"
 HOME="$H3" "$CP/install.sh" --tool=claude --model=test-model-xyz >/dev/null 2>&1
 assert_grep "model: test-model-xyz" "$H3/.claude/commands/iamlazy.md"      "override applied to main"
@@ -324,6 +334,74 @@ assert_grep "user data" "$H/.iamlazy/runs.jsonl"    "runs.jsonl preserved (invar
 HOME="$H2" "$SRC/uninstall.sh" >/dev/null 2>&1
 assert_grep "SOMEONE ELSE'S FILE" "$H2/.claude/commands/iamlazy.md" "unmarked file survives uninstall"
 assert_grep "SOMEONE ELSE'S PLUGIN" "$H2/.config/opencode/plugins/iamlazy.ts" "unmarked plugin survives uninstall"
+
+# ------------------------------------------------------ install: opencode-v2
+# V1 and V2 are mutually exclusive shapes at the same plugin path: the daemon
+# auto-discovers every loose file in plugins/, so leaving the other version's
+# file behind means it tries to load both. bun is a hard requirement here,
+# same as the V1 adapter's own bun-test section below -- not skipped when
+# missing, because a translator nobody built is a false green.
+echo
+echo "install --tool=opencode-v2"
+if command -v bun >/dev/null 2>&1; then
+  ok "bun available: $(bun --version)"
+  V2H="$(mktmp)"
+  if v2out="$(HOME="$V2H" "$SRC/install.sh" --tool=opencode-v2 2>&1)"; then
+    ok "opencode-v2 install succeeds"
+  else
+    no "opencode-v2 install failed"
+    printf '%s\n' "$v2out" | tail -20 >&2
+  fi
+  assert_file   "$V2H/.config/opencode/plugins/iamlazy.js"        "opencode-v2: bundled plugin installed"
+  assert_absent "$V2H/.config/opencode/plugins/iamlazy.ts"        "opencode-v2: no V1 adapter shape alongside it"
+  assert_absent "$V2H/.config/opencode/commands/iamlazy.md"       "opencode-v2: no duplicate /iamlazy command (the plugin registers it)"
+  assert_file   "$V2H/.config/opencode/commands/iamlazy-review.md" "opencode-v2: /iamlazy-review is still a plain command"
+  assert_file   "$V2H/.config/opencode/agents/iamlazy.md"         "opencode-v2: primary agent installed"
+  assert_file   "$V2H/.config/opencode/agents/iamlazy-critic.md"  "opencode-v2: critic agent installed"
+  assert_file   "$V2H/.config/opencode/iamlazy-hooks/host-cost.sh" "opencode-v2: hooks installed beside the plugin"
+  # bun build strips top-level comments, including the marker -- build.sh
+  # re-adds it so write_file/uninstall.sh can still tell this file is ours.
+  assert_grep "iamlazy-managed" "$V2H/.config/opencode/plugins/iamlazy.js" "opencode-v2: plugin carries the marker"
+  assert_no_grep '"@opencode/plugin"' "$V2H/.config/opencode/plugins/iamlazy.js" "opencode-v2: bundle has no unresolved import left"
+
+  if HOME="$V2H" "$SRC/install.sh" --check >/dev/null 2>&1; then ok "--check passes right after an opencode-v2 install"
+  else no "--check fails on a machine opencode-v2 just set up"; fi
+
+  # Switching hosts on the SAME machine must never leave two adapter shapes,
+  # in either direction.
+  HOME="$V2H" "$SRC/install.sh" --tool=opencode >/dev/null 2>&1
+  assert_file   "$V2H/.config/opencode/plugins/iamlazy.ts"   "switch to V1: adapter written"
+  assert_absent "$V2H/.config/opencode/plugins/iamlazy.js"   "switch to V1: V2's bundle removed"
+  assert_file   "$V2H/.config/opencode/commands/iamlazy.md"  "switch to V1: command file restored"
+
+  HOME="$V2H" "$SRC/install.sh" --tool=opencode-v2 >/dev/null 2>&1
+  assert_file   "$V2H/.config/opencode/plugins/iamlazy.js"   "switch back to V2: bundle written"
+  assert_absent "$V2H/.config/opencode/plugins/iamlazy.ts"   "switch back to V2: V1's adapter removed"
+  assert_absent "$V2H/.config/opencode/commands/iamlazy.md"  "switch back to V2: command file removed again"
+
+  HOME="$V2H" "$SRC/uninstall.sh" >/dev/null 2>&1
+  assert_absent "$V2H/.config/opencode/plugins/iamlazy.js"   "uninstall: V2 bundle removed"
+  if [ -d "$V2H/.config/opencode/iamlazy-hooks" ]; then no "uninstall: opencode-v2 hook dir removed"
+  else ok "uninstall: opencode-v2 hook dir removed"; fi
+else
+  no "bun is required to install/test OpenCode V2 and was not found (https://bun.sh); skipping would be a false green"
+fi
+
+# --tool=opencode-v2 must refuse cleanly without a real checkout (curl|bash
+# has no adapters/opencode-v2/package.json to build from). This check fires
+# before bun is even probed, so it needs neither bun nor network to test, and
+# runs unconditionally.
+NOGIT="$(mktmp)"
+cp_repo "$NOGIT"
+NOGITH="$(mktmp)"
+if v2refusal="$(HOME="$NOGITH" "$NOGIT/install.sh" --tool=opencode-v2 2>&1)"; then
+  no "opencode-v2 without a git checkout should refuse, not succeed"
+else
+  case "$v2refusal" in
+    *"needs a cloned checkout"*) ok "opencode-v2 refuses cleanly without a git checkout, and says why" ;;
+    *) no "opencode-v2 refused without a git checkout, but did not explain why" ;;
+  esac
+fi
 
 # ------------------------------------------------------- layer 0 (hooks)
 # The hook suite is a separate file because it tests runtime decisions, not

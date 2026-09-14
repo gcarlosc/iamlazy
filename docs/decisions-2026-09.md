@@ -508,3 +508,186 @@ to read a SHA from. Empty, never invented, on any install that predates this fie
 installer, not user data, and leaving the stamp behind would claim a version is installed after
 the hooks it names are gone. Verified by mutation on both writers and the empty-field fallback;
 schema bumped to 8.
+
+## A V1→V2 OpenCode port had six regressions, and a seventh nothing could have mocked
+
+A different agent ported the OpenCode adapter from the V1 `@opencode-ai/plugin` API to V2's native
+`@opencode/plugin`. An independent read-only review (no source, config, or service changes) found
+six actionable findings plus one blocking issue: the running v2.0.1 daemon reported the plugin as
+`failed`, and `/iamlazy` was absent from `GET /api/command`.
+
+**Root cause of the load failure, found by testing against the real daemon instead of trusting a
+standalone `bun build`/`tsc` pass:** V1's adapter is `import type`-only, so it runs as a loose,
+dependency-free `.ts` file that `install.sh` copies byte-for-byte. V2's API needs a real
+`import { Plugin } from "@opencode/plugin"` at runtime, and the compiled daemon cannot resolve that
+bare specifier when it dynamically loads a local plugin file or directory — confirmed directly
+against the binary (`Cannot find package '@opencode/plugin'`), regardless of whether the config
+entry pointed at a file or a directory, and regardless of the package being correctly installed in
+an ancestor `node_modules`. The fix: `bun build --target=bun` the whole thing into one
+self-contained `.js` file with zero imports left for the daemon to resolve, deployed as a loose
+file (matching how OpenCode auto-discovers every `.ts`/`.js` file directly inside `plugins/`, the
+same mechanism an unrelated pre-existing plugin already relied on).
+
+A second, sharper lesson from the same investigation: the daemon caches a plugin's load-failure
+state for the running process's lifetime. Editing the file, or calling the dedicated
+`POST /api/plugin/await-activation` endpoint, does not re-evaluate it — only a restart does. Every
+fix in this session had to be validated against either a disposable private server
+(`opencode serve --port <N>`, no shared state) or, for the final live confirmation, an actual
+restart of the shared background service.
+
+**The six functional findings**, each confirmed live against a real, model-backed `/iamlazy` run
+after the fix (not only against the review's mocks): the subagent guard read the wrong tool
+name/field (`Subagent`/`input.agent` vs the `Agent`/`subagent_type` Layer 0 expects) and let every
+sub-agent through unchecked; edit/write tracking read `filePath`/`file_path` while V2 sends `path`,
+so no edit ever reached the journal; `session.usage.updated` supplies cumulative session totals,
+and forwarding each one verbatim to `host-cost.sh` (whose contract is purely additive) summed $1
+then $3 into $4; the Critic's completion hook required `input.subagent_type`, which V2 never sends,
+so `critic_done` and the findings sidecar were silently never recorded; and the `/iamlazy` command
+executor forwarded only `prompt.text`, dropping every file/agent/skill attachment.
+
+**The seventh was not on that list, because nothing short of a live run could have found it.** The
+adapter listened for `session.idle` and `session.status`, event names carried over from V1's
+vocabulary. Neither exists on the real v2.0.1 event bus — confirmed by capturing its raw SSE stream
+during an actual run, which only ever emitted `session.execution.{started,succeeded,failed,
+interrupted}`. Every other fix could be (and was) verified with a mocked `ctx`; this one could not,
+because a mock only ever fires the event names you hand it. Without it, a run opens, tracks edits,
+and spawns and completes a real Critic review correctly, and then never closes: `flush-run.sh`
+never once gets invoked, and the run sits in `~/.iamlazy/active` forever regardless of what the
+model prints. Confirmed by hand-invoking `flush-run.sh` with the exact same payload the adapter
+would have sent — it closed immediately and correctly — proving Layer 0's own logic was never the
+problem.
+
+**Final verification**, on the real shared daemon after a restart: a fresh `/iamlazy` run went
+through contract → two real edits (journaled) → a real two-cycle Critic review (which itself found
+and got a fix accepted for an unrelated pre-existing bug in the target repo's own test pattern) →
+automatic close, with no manual intervention. `runs.jsonl`: `outcome:"flushed"`,
+`critic_findings:"0/0/0/2"`, correct non-inflated cost, and `models_seen` correctly split between
+the main model and the Critic's own model.
+
+The fixed adapter now lives in this repo at `adapters/opencode-v2/iamlazy.ts`, with its own
+`build.sh`, `bun test` suite (testing the built bundle, not the source — see its `README.md` for
+why), and `package.json`/`bun.lock` pinning `@opencode/plugin@2.0.3`. Deliberately not wired into
+`install.sh` or `test.sh`: OpenCode V2 support is still a candidate (see `PROJECT.md`'s debt
+section and DELTAS.md Candidate 18, which is about V1's `opencode run` process lifecycle and is a
+separate, still-open issue), not a committed host.
+
+## One close, logged three times: closing a run needed a claim, not just a guard
+
+The V2 adapter's live end-to-end run left a real artifact in `~/.iamlazy/runs.jsonl`: one session,
+`outcome:"flushed"`, appearing three times, byte-identical (same `duration_seconds`, `cost_usd`,
+`models_seen`). Not three runs — one run, logged three times.
+
+`hk_guard` only checks that a run file EXISTS; it does not claim it. `flush-run.sh` (and
+`hk_flush_abandoned`, which has the identical shape) both read the run file, do a page of
+derivation, `hk_log_append` the line, and only THEN `hk_run_clear` it. Nothing stopped two
+invocations from both passing the existence check, both computing the same close, and both
+appending before either one cleared the file. V1 never hit this because one Stop meant one plugin
+instance handling it. V2 does: the daemon instantiates the plugin repeatedly — 34 `loading plugin`
+entries in one process's log — and every live instance's `ctx.event.subscribe()` sees the same
+terminal event, so one real close reached `flush-run.sh` as many times as there were instances.
+
+The same defect exists on the abandon path for a different reason: `hk_sweep_stale` runs from every
+`open-run.sh`, across every session, so two prompts landing in different sessions within the same
+instant can both decide to sweep the SAME stale file. `end-run.sh` and `open-run.sh`'s own
+per-session reclaim call `hk_flush_abandoned` too — three entry points, one run file, the same race.
+
+**The fix is a single new primitive, shared by both:** `hk_claim_close <run_file>`, in `lib.sh`,
+right next to the other sidecar helpers:
+
+```sh
+hk_claim_close() {
+  ( set -C; : > "$(hk_closing_file "$1")" ) 2>/dev/null
+}
+```
+
+`>` under `set -C` (noclobber) opens with `O_EXCL` — atomic at the filesystem level, not merely
+"usually fine": stress-tested directly, 50 truly concurrent subshells racing to create the same
+marker produced exactly 1 winner, every trial, under both bash and dash. No lock library, no new
+dependency, and it behaves identically under bash 3.2.
+
+`flush-run.sh` claims immediately after `hk_close_signal` confirms this Stop really is the close —
+before any of the semantic derivation (duration, `task_summary`, `project_md`, `drift_fired`) that
+used to run on every racing invocation. `hk_flush_abandoned` claims right after its existing
+`[ -f "$f" ]` guard. A losing invocation's `>` fails, and it exits/returns clean: the close it
+wanted already happened elsewhere, which is not an error. `hk_run_clear` now also removes the
+`.closing` marker, so a later run reusing the same session id starts with a clean slate.
+
+Verified with two new `test-hooks.sh` cases, each firing six genuinely concurrent invocations at
+one closeable/one stale run and asserting exactly one `runs.jsonl` line survives — the real bug's
+shape, reproduced deliberately rather than waited for. Verified by mutation, once per call site:
+removing either `hk_claim_close` call makes its own concurrency test fail by name (`6 lineas, no
+1`) and touches nothing else; restored, both suites are green (`test.sh` 141/141, `test-hooks.sh`
+290/290, stable across five repeated runs). `shellcheck -x --severity=style` clean.
+
+The two duplicate lines already sitting in this machine's real `runs.jsonl` (one from this
+incident, one older one from schema 1) were left as-is rather than silently rewritten — the log is
+append-only by convention, and a decision to prune real history belongs to whoever reads that log,
+not to the fix that stops it from recurring.
+
+## The installer would have broken the V2 setup it never knew existed
+
+A status audit found `./install.sh --tool=opencode` still wrote V1's shape unconditionally: the
+loose `plugins/iamlazy.ts` (which a V2 daemon cannot load at all) and `commands/iamlazy.md` (which
+duplicates the `/iamlazy` command V2's own plugin registers). `--check` already disagreed with
+reality on this machine — `BAD adapter up to date: not installed (…/iamlazy.ts)`, because what was
+actually installed and working was `iamlazy.js` — and running the installer again would have
+overwritten the validated V2 setup with a broken one.
+
+Three decisions were settled with the human before touching any code, because each is a real fork
+with a consequence, not an implementation detail:
+
+1. **Detection is an explicit `--tool=opencode-v2` flag, never auto-selected.** `auto` still only
+   ever picks V1's `opencode`. Reasoning offered and accepted: `opencode --version` is the honest
+   detection source in principle, but on this very machine the real binary lives in `~/.opencode/bin`,
+   outside the default `PATH` — auto-detection would have failed silently and fallen back to V1
+   without saying so.
+2. **The installer builds only from a real checkout.** `curl|bash` has neither a `.git` nor
+   `adapters/opencode-v2/package.json` to build from, so `--tool=opencode-v2` refuses cleanly there
+   (checked before `bun` is even probed) rather than deploying something broken. Shipping a
+   pre-built `dist/iamlazy.js` committed to the repo was the alternative, rejected because it
+   contradicts "a build output is not the source of truth" and would drift from `hooks/` silently
+   with no CI step regenerating it.
+3. **This does not promote OpenCode V2 out of "candidate" status.** The explicit, never-auto flag
+   from decision 1 is exactly what keeps it that way — `PROJECT.md`'s language did not need to
+   change to stay true, only to describe what the installer can now do when asked.
+
+**What changed:** `install_opencode_agents`/`install_opencode_review_command` factor out the
+templates V1 and V2 share (the prompt body and Critic are identical on both — confirmed live, a
+real V2 run used the pinned `OC_CRITIC_MODEL` exactly like V1). `install_opencode_v2_hooks` builds
+via `adapters/opencode-v2/build.sh`, and — like `install_opencode_hooks` in the other direction —
+removes the OTHER version's adapter shape first: OpenCode auto-discovers every loose file in
+`plugins/`, so switching between V1 and V2 on one machine must never leave both. V2 also removes a
+stale `commands/iamlazy.md` from a prior V1 install, the exact duplication the original migration
+had to fix by hand. `--check` gained a V2 branch: since the deployed file is a bundle, comparing it
+byte-for-byte against source would mean rebuilding inside a read-only check (network `bun install`
+included) — instead it verifies the invariants a bad V2 install actually broke in production (no
+stale V1 shape, no duplicate command, the bundle carries no unresolved `@opencode/plugin` import).
+`uninstall.sh` now removes `plugins/iamlazy.js` too.
+
+**A build detail that mattered:** `bun build` strips top-level comments, including the
+`iamlazy-managed` marker every generated file carries — `write_file` and `uninstall.sh` both key
+off it to know a file is theirs. Without it, a rebuilt bundle would look "not ours" on the next
+install and silently stop updating. `build.sh` now prepends the marker back after bundling (a
+leading `//` comment is valid anywhere in JS, so this is a no-op for the daemon).
+
+**Verification, on top of the usual full-suite runs:** a real install into a temp `HOME` (agents,
+review command, hooks, and the bundle all correctly written; `commands/iamlazy.md` correctly
+absent); switching V1→V2→V1 on the same machine twice, asserting neither adapter shape nor the
+duplicate command file survives a switch; `--check` and `uninstall.sh` against the result; the
+`.git`-less refusal and the missing-`bun` refusal, each simulated directly. Five mutations, one per
+new behavior (V1-side stale-V2 cleanup, V2-side stale-V1 cleanup, V2-side command cleanup, the
+marker re-add, the `.git` refusal): each kills exactly the test(s) it should — the marker mutation
+correctly cascades into three failures (the marker check itself, `--check`, and `uninstall.sh`
+refusing to touch an now-unmarked file), which is the marker doing real work across three
+call sites, not test duplication.
+
+**A real, unrelated cost found and fixed along the way:** `adapters/opencode-v2/node_modules`
+(213MB once built) made two `test.sh` tests that `cp -R` the whole repo 8+ seconds slower each,
+for a directory neither test reads. Replaced with a shared `cp_repo` helper that `tar`-pipes with
+an exclude list (`.git`, `node_modules`, `dist`) — full suite: 85.7s → 71.9s.
+
+**What is now, honestly, a heavier `test.sh`:** installing V2 is a hard-required path in the
+default suite (bun missing fails loudly, matching the existing V1 adapter test's own convention),
+and on a fresh checkout its first run pays a real `bun install`. This is the SAME tension flagged
+for wiring the adapter's own `bun test` suite into CI — genuinely not resolved here, only paid
+once, for the installer's own coverage, because the acceptance criteria required it.

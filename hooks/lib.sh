@@ -157,10 +157,32 @@ hk_findings_file()  { printf '%s.findings' "${1%.json}"; }
 # that already priced the run would produce two numbers that disagree.
 hk_cost_file()      { printf '%s.cost' "${1%.json}"; }
 
+# <sid>.closing -- the atomic claim marker hk_claim_close creates. Never read
+# for anything but its existence.
+hk_closing_file()   { printf '%s.closing' "${1%.json}"; }
+
 # hk_run_clear <run_file> -> remove a run and all of its sidecars.
 hk_run_clear() {
   rm -f "$1" "$(hk_untracked_file "$1")" "$(hk_gate_file "$1")" \
-        "$(hk_stage_file "$1")" "$(hk_findings_file "$1")" "$(hk_cost_file "$1")"
+        "$(hk_stage_file "$1")" "$(hk_findings_file "$1")" "$(hk_cost_file "$1")" \
+        "$(hk_closing_file "$1")"
+}
+
+# hk_claim_close <run_file> -> 0 the FIRST time this run is claimed as closing
+# (by flush-run.sh's real close, or hk_flush_abandoned), 1 for every other
+# caller racing to close the SAME run. Layer 0 can be asked to end one run
+# more than once concurrently: OpenCode's daemon instantiates its plugin
+# repeatedly, and every instance's event subscription sees the same terminal
+# event, so one real close reached flush-run.sh three times before this
+# existed -- all three passed hk_guard (the run file was still there), all
+# three computed the same close, and all three appended their own line to
+# runs.jsonl before any of them removed it. `( set -C; : > file )` is `>`
+# under noclobber, which opens with O_EXCL -- atomic on any POSIX filesystem,
+# no lock library needed, and identical under bash 3.2. The loser's `>` fails
+# because the marker already exists; it must exit clean, not retry or error,
+# because the close it wanted already happened.
+hk_claim_close() {
+  ( set -C; : > "$(hk_closing_file "$1")" ) 2>/dev/null
 }
 
 # hk_kv <file> <key> -> value of a KEY=value line, empty if absent.
@@ -792,6 +814,13 @@ hk_flush_abandoned() {
   local f sid tpath root stage start dur fired host models
   f="$1"
   [ -f "$f" ] || return 0
+  # Same race as flush-run.sh's real close, on a different trigger: hk_sweep_stale
+  # runs from every open-run.sh, across every session, so two prompts arriving
+  # in different sessions at nearly the same moment can both decide to abandon
+  # THIS same stale file. end-run.sh (SessionEnd) and open-run.sh's own
+  # per-session reclaim call this too, so all three entry points share one
+  # claim.
+  hk_claim_close "$f" || return 0
   sid=$(hk_field_file "$f" "session_id")
   tpath=$(hk_field_file "$f" "transcript_path")
   root=$(hk_field_file "$f" "project_root")

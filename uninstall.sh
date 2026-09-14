@@ -13,7 +13,8 @@ ${HOME}/.config/opencode/commands/iamlazy.md \
 ${HOME}/.config/opencode/commands/iamlazy-review.md \
 ${HOME}/.config/opencode/agents/iamlazy.md \
 ${HOME}/.config/opencode/agents/iamlazy-critic.md \
-${HOME}/.config/opencode/plugins/iamlazy.ts"
+${HOME}/.config/opencode/plugins/iamlazy.ts \
+${HOME}/.config/opencode/plugins/iamlazy.js"
 
 remove_if_managed() {
   f="$1"
