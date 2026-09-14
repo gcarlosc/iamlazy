@@ -116,7 +116,7 @@ run_merge >/dev/null 2>&1 || rc=$?
 
 if [ "$rc" -eq 0 ] && [ -f "${SETTINGS}.ilznew" ]; then
   mv "${SETTINGS}.ilznew" "$SETTINGS"
-  echo "  updated $SETTINGS  (backup: $(basename "$BACKUP"))"
+  echo "  actualice $SETTINGS  (backup: $(basename "$BACKUP"))"
   exit 0
 fi
 
@@ -124,8 +124,8 @@ rm -f "${SETTINGS}.ilznew"
 cp "$BACKUP" "$SETTINGS"
 rm -f "$BACKUP"
 if [ "$rc" = "3" ]; then
-  echo "  NO JSON PARSER (python3/python) -- settings.json left untouched." >&2
+  echo "  SIN PARSER JSON (python3/python) -- settings.json quedo intacto." >&2
   exit 3
 fi
-echo "  merge failed; $SETTINGS restored from backup." >&2
+echo "  fallo el merge; $SETTINGS se restauro desde el backup." >&2
 exit 1

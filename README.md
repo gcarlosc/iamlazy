@@ -101,7 +101,7 @@ git clone <repo> iamlazy && cd iamlazy
 Or force a specific tool:
 
 ```sh
-./install.sh --tool=claude      # or --tool=opencode  or  --tool=both
+./install.sh --tool=claude      # or --tool=opencode, --tool=opencode-v2, or --tool=both
 ```
 
 `curl | bash` (set the raw file base URL of your fork/repo):
@@ -111,7 +111,9 @@ IAMLAZY_RAW_BASE="https://raw.example/iamlazy/main" curl -fsSL https://raw.examp
 ```
 
 The installer:
-- auto-detects `claude` and `opencode`,
+- auto-detects `claude` and `opencode` (V1). `opencode-v2` targets OpenCode's native v2.0.x plugin
+  API instead — a candidate host, not a committed one (see `PROJECT.md`) — so it always needs the
+  explicit flag, plus `bun` and a real checkout to build its adapter; never auto-selected,
 - writes the slash commands and the Critic sub-agent to their global config dirs,
 - installs Layer 0: the hooks, registered in Claude Code's `settings.json`, or behind the plugin
   on OpenCode,
@@ -237,15 +239,20 @@ unregisters them again, just as carefully.
 Without them the harness still runs, but every guarantee degrades back to prose — the exact failure
 mode Layer 0 exists to remove.
 
-**On OpenCode, Layer 0 is the same bash behind a plugin.** `adapters/opencode/iamlazy.ts` is
-installed to `~/.config/opencode/plugins/` and does one thing: it translates OpenCode's events
-into the JSON payloads the hooks already read, invokes them, and translates a denial back into
-the `throw` that blocks a tool there. It reads no contract, computes no scope and knows nothing
-about the breaker — a test greps it for those words and fails if any appears. The one thing that
-differs is cost: OpenCode prices every message itself, so the adapter forwards each figure to
-`host-cost.sh` instead of the hooks re-pricing the run from `prices.conf`. Two things Claude Code
-has and OpenCode does not: a permission-bypass mode to refuse, and a plan mode that denies rather
-than asks — the prompt says so on that host instead of pretending parity.
+**On OpenCode, Layer 0 is the same bash behind a plugin.** Two adapters exist, one per plugin API:
+`adapters/opencode/iamlazy.ts` for V1 (`@opencode-ai/plugin`), installed to
+`~/.config/opencode/plugins/` as-is, and `adapters/opencode-v2/iamlazy.ts` for V2's native
+`@opencode/plugin`. V2 needs a build step first — its adapter has a real runtime import the V2
+daemon cannot resolve when it loads a local plugin dynamically, so it ships as one bundled,
+dependency-free file instead; see `adapters/opencode-v2/README.md` for the full story and its own
+`build.sh`. Both do the same one thing: translate OpenCode's events into the JSON payloads the
+hooks already read, invoke them, and translate a denial back into the `throw` that blocks a tool
+there. Neither reads a contract, computes scope, or knows about the breaker — a test greps each
+for those words and fails if any appears. The one thing that differs from Claude Code is cost:
+OpenCode prices every message itself, so the adapter forwards each figure to `host-cost.sh`
+instead of the hooks re-pricing the run from `prices.conf`. Two things Claude Code has and
+OpenCode does not: a permission-bypass mode to refuse, and a plan mode that denies rather than
+asks — the prompt says so on that host instead of pretending parity.
 
 ## Tests
 
@@ -326,7 +333,7 @@ iamlazy/
   install.sh       idempotent installer (bash 3.2 compatible)
   uninstall.sh     marker-only removal, preserves your data
   hooks/           Layer 0: the guarantees, as bash reading JSON on stdin
-  adapters/        OpenCode: the plugin that turns its events into those payloads, and its tests
+  adapters/        OpenCode: the plugins (V1, V2) that turn its events into those payloads, and their tests
   test.sh          the installer and the declared invariants
   test-hooks.sh    Layer 0's runtime decisions, validated by mutation, in two locales
   .githooks/       pre-push: refuses to push a red suite

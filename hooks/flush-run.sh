@@ -100,6 +100,8 @@ fi
 # 14% of that run's cost and entirely invisible before.
 run_cost=""
 unpriced=""
+scan_models=""
+did_scan=0
 COSTF=$(hk_cost_file "$TMP")
 if [ -f "$COSTF" ]; then
   # A host adapter priced this run (see hk_cost_file). Its figure is the run's
@@ -110,20 +112,30 @@ if [ -f "$COSTF" ]; then
   d_cr=$(hk_kv "$COSTF" tokens_cache_read)
   d_out=${d_out:-0}; d_cw=${d_cw:-0}; d_cr=${d_cr:-0}
 else
-  if [ "$(hk_json_num "$TMP" "cost_priced")" = "1" ]; then
-    if end_cost=$(hk_cost_micro "$tpath"); then
-      sub_cost=$(hk_subagent_cost_micro "$tpath")
-      if [ -n "$sub_cost" ]; then
-        sc=$(hk_json_num "$TMP" "start_cost")
-        run_cost=$((end_cost - ${sc:-0} + sub_cost))
-      fi
+  # One pass over the transcript instead of three: hk_cost_micro,
+  # hk_token_components and hk_model_counts all walked the same "usage":{
+  # lines, de-duplicated by the same message id, just to extract different
+  # fields from each turn -- see hk_transcript_scan in lib.sh. Measured on a
+  # real 17MB transcript: the three separate scans took ~1.5s; this one pass
+  # takes ~0.6s, on every Stop.
+  did_scan=1
+  scan_out=$(hk_transcript_scan "$tpath")
+  scan_cost=$(printf '%s\n' "$scan_out" | sed -n '1p')
+  scan_tok=$(printf '%s\n' "$scan_out" | sed -n '2p')
+  scan_models=$(printf '%s\n' "$scan_out" | sed -n '3p')
+
+  if [ "$(hk_json_num "$TMP" "cost_priced")" = "1" ] && [ "$scan_cost" != "NULL" ] && [ -n "$scan_cost" ]; then
+    sub_cost=$(hk_subagent_cost_micro "$tpath")
+    if [ -n "$sub_cost" ]; then
+      sc=$(hk_json_num "$TMP" "start_cost")
+      run_cost=$((scan_cost - ${sc:-0} + sub_cost))
     fi
   fi
   [ -n "$run_cost" ] || unpriced=$(hk_unpriced_run "$tpath")
 
   # Raw components, as deltas, so the run can be repriced after a table fix.
   # shellcheck disable=SC2046  # word splitting is the point: "N N N" into $1 $2 $3
-  set -- $(hk_token_components "$tpath" 2>/dev/null)
+  set -- $scan_tok
   d_out=$(( ${1:-0} - $(hk_json_num "$TMP" "start_out"|| echo 0) ))
   d_cw=$((  ${2:-0} - $(hk_json_num "$TMP" "start_cw" || echo 0) ))
   d_cr=$((  ${3:-0} - $(hk_json_num "$TMP" "start_cr" || echo 0) ))
@@ -137,8 +149,16 @@ host=$(hk_field_file "$TMP" "host"); [ -n "$host" ] || host="claude-code"
 # Claude-style transcript can be counted from one. Empty is the honest value on
 # a host that offers neither -- the same posture as a null cost.
 models_seen=$(hk_kv "$COSTF" models)
-[ -n "$models_seen" ] || \
-  models_seen=$(hk_models_delta "$(hk_models_run "$tpath")" "$(hk_field_file "$TMP" "start_models")")
+if [ -z "$models_seen" ]; then
+  if [ "$did_scan" = "1" ]; then
+    # Reuse the main transcript's tally from the scan above; only the (small)
+    # sub-agent transcripts still need their own pass.
+    run_models=$( { printf '%s\n' "$scan_models"; hk_models_subagents "$tpath"; } | hk_models_sum )
+  else
+    run_models=$(hk_models_run "$tpath")
+  fi
+  models_seen=$(hk_models_delta "$run_models" "$(hk_field_file "$TMP" "start_models")")
+fi
 
 # ---------------------------------------------------------------- Guarantee 5
 # Circuit breaker. Persisting without a new hypothesis is the failure, not the

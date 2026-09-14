@@ -74,10 +74,14 @@ for s in "$SRC"/hooks/*.sh; do
 done
 
 # Every hook the installer copies must also be registered -- by merge-settings.sh
-# on Claude Code, or invoked by the OpenCode adapter -- or it lands on disk and
+# on Claude Code, or invoked by an OpenCode adapter -- or it lands on disk and
 # never runs. lib.sh and the installer helper are the only two that are sourced
-# rather than registered.
+# rather than registered. V1 is the adapter used for THIS check and the two
+# below it (both adapters invoke the identical hook set, verified separately
+# below, so checking one is representative here); ADAPTERS covers both for the
+# checks where "both, explicitly" is the actual point -- existence and purity.
 ADAPTER="$SRC/adapters/opencode/iamlazy.ts"
+ADAPTERS="$SRC/adapters/opencode/iamlazy.ts:V1 $SRC/adapters/opencode-v2/iamlazy.ts:V2"
 for s in "$SRC"/hooks/*.sh; do
   n="$(basename "$s")"
   case "$n" in lib.sh|merge-settings.sh) continue ;; esac
@@ -154,6 +158,30 @@ if grep -Eq 'Scope|base_ref|DRIFT|CIERRE' "$ADAPTER"; then
 else
   ok "the adapter translates and never decides (no Scope|base_ref|DRIFT|CIERRE)"
 fi
+
+# Both OpenCode adapters, explicitly: hook existence and purity checked above
+# only ran against V1. A translator nobody's invariants ever touched is the
+# exact false green the V1 bun-test section's own comment refuses to accept
+# for `bun` -- the same standard applies here, to V2.
+v1_invoked=""
+for pair in $ADAPTERS; do
+  a="${pair%%:*}"; lbl="${pair##*:}"
+  if [ ! -f "$a" ]; then no "$lbl adapter missing: $a"; continue; fi
+  inv="$(grep -o '"[a-z-]*\.sh"' "$a" | tr -d '"' | sort -u)"
+  for hname in $inv; do
+    assert_file "$SRC/hooks/$hname" "$lbl adapter invokes a hook that exists: $hname"
+  done
+  if grep -Eq 'Scope|base_ref|DRIFT|CIERRE' "$a"; then
+    no "$lbl adapter contains harness logic (Scope|base_ref|DRIFT|CIERRE) -- it must translate, never decide"
+  else
+    ok "$lbl adapter translates and never decides (no Scope|base_ref|DRIFT|CIERRE)"
+  fi
+  if [ "$lbl" = "V1" ]; then v1_invoked="$inv"; fi
+  if [ "$lbl" = "V2" ]; then
+    if [ "$inv" = "$v1_invoked" ]; then ok "V1 and V2 invoke the identical hook set"
+    else no "V1/V2 hook sets differ -- V1: $(echo "$v1_invoked" | tr '\n' ' ')| V2: $(echo "$inv" | tr '\n' ' ')"; fi
+  fi
+done
 
 # Every template must declare the idempotency marker, or uninstall can never reclaim it.
 for f in "$SRC"/templates/*/*.frontmatter; do
@@ -398,7 +426,7 @@ if v2refusal="$(HOME="$NOGITH" "$NOGIT/install.sh" --tool=opencode-v2 2>&1)"; th
   no "opencode-v2 without a git checkout should refuse, not succeed"
 else
   case "$v2refusal" in
-    *"needs a cloned checkout"*) ok "opencode-v2 refuses cleanly without a git checkout, and says why" ;;
+    *"checkout clonado"*) ok "opencode-v2 refuses cleanly without a git checkout, and says why" ;;
     *) no "opencode-v2 refused without a git checkout, but did not explain why" ;;
   esac
 fi
@@ -466,6 +494,31 @@ if command -v bun >/dev/null 2>&1; then
   fi
 else
   no "bun is required to test the OpenCode adapter and was not found (https://bun.sh); skipping would be a false green"
+fi
+
+# --------------------------------------------- opencode-v2 adapter (bun test)
+echo
+echo "opencode-v2 adapter (delegating to bun test)"
+# Same standard as V1's suite just above: bun is a hard requirement, never
+# silently skipped -- a translator nobody ran, reported as green, is the
+# false green this whole section exists to refuse, on either adapter version.
+# The install --tool=opencode-v2 section earlier in this file already built
+# dist/iamlazy.js when bun was available; this only re-checks it exists
+# rather than rebuilding, so a stale bundle left by hand still gets tested
+# against, not silently skipped past.
+if command -v bun >/dev/null 2>&1; then
+  if [ -f "$SRC/adapters/opencode-v2/dist/iamlazy.js" ]; then
+    if adout="$(cd "$SRC/adapters/opencode-v2" && bun test iamlazy.test.ts 2>&1)"; then
+      ok "opencode-v2 adapter translation suite passes ($(printf '%s\n' "$adout" | grep -Eo '[0-9]+ pass' | head -1))"
+    else
+      no "opencode-v2 adapter translation suite fails (bun test)"
+      printf '%s\n' "$adout" | grep -E '✗|\(fail\)|error' >&2
+    fi
+  else
+    no "adapters/opencode-v2/dist/iamlazy.js missing -- the install --tool=opencode-v2 section above should have built it"
+  fi
+else
+  no "bun is required to test the OpenCode V2 adapter and was not found (https://bun.sh); skipping would be a false green"
 fi
 
 # ------------------------------------------------------ layer 0 by default

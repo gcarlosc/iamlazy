@@ -691,3 +691,70 @@ default suite (bun missing fails loudly, matching the existing V1 adapter test's
 and on a fresh checkout its first run pays a real `bun install`. This is the SAME tension flagged
 for wiring the adapter's own `bun test` suite into CI — genuinely not resolved here, only paid
 once, for the installer's own coverage, because the acceptance criteria required it.
+
+## The tension left open above resolved itself the moment it was paid once
+
+The previous entry flagged wiring `adapters/opencode-v2/`'s own 6-test `bun test` suite into
+`test.sh` as a separate, undecided question — the network cost of a fresh checkout's first
+`bun install` felt like a new thing to weigh. It was not: that cost was already being paid, by the
+installer coverage added moments earlier in the same file. Adding the adapter's own suite right
+after it is not a second network dependency, it is reusing one that already exists.
+
+**What changed:** the two invariant loops (hook existence, "translates and never decides" purity)
+that only ever pointed at `adapters/opencode/iamlazy.ts` now run against both adapters explicitly,
+plus a new check that V1 and V2 invoke the identical hook set — regression cover for the one thing
+that would silently rot if either adapter's hook list drifted from the other's. Right after the
+existing "opencode adapter (bun test)" section, a matching "opencode-v2 adapter (bun test)"
+section runs `bun test adapters/opencode-v2/iamlazy.test.ts` with the exact same policy: bun
+missing fails loudly, never a silent skip. It checks for `dist/iamlazy.js` rather than rebuilding
+it — the installer section earlier in the file already built it when bun was available, so this
+tests the artifact as it actually sits on disk rather than manufacturing a fresh one to test
+instead.
+
+**Verified by mutation, three cases:** a forced-failing assertion appended to
+`iamlazy.test.ts` makes exactly "opencode-v2 adapter translation suite fails" fail, nothing else;
+a fake hook reference appended to the V2 adapter's source makes exactly the two checks that should
+catch it fail (the hook-existence check by name, and the V1/V2 hook-set-equality check, both
+correctly, since one V2-only hook breaks both invariants at once). Full suite: 182/182 (+20 from
+this ticket), `test-hooks.sh` unaffected at 290/290, `shellcheck` clean.
+
+## Three scans became one, and the fix earned its own regression test
+
+`flush-run.sh` priced a run, tallied its raw token components, and counted which models answered
+it with three separate calls — `hk_cost_micro`, `hk_token_components`, `hk_model_counts` — each
+walking every `"usage":{` line of the same Claude Code transcript on its own pass. `open-run.sh`
+did the same three calls once per run, to capture the baseline the close later subtracts. Timed
+against a real 17MB transcript that already exists in this repo's own `~/.claude/projects/`
+history: the three separate scans cost **~1.34–1.51s**, on every single `Stop`.
+
+The obvious fix — remember a byte offset, only scan what's new — was rejected on sight. This
+project already learned that lesson once: `models_seen`'s baseline is a per-model *count*, not a
+transcript position, specifically because a compaction can rewrite the file out from under a
+cached offset, and that failure is silent — no error, just a wrong number nobody notices. A
+positional cache here would reintroduce the exact bug that fix exists to prevent.
+
+**What changed:** `hk_transcript_scan()` in `lib.sh` is one `awk` pass that produces all three
+figures — cost, `{output, cache_write, cache_read}` token components, and per-model message
+counts — from the same dedup-by-`message.id` loop the three original functions ran separately.
+`hk_models_run` was split into `hk_models_subagents` (sub-agent transcripts, unchanged, still a
+separate small scan) so `flush-run.sh` and `open-run.sh` can feed the scan's own model tally
+straight into `hk_models_sum` instead of re-scanning the main transcript a second time. Neither
+caller keeps any state between calls — every `Stop`, and every `open-run.sh` baseline, is a full
+fresh read of the transcript as it exists *right now*. There is nothing to invalidate, because
+nothing is remembered.
+
+**Measured, not estimated:** end-to-end on `flush-run.sh` itself, same real 17MB transcript, three
+runs each. Before: 2.29s / 2.06s / 1.87s. After: 1.01s / 1.00s / 0.99s — a real **~2.05x** speedup
+on the whole hook (the merged scan alone, isolated from the rest of the hook's own overhead, went
+from ~1.46–1.51s to ~0.58–0.59s, ~2.5–2.6x). The circuit breaker (Guarantee 5) still evaluates on
+every turn — this only cut how long it takes to get there.
+
+**Verified by mutation:** a new `test-hooks.sh` case calls `hk_transcript_scan` on one path, then
+overwrites that *same path* with a smaller transcript naming a different model — a stand-in for a
+compaction — and asserts the second call reflects only the new content. Deliberately reintroducing
+exactly the rejected fix (a cache keyed on the transcript's path, written after the first real scan
+and served back verbatim on every later call for that path) made this new assertion fail as
+expected, and also broke five *pre-existing* drift/breaker/cost tests that reuse one transcript
+path across several `flush-run.sh` calls within a single test — the same shape of bug the ticket
+worried about, catching itself in the existing suite before the new test even had to. Reverting
+restored a clean run: `test-hooks.sh` 292/292 (+2 from this ticket), `test.sh` 182/182 unaffected.

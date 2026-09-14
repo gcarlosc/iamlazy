@@ -16,11 +16,13 @@
 # just never sufficient, and Layer 1 says so plainly -- review is section 6 and
 # close is section 7, both AFTER the execution that ticks the boxes.
 #
-# NOT YET VERIFIED on a live run: that this build emits SubagentStop, and that
-# its payload carries the PARENT session_id rather than the sub-agent's. Both
-# come from the hooks reference. The close path is written so that being wrong
-# about either costs nothing: it falls back to the CLOSE banner, so a run can
-# never be trapped open by an event that does not arrive.
+# Verified on live Claude Code runs (see PROJECT.md): both that this build
+# emits SubagentStop, and that its payload carries the PARENT session_id
+# rather than the sub-agent's -- three real runs show non-empty
+# critic_findings, which only happens if hk_guard's session_id lookup below
+# matched the parent's run file. The close path stays written so that being
+# wrong about either would have cost nothing: it falls back to the CLOSE
+# banner, so a run can never be trapped open by an event that does not arrive.
 set -u
 # shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"

@@ -29,7 +29,12 @@ stopping it is the point.
   declares its variables `local`: they share one process, and a helper leaking `tpath` into its
   caller corrupts the log line written after it.
 - **Generated artifacts default to English**; user-facing chat is in the user's language.
-  Idempotency via the `# iamlazy-managed` marker in each generated file's frontmatter.
+  Idempotency via the `# iamlazy-managed` marker in each generated file's frontmatter. This split
+  by AUDIENCE, not by file: the composed prompts (`core/`, templates, this doc, code comments)
+  stay English -- they are read by contributors and by the model regardless of who is running it.
+  Everything a HUMAN reads while operating the harness is Spanish, matching this project's own:
+  hook-emitted block/breaker reasons (`flush-run.sh`, `guard-agent.sh`, always were), and
+  `install.sh`/`uninstall.sh`/`adapters/opencode-v2/build.sh`'s printed output (2026-09-14).
 
 ## Architecture — two layers
 
@@ -145,16 +150,22 @@ justification; an undeclared deviation is an automatic reviewer finding.
   is now `cost_usd`: model-aware, Critic included, `null` rather than partial when a model is
   missing from `prices.conf`, with raw token components kept so a run can be repriced from the
   record. History and calibration: `docs/measurement-history.md`.
-- **`SubagentStop`'s parent `session_id` is documented, not observed — on Claude Code.** `Stop`'s
-  `{"decision":"block","reason":…}` is now confirmed on both hosts: a live run (2026-09-11,
-  `iamlazy-smoke`, session `7f32cddc`) hit the block, read the reason in its own transcript, and
-  acted on it — reverted an out-of-scope file, re-invoked the Critic for real. `SubagentStop`
-  itself is still only observed on OpenCode, where the adapter reads that JSON directly; that says
-  nothing about whether Claude Code honours it. The breaker and the scope gate emit every
-  documented channel at once (decision, `systemMessage`, stderr, exit 2) so one of them lands; if
-  `SubagentStop` is wrong the close falls back to the CLOSE banner — degraded accuracy, never a
-  stuck run — but `critic_done` and `critic_findings` stay silently empty. Confirmed by contrast:
-  `PreToolUse`'s `permissionDecisionReason` reaches the model, which read a denial and adapted.
+- **`SubagentStop` on Claude Code — confirmed live, not just documented.** Three of five real
+  Claude Code runs in `runs.jsonl` carry non-empty `critic_findings` (`0/0/2/3`, `0/0/3/1`,
+  `0/1/4/2` — 2026-09-07T03:25:41Z, 2026-09-11T15:44:51Z, 2026-09-11T16:04:28Z), which only
+  `subagent-done.sh` writes, only on `SubagentStop`. That alone proves the event fires on this
+  build. It also proves the payload's `session_id` names the PARENT run, not the Critic's own
+  sub-agent session: `subagent-done.sh` calls `hk_guard` first, which requires an active run file
+  under that exact id, and a sub-agent session — never opened via `/iamlazy` itself — has no run
+  file of its own to match against. The two empty-findings runs (2026-09-12T00:27:39Z,
+  2026-09-12T01:32:27Z) are `iamlazy-smoke` runs where the human declined the Critic; empty is the
+  correct value there, not a gap. `Stop`'s `{"decision":"block","reason":…}` is separately confirmed
+  on both hosts: the same 2026-09-11 `iamlazy-smoke` session (`7f32cddc`) hit the block, read the
+  reason in its own transcript, and acted on it — reverted an out-of-scope file, re-invoked the
+  Critic for real. Confirmed by contrast: `PreToolUse`'s `permissionDecisionReason` reaches the
+  model too, which read a denial and adapted. Nothing about this channel is still unconfirmed on
+  Claude Code; the breaker and scope gate still emit every documented channel at once (decision,
+  `systemMessage`, stderr, exit 2) as defense in depth, not because any of them is in doubt.
 - **Spawning the Critic asks, on Claude Code — now confirmed live.** A real run (2026-09-11,
   `iamlazy-smoke`, session `7f32cddc`) hit the native permission prompt with the hook's reason
   text rendered, the human declined it for real, and `critic_asked` recorded the attempt — so the
@@ -210,12 +221,11 @@ justification; an undeclared deviation is an automatic reviewer finding.
   `@opencode/plugin` dependency (build-time only, never at runtime) is a second declared exception
   to the "zero external deps" rule below, on top of V1's type-only one. `test.sh` now covers the
   installer's V2 path (a real install + build, byte-for-byte switching between V1/V2 leaves no
-  stale shape, `--check`/`uninstall.sh` on it) -- bun is a hard requirement there already, same as
-  V1's own adapter test. What is NOT wired in yet is the adapter's own 6-test `bun test` suite
-  (`adapters/opencode-v2/`, distinct from the installer test): running it by default would add a
-  real network `bun install` the FIRST time a checkout builds it, which `test.sh`'s installer
-  coverage above already pays once bun+a real checkout are present -- whether to also gate CI on
-  the adapter's own suite is a separate, still-open decision.
+  stale shape, `--check`/`uninstall.sh` on it), the purity/hook-existence invariants (both
+  adapters, plus an explicit V1/V2 hook-set-equality check), and the adapter's own 6-test
+  `bun test` suite -- all mutation-verified. Since the installer's own V2 coverage already pays
+  the one real `bun install` a fresh checkout needs, running the adapter's suite right after it
+  costs nothing further; bun missing fails loudly on both, same standard as V1's adapter test.
 - **`curl | bash` requires `IAMLAZY_RAW_BASE`**; offline is clone+run.
 
 Why the design is what it is: `docs/decisions-2026-09.md` (the unchecked suppositions, the gate's

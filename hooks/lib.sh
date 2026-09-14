@@ -747,19 +747,107 @@ hk_models_sum() {
   ' | sort -k1,1nr -k2,2 | awk '{ printf "%s:%s ", $2, $1 }' | sed 's/ $//'
 }
 
+# hk_models_subagents <main transcript path> -> model:count tokens for every
+# sub-agent transcript found under <session>/subagents/, one hk_model_counts
+# scan per file. Split out of hk_models_run so a caller that already scanned
+# the MAIN transcript some other way (hk_transcript_scan) is not forced to
+# scan it a second time just to also pick up the sub-agents.
+hk_models_subagents() {
+  local t dir f
+  t="$1"
+  dir="${t%.jsonl}/subagents"
+  for f in "$dir"/*.jsonl; do
+    [ -f "$f" ] && hk_model_counts "$f"
+  done
+}
+
 # hk_models_run <transcript> -> the models of the main transcript AND every
 # sub-agent's, summed. The Critic runs in its own file, and it is usually the
 # one model a run deliberately decorrelated -- omitting it would hide the split
 # this field exists to show.
 hk_models_run() {
-  local t dir f
+  local t
   t="$1"
   { hk_model_counts "$t"
-    dir="${t%.jsonl}/subagents"
-    for f in "$dir"/*.jsonl; do
-      [ -f "$f" ] && hk_model_counts "$f"
-    done
+    hk_models_subagents "$t"
   } | hk_models_sum
+}
+
+# hk_transcript_scan <transcript> [prices] -> three lines on stdout:
+#   1. cost in MICRO-dollars, or the literal string NULL if any model in the
+#      transcript is missing from the price table
+#   2. "output cache_write cache_read" token components, space separated
+#   3. "model:count model:count ..." message tally, space separated
+#
+# Replaces calling hk_cost_micro + hk_token_components + hk_model_counts on
+# the SAME transcript separately -- all three walk the identical "usage":{
+# lines, de-duplicated by the identical message id, just to extract different
+# fields from each. Measured on a real 17MB transcript: the three separate
+# calls together cost 1.34s; this one pass does the same work once. No state
+# persists between calls -- every call re-reads the file fresh from disk, so
+# a compaction or a rewrite is reflected immediately, exactly like the three
+# functions it replaces (this is a constant-factor fix, not a cache).
+#
+# hk_subagent_cost_micro and hk_models_subagents still scan sub-agent
+# transcripts separately: those are normally small, and merging them added
+# complexity for a saving this project could not measure.
+hk_transcript_scan() {
+  local t prices
+  t="$1"; prices="${2:-$(hk_prices)}"
+  if [ -z "$t" ] || [ ! -f "$t" ]; then
+    printf 'NULL\n0 0 0\n\n'
+    return 1
+  fi
+  # An unreadable price table must not also blank out the token/model tally --
+  # those never depended on prices.conf. /dev/null as the NR==FNR input leaves
+  # every model "unpriced" (cost correctly comes out NULL) without skipping
+  # the rest of the scan.
+  [ -f "$prices" ] || prices=/dev/null
+  awk '
+    NR==FNR {
+      if ($0 ~ /^[[:space:]]*#/ || NF < 3) next
+      pin[$1]=$2; pout[$1]=$3
+      next
+    }
+    {
+      if (!match($0, /"usage":\{/)) next
+      id = ""
+      if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) id = substr($0, RSTART, RLENGTH)
+      if (id != "" && (id in seen)) next
+      if (id != "") seen[id] = 1
+
+      # model_counts wants the RAW model (snapshot suffix kept); pricing wants
+      # it stripped (a snapshot prices the same as its base model, by
+      # definition) -- both need to coexist here, unlike in the separate
+      # single-purpose functions this replaces.
+      model = ""
+      if (match($0, /"model":"[^"]+"/)) model = substr($0, RSTART+9, RLENGTH-10)
+      if (model != "") n[model]++
+
+      lo = lc = lr = li = 0
+      if (match($0, /"output_tokens":[0-9]+/))               lo = substr($0, RSTART+16, RLENGTH-16)
+      if (match($0, /"cache_creation_input_tokens":[0-9]+/)) lc = substr($0, RSTART+30, RLENGTH-30)
+      if (match($0, /"cache_read_input_tokens":[0-9]+/))     lr = substr($0, RSTART+26, RLENGTH-26)
+      if (match($0, /"input_tokens":[0-9]+/))                li = substr($0, RSTART+15, RLENGTH-15)
+      # Token components are model-independent -- accumulated regardless of
+      # whether this message can be priced, same as hk_token_components.
+      o += lo; c += lc; r += lr
+
+      pm = model
+      sub(/-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/, "", pm)
+      if (pm == "" || !(pm in pin)) { bad = 1; next }
+      # cache write = input x1.25, cache read = input x0.1
+      usd += (li * pin[pm] + lo * pout[pm] \
+              + lc * pin[pm] * 1.25 + lr * pin[pm] * 0.1) / 1000000
+    }
+    END {
+      if (bad) print "NULL"; else printf "%d\n", usd * 1000000 + 0.5
+      printf "%d %d %d\n", o+0, c+0, r+0
+      out = ""
+      for (m in n) out = out m ":" n[m] " "
+      print out
+    }
+  ' "$prices" "$t" 2>/dev/null
 }
 
 # hk_models_delta <now> <baseline> -> what THIS run added.

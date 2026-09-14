@@ -15,16 +15,16 @@ set -eu
 cd "$(dirname "$0")"
 
 if ! command -v bun >/dev/null 2>&1; then
-  echo "iamlazy: bun is required to build the OpenCode V2 adapter (https://bun.sh)" >&2
+  echo "iamlazy: se necesita bun para construir el adaptador OpenCode V2 (https://bun.sh)" >&2
   exit 1
 fi
 
 if [ ! -d node_modules ]; then
-  echo "installing @opencode/plugin (build-time only; not part of the deployed bundle)"
+  echo "instalando @opencode/plugin (solo para build; no queda en el bundle final)"
   bun install
 fi
 
-echo "typechecking"
+echo "chequeando tipos"
 # Only the adapter itself gates a build; iamlazy.test.ts is still covered by
 # tsconfig.json for editors, but a test-only type slip should not block
 # shipping production code. -p and file arguments cannot be mixed, so this
@@ -32,7 +32,7 @@ echo "typechecking"
 ./node_modules/.bin/tsc --noEmit --target ESNext --module ESNext --moduleResolution bundler \
   --types bun --strict --skipLibCheck iamlazy.ts
 
-echo "bundling"
+echo "empaquetando"
 mkdir -p dist
 bun build iamlazy.ts --target=bun --outfile dist/iamlazy.js
 
@@ -46,11 +46,11 @@ bun build iamlazy.ts --target=bun --outfile dist/iamlazy.js
 { printf '// iamlazy-managed\n'; cat dist/iamlazy.js; } > dist/iamlazy.js.new \
   && mv dist/iamlazy.js.new dist/iamlazy.js
 
-echo "done: dist/iamlazy.js ($(wc -c < dist/iamlazy.js | tr -d ' ') bytes)"
+echo "listo: dist/iamlazy.js ($(wc -c < dist/iamlazy.js | tr -d ' ') bytes)"
 echo
-echo "Deploy: copy dist/iamlazy.js to ~/.config/opencode/plugins/iamlazy.js (a"
-echo "LOOSE file there is auto-discovered) and remove any loose iamlazy.ts/"
-echo "iamlazy/ directory from that same plugins/ folder first, so the daemon"
-echo "does not try to load two copies. Do not list it in opencode.jsonc's"
-echo "\"plugins\" array as a bare file path -- V2 warns \"configured plugin path"
-echo "must be a directory\" for that shape and silently ignores the entry."
+echo "Deploy: copia dist/iamlazy.js a ~/.config/opencode/plugins/iamlazy.js (un"
+echo "archivo SUELTO ahi se auto-descubre) y elimina primero cualquier iamlazy.ts/"
+echo "directorio iamlazy/ que quede en esa misma carpeta plugins/, para que el"
+echo "daemon no intente cargar dos copias. No lo listes en el array \"plugins\""
+echo "de opencode.jsonc como un path de archivo suelto -- V2 avisa \"configured"
+echo "plugin path must be a directory\" para esa forma e ignora la entrada en silencio."

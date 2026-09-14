@@ -117,20 +117,32 @@ now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # file failed.
 if [ -n "$tpath" ] && [ ! -f "$tpath" ]; then
   start_cost=0; cost_priced=1
+  start_out=0; start_cw=0; start_cr=0
+  start_models=""
 else
-  start_cost=$(hk_cost_micro "$tpath")
-  if [ -n "$start_cost" ]; then cost_priced=1; else cost_priced=0; start_cost=0; fi
+  # One pass instead of three (hk_cost_micro + hk_token_components +
+  # hk_models_run all walked the same "usage":{ lines) -- see
+  # hk_transcript_scan in lib.sh.
+  scan_out=$(hk_transcript_scan "$tpath")
+  scan_cost=$(printf '%s\n' "$scan_out" | sed -n '1p')
+  scan_tok=$(printf '%s\n' "$scan_out" | sed -n '2p')
+
+  # Same baseline, for the same reason, applied to WHICH models answered: the
+  # close reports what this run added, not every model the session ever used.
+  # Semantic rather than positional (a count per model, not a line offset) so a
+  # compaction that rewrites the transcript cannot silently shift the window.
+  start_models=$(printf '%s\n' "$scan_out" | sed -n '3p')
+
+  if [ "$scan_cost" != "NULL" ] && [ -n "$scan_cost" ]; then
+    cost_priced=1; start_cost=$scan_cost
+  else
+    cost_priced=0; start_cost=0
+  fi
+
+  # shellcheck disable=SC2046  # word splitting is the point: "N N N" into $1 $2 $3
+  set -- $scan_tok
+  start_out="${1:-0}"; start_cw="${2:-0}"; start_cr="${3:-0}"
 fi
-
-# shellcheck disable=SC2046  # word splitting is the point: "N N N" into $1 $2 $3
-set -- $(hk_token_components "$tpath" 2>/dev/null)
-start_out="${1:-0}"; start_cw="${2:-0}"; start_cr="${3:-0}"
-
-# Same baseline, for the same reason, applied to WHICH models answered: the
-# close reports what this run added, not every model the session ever used.
-# Semantic rather than positional (a count per model, not a line offset) so a
-# compaction that rewrites the transcript cannot silently shift the window.
-start_models=$(hk_models_run "$tpath")
 
 # Same reasoning for interruptions: the marker accumulates over the session, so
 # the close subtracts this baseline instead of reporting the session's total.

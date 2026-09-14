@@ -1339,6 +1339,51 @@ gotk=$(. "$SRC/hooks/lib.sh"; hk_cost_micro "$DEDUP/c.jsonl" "$PRICES")
 if [ "$gotk" = "16250" ]; then ok "aplica los multiplicadores de cache (x1,25 write / x0,1 read)"
 else no "multiplicadores de cache incorrectos: esperaba 16250, obtuvo $gotk"; fi
 
+echo
+echo "hk_transcript_scan — una compactacion no arrastra la lectura anterior"
+
+# El fix de rendimiento del ticket 06 fusiona hk_cost_micro + hk_token_components
+# + hk_model_counts en un unico awk sobre el transcript. La trampa que el ticket
+# nombra explicitamente: cualquier cache posicional (un offset de bytes, o un
+# resultado guardado por path) se rompe en silencio si una compactacion reescribe
+# el transcript bajo esa ventana -- el mismo motivo por el que models_seen ya es
+# semantico, no posicional. Esta prueba llama a la funcion dos veces sobre el
+# MISMO path: primero con un transcript, despues con ese path reescrito con
+# contenido mas chico y otro modelo (la compactacion), y exige que la segunda
+# lectura refleje solo lo que hay ahora.
+SCAN="$(mktmp)"
+mk_prices "$SCAN"
+PRICES_SCAN="$SCAN/.iamlazy/prices.conf"
+{
+  printf '{"model":"claude-opus-5","message":{"id":"msg_1","usage":{"input_tokens":0,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+  printf '{"model":"claude-opus-5","message":{"id":"msg_2","usage":{"input_tokens":0,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+  printf '{"model":"claude-opus-5","message":{"id":"msg_3","usage":{"input_tokens":0,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+} > "$SCAN/t.jsonl"
+# 300 tokens de salida x $25/MTok = 7.500 micro-dolares.
+before=$(. "$SRC/hooks/lib.sh"; hk_transcript_scan "$SCAN/t.jsonl" "$PRICES_SCAN")
+before_cost=$(printf '%s\n' "$before" | sed -n '1p')
+before_tok=$(printf '%s\n' "$before" | sed -n '2p')
+before_models=$(printf '%s\n' "$before" | sed -n '3p')
+if [ "$before_cost" = "7500" ] && [ "$before_tok" = "300 0 0" ] && [ "$before_models" = "claude-opus-5:3 " ]; then
+  ok "antes de la compactacion: 3 mensajes de opus, 7.500 micro-dolares"
+else
+  no "lectura inicial incorrecta: costo=$before_cost tokens='$before_tok' modelos='$before_models'"
+fi
+
+# La compactacion: el MISMO path, reescrito con un solo mensaje de otro modelo.
+printf '{"model":"claude-sonnet-5","message":{"id":"msg_9","usage":{"input_tokens":0,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' \
+  > "$SCAN/t.jsonl"
+# 1 token de salida x $10/MTok = 10 micro-dolares.
+after=$(. "$SRC/hooks/lib.sh"; hk_transcript_scan "$SCAN/t.jsonl" "$PRICES_SCAN")
+after_cost=$(printf '%s\n' "$after" | sed -n '1p')
+after_tok=$(printf '%s\n' "$after" | sed -n '2p')
+after_models=$(printf '%s\n' "$after" | sed -n '3p')
+if [ "$after_cost" = "10" ] && [ "$after_tok" = "1 0 0" ] && [ "$after_models" = "claude-sonnet-5:1 " ]; then
+  ok "tras la compactacion: solo lo que hay ahora, nada de los 3 mensajes de opus que ya no estan"
+else
+  no "la compactacion arrastro la lectura anterior: costo=$after_cost tokens='$after_tok' modelos='$after_models'"
+fi
+
 echo "merge-settings — sin parser JSON avisa lo correcto"
 
 # `rc=$?` despues de un `if` lee el estado del `if`, que es 0 cuando corre el
@@ -1357,7 +1402,7 @@ msout=$(PATH="$MS/bin" "$SRC/hooks/merge-settings.sh" "$MS/settings.json" /x/hoo
 msrc=$?
 if [ "$msrc" = "3" ]; then ok "sin parser JSON sale con 3"; else no "sin parser JSON debia salir 3 (obtuvo $msrc)"; fi
 case "$msout" in
-  *"NO JSON PARSER"*) ok "sin parser JSON lo dice explicitamente" ;;
+  *"SIN PARSER JSON"*) ok "sin parser JSON lo dice explicitamente" ;;
   *) no "mensaje incorrecto sin parser (obtuvo: $msout)" ;;
 esac
 assert_grep 'dark' "$MS/settings.json" "sin parser, settings.json queda intacto"
