@@ -758,3 +758,70 @@ expected, and also broke five *pre-existing* drift/breaker/cost tests that reuse
 path across several `flush-run.sh` calls within a single test — the same shape of bug the ticket
 worried about, catching itself in the existing suite before the new test even had to. Reverting
 restored a clean run: `test-hooks.sh` 292/292 (+2 from this ticket), `test.sh` 182/182 unaffected.
+
+## 2026-09-16 — closing the OpenCode V2 gap audit
+
+Four gaps from the V2 audit, closed together. The installed machine was also brought back in sync
+first (`./install.sh --check` had been failing: five shared hooks behind the repo, and the deployed
+bundle not recognized as installer-owned). That last one was the installer refusing to overwrite a
+file that lacked the `// iamlazy-managed` marker — correct behavior, since the deployed bundle was
+the one hand-built before `build.sh` started re-adding the marker `bun build` strips. Backed it up,
+removed it, reinstalled.
+
+**`patch` edits escaped Layer 0 entirely.** V2's `patch` tool applies a whole apply_patch document
+in one call. It matched no branch in `execute.after`, so every file it wrote was invisible to
+`track-edit.sh` — no journal line, and nothing for the scope gate to check. The shapes were read
+from the v2.0.1 binary's own parser rather than guessed: input is `{patchText}`, result is
+`{output: {applied: [{type, resource, target}], files}}`, and the valid headers are
+`*** Add File: {path}`, `*** Update File: {path}`, `*** Delete File: {path}` plus `*** Move to:
+{path}`. Two sources are unioned because neither is complete: `applied[].target` is absolute and
+authoritative for what was written, but a MOVE reports only its destination — the source it emptied
+appears nowhere except the patch headers. Relative headers resolve against a base derived from an
+applied entry (`target` minus `resource`), not the session cwd: a run opened through the API records
+`cwd=$HOME` even when the project lives elsewhere, which was observed directly, not assumed.
+
+**Background sub-agents are now refused by Layer 0, not the prompt.** V2 can launch a delegation
+with `background: true`; the tool returns `"running"` immediately and the work finishes out of band,
+so findings never arrive through `SubagentStop`. The old path recorded `critic_asked` and then let
+the run close as a "declared deviation" — which reads as *no review was attempted* when one was
+actually still running. That is the silent degradation Layer 0 exists to remove, so the denial lives
+in `guard-agent.sh` (via the existing `hk_bool_true`), placed BEFORE the Critic branch so a refused
+attempt records nothing. It stays host-neutral: the adapter already forwarded the field through its
+spread, and Claude Code's Agent tool simply never carries it. Matching `true` anywhere in the
+payload is the fail-safe direction, same reasoning as the `subagent_type` ambiguity denial.
+
+**Both completion vocabularies, one flush.** The adapter accepted only
+`session.execution.{succeeded,failed,interrupted}`. `session.idle` is a real, declared event in the
+same protocol version's schema, so a later build may emit it — possibly alongside. Capturing the raw
+SSE stream during a real turn on this daemon showed exactly one `session.execution.started` and one
+`session.execution.succeeded`, and no `session.idle` at all. Both vocabularies are accepted now,
+gated by an in-flight turn marker set from three independent places (the prompt hook, the `/iamlazy`
+command, and `session.execution.started`) and cleared by whichever completion event arrives first.
+Layer 0 would survive a double flush anyway — `hk_claim_close` makes the close atomic — but the
+block path would still inject two synthetic messages into the session for a single turn, which the
+human would see.
+
+**Cleanup is now actually exercised.** The migration checklist requires proving teardown on reload
+or removal. The test mock previously ignored the `AbortSignal`, which meant a cleanup that never
+unsubscribed would have passed silently; worse, it would have hung. The mock honors the signal now,
+and the new test drives the returned cleanup function, asserting the subscription terminates, that
+opened runs get `end-run.sh`, and that events pushed afterwards do nothing.
+
+Verified by mutation, one per new behavior, each killing exactly the expected test: disabling the
+background denial killed the Critic-background denial and the `critic_asked` assertion (the
+Explore-in-background case correctly survived — Explore is denied regardless, so that assertion has
+no teeth for this feature and is kept only as a regression guard); dropping `session.idle` killed
+both event tests; removing the in-flight gate killed the flush-exactly-once test; removing the
+patchText parse killed the move test; resolving against the session cwd instead of the derived base
+killed the project-resolution test; emptying the end-run sweep killed the cleanup test; and removing
+`controller.abort()` made the cleanup test hang until its timeout — the kill that matters most,
+since that is the failure the old mock could not have shown. `test-hooks.sh` 296/296, `test.sh`
+182/182, adapter suite 14/14.
+
+**What is NOT verified.** No live `patch` call was observed. The tool is registered in the daemon
+with options identical to `edit` (`{codemode: false, permission: "edit"}`), so it is not gated
+differently, and no agent in the config restricts tools — but across three attempts the model in
+this environment reported `patch` absent from its tool set and declined to call it, correctly
+refusing to emulate it with `shell` and report it as the real thing. The branch is unit- and
+mutation-tested against shapes read from the daemon binary, not against live traffic. Recorded as
+evidence-gated rather than claimed as done.

@@ -204,7 +204,8 @@ justification; an undeclared deviation is an automatic reviewer finding.
   Still unconfirmed, for a different reason now (nothing ever got far enough to trigger either):
   whether a `throw` shows its reason to the model, and whether the gate's block fed back through
   `session.promptAsync` makes it continue. A Critic spawned in the **background** returns before
-  it has reviewed and is not counted as a review; the prompt asks for the foreground.
+  it has reviewed; since 2026-09-16 `guard-agent.sh` refuses that spawn outright rather than
+  relying on the prompt to ask for the foreground — see the V2 entry below.
 - **A separate OpenCode V2 adapter exists at `adapters/opencode-v2/iamlazy.ts`**, targeting the
   native `@opencode/plugin` API (v2.0.x) rather than V1's `@opencode-ai/plugin`. Unlike V1's
   adapter, it has a real runtime dependency and must be bundled (`build.sh`, `bun build
@@ -222,10 +223,21 @@ justification; an undeclared deviation is an automatic reviewer finding.
   to the "zero external deps" rule below, on top of V1's type-only one. `test.sh` now covers the
   installer's V2 path (a real install + build, byte-for-byte switching between V1/V2 leaves no
   stale shape, `--check`/`uninstall.sh` on it), the purity/hook-existence invariants (both
-  adapters, plus an explicit V1/V2 hook-set-equality check), and the adapter's own 6-test
+  adapters, plus an explicit V1/V2 hook-set-equality check), and the adapter's own 14-test
   `bun test` suite -- all mutation-verified. Since the installer's own V2 coverage already pays
   the one real `bun install` a fresh checkout needs, running the adapter's suite right after it
   costs nothing further; bun missing fails loudly on both, same standard as V1's adapter test.
+  Four further gaps closed 2026-09-16 (audit → `adapters/opencode-v2/README.md`): `patch` edits are
+  journaled per file (they matched no branch before, so a multi-file apply escaped the journal and
+  the scope gate entirely); background sub-agents are refused by Layer 0 rather than silently
+  closing a run as a declared deviation with a review still in flight; `session.idle` is accepted
+  alongside `session.execution.*`, gated so one turn flushes exactly once; and the plugin's cleanup
+  path is now exercised by a test that proves the subscription actually terminates. **Still
+  evidence-gated:** no live `patch` call has been observed — the tool is registered in the daemon
+  with options identical to `edit`, and its input/result shapes were read from that binary, but the
+  model in this environment reported it absent from its tool set across three attempts and declined
+  to call it. The branch is unit- and mutation-tested against the real shapes, not against live
+  traffic.
 - **`curl | bash` requires `IAMLAZY_RAW_BASE`**; offline is clone+run.
 
 Why the design is what it is: `docs/decisions-2026-09.md` (the unchecked suppositions, the gate's
