@@ -143,14 +143,54 @@ See `docs/decisions-2026-09.md` for the full incident writeup, including how eac
     removal. The suite now drives the returned cleanup function and asserts the subscription
     actually terminates, that opened runs get `end-run.sh`, and that post-cleanup events do nothing.
 
+## Why the model usually cannot call `patch`
+
+`patch` registers with `codemode: false`, which keeps it OUT of the Code Mode catalog -- the
+`tools[...]` object a model reaches through the `execute` sandbox. Models in this setup drive their
+tools through that catalog, so asking one to call `patch` produces:
+
+```
+⚙ execute {"code":"const r = await tools[\"patch\"]({ patchText: ... })"}
+  Unknown tool 'patch'. The tool may have been removed or renamed.
+```
+
+which reads as "the tool does not exist" and is why two different models on two different providers
+both reported it missing while offering `edit`/`write`. It is not an agent `tools:` restriction
+(none is configured), not the permission filter (`patch` and `edit` share `permission: "edit"`), and
+not a broken definition -- dumping the live registry from a plugin shows `patch` present with a
+valid 1086-character description and options identical to `edit`.
+
+A plugin can expose it by flipping that one option in its own `ctx.tool.transform`:
+
+```ts
+editor.update("patch", (tool) => { tool.options = { ...tool.options, codemode: true } })
+```
+
+**This adapter deliberately does NOT do that.** Its job is to translate OpenCode's events into
+Layer 0's payloads, not to change which tools the host offers a model. The branch is here so the
+journal is correct wherever `patch` IS reachable; deciding to make it reachable is the host's call,
+not the harness's.
+
+## Verified live
+
+The `patch` branch was confirmed against the real daemon (2026-09-16) by exposing the tool with the
+one-line transform above in a throwaway plugin, then running a genuine multi-file apply -- an add
+plus a move-with-edit -- inside a seeded run. Layer 0's journal recorded all three paths:
+
+```
+2026-09-16T05:55:13Z Patch c.ts         # added
+2026-09-16T05:55:13Z Patch renamed.ts   # move destination, from applied[].target
+2026-09-16T05:55:13Z Patch a.ts         # move SOURCE, recovered from the patchText headers
+```
+
+That third line is the whole reason both sources are unioned: `applied[]` never reports it.
+
 ## Known gaps
 
-- **A real `patch` run has not been observed end to end.** The tool is registered in the daemon with
-  options identical to `edit` (`{codemode: false, permission: "edit"}`, read from the v2.0.1
-  binary), and the input/result shapes above come from that same binary's own parser -- but across
-  three attempts the model in this environment reported `patch` absent from its tool set and
-  declined to call it. The branch is unit- and mutation-tested against those real shapes; it has not
-  been confirmed against live traffic. Treat it as evidence-gated.
-- `session.idle` handling is likewise forward-looking: the installed v2.0.1 daemon never emits it
-  (confirmed twice by capturing its raw SSE stream during a real turn). The support exists so an
-  upgrade cannot silently stop closing runs.
+- `session.idle` handling is forward-looking: the installed v2.0.1 daemon never emits it (confirmed
+  twice by capturing its raw SSE stream during a real turn). The support exists so an upgrade cannot
+  silently stop closing runs.
+- A patch that fails PART WAY through its write phase is not journaled. The tool reports
+  `status: "error"` with no result, and the files it managed to write before failing are named only
+  inside the error message. Verification and permission failures -- the realistic cases -- happen
+  before any write, so nothing is lost there.

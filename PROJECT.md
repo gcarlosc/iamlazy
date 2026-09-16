@@ -232,12 +232,14 @@ justification; an undeclared deviation is an automatic reviewer finding.
   the scope gate entirely); background sub-agents are refused by Layer 0 rather than silently
   closing a run as a declared deviation with a review still in flight; `session.idle` is accepted
   alongside `session.execution.*`, gated so one turn flushes exactly once; and the plugin's cleanup
-  path is now exercised by a test that proves the subscription actually terminates. **Still
-  evidence-gated:** no live `patch` call has been observed — the tool is registered in the daemon
-  with options identical to `edit`, and its input/result shapes were read from that binary, but the
-  model in this environment reported it absent from its tool set across three attempts and declined
-  to call it. The branch is unit- and mutation-tested against the real shapes, not against live
-  traffic.
+  path is now exercised by a test that proves the subscription actually terminates. The `patch`
+  branch is confirmed against the real daemon: a genuine multi-file apply (an add plus a
+  move-with-edit) journaled all three paths, the move's SOURCE included — the one `applied[]` never
+  reports. Note that `patch` registers with `codemode: false`, which keeps it out of the Code Mode
+  catalog a model reaches through the `execute` sandbox, so most sessions cannot call it at all and
+  report it as nonexistent. A plugin can expose it by flipping that option; **this adapter
+  deliberately does not** — translating events is its job, choosing which tools the host offers a
+  model is not.
 - **`curl | bash` requires `IAMLAZY_RAW_BASE`**; offline is clone+run.
 
 Why the design is what it is: `docs/decisions-2026-09.md` (the unchecked suppositions, the gate's

@@ -825,3 +825,47 @@ this environment reported `patch` absent from its tool set and declined to call 
 refusing to emulate it with `shell` and report it as the real thing. The branch is unit- and
 mutation-tested against shapes read from the daemon binary, not against live traffic. Recorded as
 evidence-gated rather than claimed as done.
+
+### Closing the `patch` live verification, and why the model could not see the tool
+
+The branch shipped evidence-gated: shapes read from the daemon binary, no live call observed,
+because two different models on two different providers both reported `patch` absent from their
+tool set while offering `edit` and `write`. That claim turned out to be true from the model's point
+of view and misleading about the daemon.
+
+Ruled out in order, each against evidence rather than reasoning: the agent config restricts no
+tools (`/api/agent` shows no `tools` key on any agent); the permission filter cannot be it, since
+`patch` and `edit` both register `permission: "edit"` and the filter keys on exactly that; Code Mode
+being ON is not it either, because denying the `execute` permission to force direct tool calls
+changed nothing; and the definition is not broken -- dumping the live registry from a throwaway
+plugin's `ctx.tool.transform` shows `patch` present, with a valid 1086-character description and
+options byte-identical to `edit`.
+
+The actual cause is that one option. `patch` registers with `codemode: false`, which by the
+daemon's own partition keeps it out of the Code Mode catalog -- the `tools[...]` object a model
+reaches through the `execute` sandbox. The models here drive their tools through that catalog, so
+the attempt surfaced as `execute {"code":"await tools[\"patch\"](...)"}` answered by
+`Unknown tool 'patch'`, which a model reasonably reports as "the tool does not exist".
+
+Flipping that one option in a plugin's own transform exposes it:
+`editor.update("patch", (t) => { t.options = { ...t.options, codemode: true } })`. Done in a
+throwaway plugin, the model called `patch` immediately, and a genuine multi-file apply -- an add
+plus a move-with-edit -- produced exactly the journal the branch was written for:
+
+```
+2026-09-16T05:55:13Z Patch c.ts         # added
+2026-09-16T05:55:13Z Patch renamed.ts   # move destination, from applied[].target
+2026-09-16T05:55:13Z Patch a.ts         # move SOURCE, recovered from the patchText headers
+```
+
+The adapter does NOT ship that flip. Its job is translating OpenCode's events into Layer 0's
+payloads; deciding which tools the host offers a model is the host's call. The branch exists so the
+journal is correct wherever `patch` is reachable.
+
+**A fixture bug worth recording, because it produced a convincing false negative.** The first live
+attempt journaled nothing and left junk `abandoned` lines in `runs.jsonl` with every field empty.
+The run file had been seeded with Python's `json.dump`, which writes `"session_id": "ses_..."` --
+with a space after the colon. Every reader in `lib.sh` matches `"key":"value"` with no space, so
+every field read as empty: `hk_guard` failed, `track-edit.sh` went inert, and `hk_flush_abandoned`
+later logged a run whose fields it could not parse. The hooks behaved correctly throughout; the
+fixture was simply not in the format they write. Seed run files with the compact form.
