@@ -42,6 +42,23 @@ fi
 
 sub=$(hk_field "$payload" "subagent_type")
 
+# A background sub-agent is refused BEFORE the Critic branch, so a refused
+# attempt never records critic_asked (2026-09-16). OpenCode V2 can launch a
+# delegation with background:true: the tool returns "running" immediately and
+# the work finishes out of band. That mode is incompatible with this
+# guarantee's shape -- the close gate waits for findings to arrive through
+# SubagentStop, and a background spawn never sends any. Allowing it would let
+# the run close as a "declared deviation" while a review was still in flight,
+# which is precisely the silent degradation Layer 0 exists to remove: the
+# human would read "closed without review" and never learn one had been
+# started. Claude Code's Agent tool carries no such field, so this is inert
+# there. Matching `true` ANYWHERE in the payload is the fail-safe direction --
+# a payload carrying the field twice denies rather than picking one, exactly
+# like the subagent_type ambiguity above.
+if hk_bool_true "$payload" "background"; then
+  hk_deny "iamlazy: a run's sub-agent may not run in the background -- its findings would never reach the close gate, and the run would close as if no review had been attempted. Spawn it in the foreground."
+fi
+
 if [ "$sub" = "iamlazy-critic" ]; then
   # Recorded BEFORE the ask, not after: this is proof an attempt happened,
   # not proof of what the human answered. hk_close_signal reads it to refuse

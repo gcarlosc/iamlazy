@@ -190,6 +190,35 @@ assert_allow "$ACTIVE" \
   "{$G,\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"}}" \
   "no interfiere con otros tools"
 
+# OpenCode V2 puede lanzar un sub-agente en background: el tool vuelve
+# "running" al instante y el trabajo termina fuera de banda, asi que sus
+# hallazgos NUNCA llegan por SubagentStop. Permitirlo cerraria la corrida como
+# "desvio declarado" con una revision todavia en vuelo -- la degradacion
+# silenciosa que la Capa 0 existe para eliminar. Se deniega ANTES de la rama
+# del Critico, asi que un intento rechazado tampoco graba critic_asked.
+assert_deny "$ACTIVE" \
+  "{$G,\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"iamlazy-critic\",\"background\":true}}" \
+  "deniega al Critico en background"
+assert_deny "$ACTIVE" \
+  "{$G,\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"Explore\",\"background\":true}}" \
+  "deniega cualquier sub-agente en background"
+# background:false es el modo normal y no debe confundirse con el denegado.
+assert_ask "$ACTIVE" \
+  "{$G,\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"iamlazy-critic\",\"background\":false}}" \
+  "background:false sigue siendo el camino normal del Critico"
+
+# open_run graba critic_asked:1 de entrada; para probar que el rechazo NO lo
+# graba hay que SACAR el campo primero -- el mismo patron que usa el E2E de
+# abajo, que ya demuestra que sobre este fixture un intento en foreground SI
+# lo escribe. Sin eso, la afirmacion no tendria dientes.
+BG="$(mktmp)"
+open_run "$BG" "$BG" 30
+sed 's/,"critic_asked":1//' "$(runfile "$BG")" > "$(runfile "$BG").new" \
+  && mv "$(runfile "$BG").new" "$(runfile "$BG")"
+run_guard "$BG" "{$G,\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"iamlazy-critic\",\"background\":true}}" >/dev/null
+assert_ungrep '"critic_asked"' "$(runfile "$BG")" \
+  "un intento en background NO graba critic_asked (no fue un intento valido)"
+
 # El guard es lo que hace instalable la Capa 0 globalmente: fuera de una corrida
 # de iamlazy los hooks deben ser inertes, o romperian toda sesion de Claude Code.
 assert_allow "$IDLE" \
