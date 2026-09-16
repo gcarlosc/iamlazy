@@ -2,10 +2,18 @@
 
 A second, separate OpenCode adapter targeting the native `@opencode/plugin` API (v2.0.x). It does
 **not** replace `adapters/opencode/iamlazy.ts` (the V1 adapter, `@opencode-ai/plugin`) -- the two
-host APIs are incompatible, and `install.sh`/`test.sh` still only know about V1. This directory is
-deliberately **not wired into either**: OpenCode V2 support is a candidate, not a committed host
-(see `DELTAS.md` and `PROJECT.md`'s debt section), so building and deploying it stays an explicit,
-opt-in step you run by hand.
+host APIs are incompatible and `--tool=opencode` still means V1.
+
+`install.sh` and `test.sh` both know about this adapter now, but only behind an explicit opt-in:
+
+- `./install.sh --tool=opencode-v2` builds and deploys it. V2 is **never auto-selected** -- omitting
+  `--tool` detects Claude Code and OpenCode V1 only. It also requires a real cloned checkout plus
+  `bun`, and refuses cleanly under `curl | bash`, because the bundle has to be built from source.
+- `./test.sh` runs this directory's `bun test` suite and checks both adapters for adapter purity and
+  for invoking the identical hook set.
+
+That opt-in is the point: OpenCode V2 is a candidate host, not a committed one (see `DELTAS.md` and
+`PROJECT.md`'s debt section), so nothing selects it on your behalf.
 
 ## Why this needs a build step at all
 
@@ -97,19 +105,52 @@ regressions, all confirmed by an independent read-only review and then fixed and
 5. **Prompt attachments dropped.** The `/iamlazy` command executor forwarded only `prompt.text` to
    `session.prompt`, discarding `files`/`agents`/`skills`.
 6. **Idle/close never fires.** Discovered during the real end-to-end run, not by the original
-   review's mocks: the adapter listened for `session.idle` / `session.status`, event names guessed
-   from V1's vocabulary that **do not exist** on the real v2.0.1 event bus (confirmed by capturing
-   its raw SSE stream). The real events are `session.execution.{succeeded,failed,interrupted}`.
+   review's mocks: the adapter listened for `session.idle` / `session.status`, and this daemon
+   emits neither (confirmed by capturing its raw SSE stream). The real events are
+   `session.execution.{succeeded,failed,interrupted}`. See gap 9 below for how the other
+   vocabulary was later added back safely.
    Without this, a run opens, tracks edits and the Critic correctly, and then never flushes --
    `flush-run.sh` never gets a chance to run, so the run sits in `~/.iamlazy/active` forever no
    matter what the model prints.
 
 See `docs/decisions-2026-09.md` for the full incident writeup, including how each fix was verified.
 
-## Known gaps, carried over from the original review
+## Closed later, from the gap audit (2026-09-16)
 
-- Command executor has no `patch` branch (V2's `patch` tool takes a multi-file `patchText`, not a
-  single `path` -- a materially different shape from `edit`/`write`). Not part of the reproduced
-  regressions above; left as a documented gap rather than a rushed, untested parse of unified diffs.
-- Background (non-foreground) sub-agent completion is a separate, unverified compatibility
-  boundary -- unchanged from the original review's scope.
+7. **`patch` edits escaped the journal entirely.** V2's `patch` tool applies a whole apply_patch
+   document in one call, so one tool event can write several files. It matched no branch at all, so
+   every file it wrote was invisible to `track-edit.sh` -- and therefore to the journal and the
+   scope gate. Now journaled one line per file, from the union of two sources, because neither is
+   complete on its own: `result.output.applied[].target` (absolute, authoritative for what was
+   written) and the `patchText` headers (`*** Add File:` / `*** Update File:` / `*** Delete File:` /
+   `*** Move to:`) -- a move reports only its DESTINATION in the result, so the source it emptied
+   appears nowhere else. Relative headers resolve against a base derived from an applied entry
+   (`target` minus `resource`), not the session cwd: a run opened through the API records
+   `cwd=$HOME` even when the project lives elsewhere.
+8. **Background sub-agents could close a run with a review still in flight.** V2 can launch a
+   delegation with `background: true`; the tool returns `"running"` immediately and the work
+   finishes out of band, so findings never arrive through `SubagentStop`. `critic_asked` was
+   recorded anyway, and the run then closed as a "declared deviation" -- reading as *no review was
+   attempted* when one was actually still running. Layer 0 now refuses the spawn outright
+   (`guard-agent.sh`), before the Critic branch, so a refused attempt records nothing. The adapter's
+   job is only to forward the flag intact.
+9. **Completion events were single-vocabulary.** The adapter accepted only
+   `session.execution.{succeeded,failed,interrupted}`. `session.idle` is a real, declared event in
+   the same protocol version's schema, so a later build may emit it -- possibly alongside. Both
+   vocabularies are accepted now, gated by an in-flight turn marker so one turn flushes exactly
+   once. Without the gate, a build emitting both would inject two synthetic messages for one turn.
+10. **Cleanup was never exercised.** The migration checklist requires proving teardown on reload or
+    removal. The suite now drives the returned cleanup function and asserts the subscription
+    actually terminates, that opened runs get `end-run.sh`, and that post-cleanup events do nothing.
+
+## Known gaps
+
+- **A real `patch` run has not been observed end to end.** The tool is registered in the daemon with
+  options identical to `edit` (`{codemode: false, permission: "edit"}`, read from the v2.0.1
+  binary), and the input/result shapes above come from that same binary's own parser -- but across
+  three attempts the model in this environment reported `patch` absent from its tool set and
+  declined to call it. The branch is unit- and mutation-tested against those real shapes; it has not
+  been confirmed against live traffic. Treat it as evidence-gated.
+- `session.idle` handling is likewise forward-looking: the installed v2.0.1 daemon never emits it
+  (confirmed twice by capturing its raw SSE stream during a real turn). The support exists so an
+  upgrade cannot silently stop closing runs.

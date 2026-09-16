@@ -46,6 +46,9 @@ export default Plugin.define({
     const context = new Map<string, string>()
     const opened = new Set<string>()
     const continued = new Set<string>()
+    // Sessions with a turn in flight. This is what makes accepting BOTH
+    // completion vocabularies safe -- see the idle branch below.
+    const busy = new Set<string>()
     // Baseline for turning V2's cumulative session.usage.updated totals into
     // per-event deltas -- see the HostCost handling below.
     const usageOf = new Map<string, UsageTotals>()
@@ -57,6 +60,43 @@ export default Plugin.define({
     }
 
     const cwdFor = (sid: string): string => cwdOf.get(sid) ?? fallbackCwd
+
+    const absolute = (p: string, cwd: string): string =>
+      p.startsWith("/") ? p : `${cwd.replace(/\/+$/, "")}/${p}`
+
+    // V2's `patch` tool applies a whole apply_patch document in ONE call, so a
+    // single tool event can write several files at once. Its declared targets
+    // live in header lines; the format is the daemon's own, confirmed against
+    // its parser: the only valid hunk headers are `*** Add File: {path}`,
+    // `*** Delete File: {path}` and `*** Update File: {path}`, plus
+    // `*** Move to: {path}` for a rename. Parsed here because a move reports
+    // ONLY its destination in the tool result -- the vacated source appears
+    // nowhere else, and it is a real write.
+    // The directory a relative patch header resolves against, derived from the
+    // result itself: every applied entry carries `target` (absolute) and
+    // `resource` (the same file relative to the project root), so stripping
+    // one from the other yields the root exactly. Deriving it beats trusting
+    // the session's cwd, which on a daemon serving one directory while the
+    // project lives in another is simply the wrong answer -- observed: a run
+    // opened through the API records cwd=$HOME regardless of where the work is.
+    const patchBase = (applied: ReadonlyArray<{ target?: string; resource?: string }>): string => {
+      for (const a of applied) {
+        const t = a?.target
+        const r = a?.resource
+        if (t && r && t.endsWith(r)) return t.slice(0, t.length - r.length)
+      }
+      return ""
+    }
+
+    const patchTargets = (patchText: string): string[] => {
+      const out: string[] = []
+      for (const raw of patchText.split("\n")) {
+        const m = /^\*\*\* (?:Add File|Update File|Delete File|Move to):[ \t]*(.+)$/.exec(raw.trim())
+        const p = m?.[1]?.trim()
+        if (p) out.push(p)
+      }
+      return out
+    }
 
     const runHook = async (hook: string, payload: Payload): Promise<HookResult> => {
       const script = `${hooksDir}/${hook}`
@@ -107,6 +147,7 @@ export default Plugin.define({
       context.delete(sid)
       opened.delete(sid)
       continued.delete(sid)
+      busy.delete(sid)
       usageOf.delete(sid)
     }
 
@@ -121,6 +162,7 @@ export default Plugin.define({
         execute: async ({ sessionID, prompt, delivery }) => {
           const sid = root(sessionID)
           opened.add(sid)
+          busy.add(sid)
           const promptText = prompt.text ?? ""
           const fullPrompt = promptText ? `/iamlazy ${promptText}` : "/iamlazy"
           const r = await runHook("open-run.sh", {
@@ -147,6 +189,7 @@ export default Plugin.define({
     await ctx.session.hook("prompt", async (event) => {
       const sid = event.sessionID
       if (parentOf.has(sid)) return
+      busy.add(sid)
       const r = await runHook("open-run.sh", {
         hook_event_name: "UserPromptSubmit",
         session_id: sid,
@@ -213,6 +256,7 @@ export default Plugin.define({
         path?: string
         filePath?: string
         file_path?: string
+        patchText?: string
         agent?: string
         subagent_type?: string
         background?: boolean
@@ -231,6 +275,40 @@ export default Plugin.define({
           tool_name: tool === "edit" ? "Edit" : "Write",
           tool_input: { file_path: filePath },
         })
+      } else if (tool === "patch" && event.status === "completed") {
+        // One patch call, one journal line PER FILE it touched -- Layer 0's
+        // journal and scope gate are both keyed on individual paths, so a
+        // multi-file patch reported as a single event would have escaped both
+        // entirely. It did: before this branch `patch` matched no branch at
+        // all, and every file it wrote was invisible to the harness.
+        //
+        // Two sources, unioned, because neither alone is complete:
+        //   - result.output.applied[].target -- ABSOLUTE paths, authoritative
+        //     for what was actually written, but a move reports only its
+        //     DESTINATION and never the source it emptied.
+        //   - the patchText headers -- the only place that vacated source
+        //     appears. Relative, so resolved against the session's cwd.
+        // Duplicates collapse in the Set; track-edit.sh is idempotent per path
+        // anyway, and journaling the same file twice is a cosmetic cost while
+        // missing one is a hole in the guarantee.
+        type Applied = ReadonlyArray<{ target?: string; resource?: string }>
+        const result = event.result as { output?: { applied?: Applied }; applied?: Applied } | undefined
+        const applied = result?.output?.applied ?? result?.applied ?? []
+        const base = patchBase(applied) || cwdFor(sid)
+        const targets = new Set<string>()
+        for (const a of applied) if (a?.target) targets.add(a.target)
+        for (const p of patchTargets(input.patchText ?? "")) targets.add(absolute(p, base))
+        for (const t of targets) {
+          await runHook("track-edit.sh", {
+            hook_event_name: "PostToolUse",
+            session_id: sid,
+            // Named for how the file was actually touched, so the journal line
+            // says `Patch <file>` and a reader can tell a multi-file apply
+            // from a single-file edit without leaving the ledger.
+            tool_name: "Patch",
+            tool_input: { file_path: t },
+          })
+        }
       } else if ((tool === "subagent" || tool === "task") && subagentType && !input.background) {
         if (event.status === "completed") {
           const result = event.result as
@@ -339,23 +417,45 @@ export default Plugin.define({
             continue
           }
 
+          // A turn starts here. Marking it also comes from the prompt hook and
+          // from the /iamlazy command, so the gate below survives a build that
+          // renames or drops this event -- see the isIdle comment.
+          if (event.type === "session.execution.started") {
+            const data = event.data as { sessionID: string }
+            if (!parentOf.has(data.sessionID)) busy.add(root(data.sessionID))
+            continue
+          }
+
           // V1's Stop hook fires whenever the assistant stops talking,
-          // regardless of how the turn ended. "session.idle"/"session.status"
-          // (guessed from the V1 vocabulary) do not exist on the real v2.0.1
-          // event bus -- confirmed by capturing its raw SSE stream, which
-          // only ever emits session.execution.{started,succeeded,failed,
-          // interrupted}. Without this fix the run NEVER flushes: it opens,
-          // tracks edits and the Critic correctly, and then sits in
-          // ~/.iamlazy/active forever because the idle branch never once
-          // matched a real event type.
+          // regardless of how the turn ended. This daemon (v2.0.1) signals
+          // that with session.execution.{succeeded,failed,interrupted} and
+          // NEVER emits session.idle -- confirmed twice by capturing its raw
+          // SSE stream during a real turn. An earlier version of this adapter
+          // listened for session.idle/session.status alone, matched nothing,
+          // and left every run sitting in ~/.iamlazy/active forever.
+          //
+          // session.idle is nonetheless a real, declared event in the SAME
+          // protocol version's schema (data: {sessionID}, durability
+          // "ephemeral"), so a later build may well emit it -- possibly
+          // ALONGSIDE session.execution.succeeded. Both vocabularies are
+          // accepted here so an OpenCode upgrade cannot silently stop closing
+          // runs, and the `busy` gate is what makes accepting both safe: a
+          // turn is marked in flight when it starts and cleared by whichever
+          // completion event arrives FIRST, so the second one for the same
+          // turn finds nothing to clear and falls through. Layer 0 would
+          // survive a double flush anyway (hk_claim_close makes the close
+          // atomic), but the block path would still inject two synthetic
+          // messages for one turn, which the human would see.
           const isIdle =
             event.type === "session.execution.succeeded" ||
             event.type === "session.execution.failed" ||
-            event.type === "session.execution.interrupted"
+            event.type === "session.execution.interrupted" ||
+            event.type === "session.idle"
           if (isIdle) {
             const data = event.data as { sessionID: string }
             const sid = root(data.sessionID)
             if (parentOf.has(data.sessionID)) continue
+            if (!busy.delete(sid)) continue
 
             // V1 accumulated assistant text parts from message.part.updated.
             // V2 does not expose those events directly, so we read the last
@@ -415,7 +515,11 @@ export default Plugin.define({
       }
     })()
 
-    // Returning a cleanup function replaces V1 dispose().
+    // Returning a cleanup function replaces V1 dispose(). Aborting BEFORE the
+    // end-run sweep is deliberate: the event task must be off the bus before
+    // any run is closed, or an in-flight idle event could flush a run this is
+    // about to end and race its own cleanup. Awaiting eventTask is what proves
+    // the subscription actually terminated rather than merely being signalled.
     return async () => {
       controller.abort()
       try {
@@ -430,6 +534,8 @@ export default Plugin.define({
         })
       }
       opened.clear()
+      busy.clear()
+      continued.clear()
     }
   },
 })
