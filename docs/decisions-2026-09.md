@@ -869,3 +869,35 @@ with a space after the colon. Every reader in `lib.sh` matches `"key":"value"` w
 every field read as empty: `hk_guard` failed, `track-edit.sh` went inert, and `hk_flush_abandoned`
 later logged a run whose fields it could not parse. The hooks behaved correctly throughout; the
 fixture was simply not in the format they write. Seed run files with the compact form.
+
+## 2026-09-16 — CI had been red for a day, on two platform-shaped bugs
+
+Both predate the V2 gap work and both were invisible on macOS, which is exactly why they survived a
+full day of local green runs.
+
+**`hk_utf8_cut` was a no-op on Linux.** It picked a UTF-8 locale and leaned on `cut -c` being
+character-aware there. GNU coreutils' `cut -c` has never implemented multibyte characters — it is
+byte-based no matter the locale — so on Linux a `task_summary` whose 160-byte boundary landed inside
+a character wrote a dangling lead byte into `runs.jsonl`, making that line invalid UTF-8 and
+unparseable. BSD `cut` does honour the locale, so macOS never saw it.
+
+Rewritten to cut to N bytes and then drop a sequence the cut split, under `LC_ALL=C` where every awk
+treats strings as bytes. It trims only when the byte AFTER the cut is a continuation byte
+(`0x80-0xBF`), which is what proves the cut landed inside a character — a complete character ending
+exactly at the limit is kept, which the old code had no way to distinguish. Verified against BSD
+awk, gawk and mawk (Ubuntu's default awk is mawk, so testing only the system awk would have proven
+nothing). The unit is now BYTES rather than characters; for a truncated log summary that is a fair
+trade for being identical on every platform.
+
+The end-to-end test that caught this could only ever fail on Linux, which is how CI stayed red while
+every local run was green. Five direct assertions on `hk_utf8_cut` now exercise hand-picked bytes,
+so the bug class is catchable anywhere. Mutation-verified twice: removing the trim kills three
+tests — the end-to-end one now among them, ON macOS, which is the real improvement — and making it
+trim unconditionally kills exactly the assertion that a complete character at the boundary survives.
+
+**Two shellcheck failures.** `set -- $scan_tok` in `flush-run.sh` and `open-run.sh` carried
+`# shellcheck disable=SC2046`, but the warning a bare variable raises is SC2086; SC2046 is for
+command substitution. The intent was right and the code was wrong, so the suppression never applied.
+Separately, `install.sh`'s `SCRIPT_DIR="$(cd ... && pwd || true)"` tripped SC2015 on CI's older
+shellcheck: rewritten as `"$(cd ... && pwd)" || SCRIPT_DIR=""`, which says what it means under
+`set -e` instead of relying on `A && B || C`.

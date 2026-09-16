@@ -462,7 +462,11 @@ done
 # ---------- locate source (clone+run vs curl|bash) ----------
 SCRIPT_DIR=""
 case "$0" in
-  */*) SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)" ;;
+  # `|| SCRIPT_DIR=""` rather than a trailing `|| true` INSIDE the substitution:
+  # under `set -e` the point is only to keep an unreachable directory from
+  # aborting the script, and `A && B || C` reads as if-then-else while actually
+  # running C whenever B fails too (SC2015).
+  */*) SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || SCRIPT_DIR="" ;;
 esac
 
 CLEANUP_TMP=""

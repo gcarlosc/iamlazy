@@ -134,7 +134,7 @@ else
   [ -n "$run_cost" ] || unpriced=$(hk_unpriced_run "$tpath")
 
   # Raw components, as deltas, so the run can be repriced after a table fix.
-  # shellcheck disable=SC2046  # word splitting is the point: "N N N" into $1 $2 $3
+  # shellcheck disable=SC2086  # word splitting is the point: "N N N" into $1 $2 $3
   set -- $scan_tok
   d_out=$(( ${1:-0} - $(hk_json_num "$TMP" "start_out"|| echo 0) ))
   d_cw=$((  ${2:-0} - $(hk_json_num "$TMP" "start_cw" || echo 0) ))

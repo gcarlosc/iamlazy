@@ -109,15 +109,34 @@ hk_json_esc() {
 # byte-truncated: an oversized field is cosmetic, a split character is
 # invalid JSON, and an imprecise value beats a confidently wrong one.
 hk_utf8_cut() {
-  local n loc
+  local n
   n="$1"
-  for loc in en_US.UTF-8 C.UTF-8 en_US.utf8 C.utf8; do
-    if locale -a 2>/dev/null | grep -qix "$loc"; then
-      LC_ALL="$loc" cut -c "1-$n"
-      return
-    fi
-  done
-  cat
+  # Cuts to N BYTES, then drops a trailing multibyte sequence that the cut
+  # split in half -- so the result is always valid UTF-8, on every platform.
+  #
+  # This used to pick a UTF-8 locale and lean on `cut -c` being character-aware
+  # there. That premise is false on Linux: GNU coreutils' `cut -c` has never
+  # implemented multibyte characters and is byte-based no matter the locale, so
+  # the whole locale dance was a no-op and a summary ending mid-character wrote
+  # invalid UTF-8 into runs.jsonl. Caught by CI on ubuntu, never on macOS, whose
+  # BSD cut does honour the locale -- the exact shape of bug that makes a
+  # single-platform green run worthless.
+  #
+  # Byte-exact, one pass, and no locale lookup: under LC_ALL=C every awk treats
+  # a string as bytes, so the ranges below are byte ranges. Only trims when the
+  # byte AFTER the cut is a continuation byte (0x80-0xBF), which is what proves
+  # the cut landed inside a character -- a complete character ending exactly at
+  # the limit is kept. Verified against BSD awk, gawk and mawk.
+  LC_ALL=C awk -v n="$n" '
+    {
+      s = substr($0, 1, n)
+      if (substr($0, n + 1, 1) ~ /^[\200-\277]/) {
+        sub(/[\200-\277]+$/, "", s)
+        sub(/[\300-\377]$/, "", s)
+      }
+      print s
+    }
+  '
 }
 
 # ------------------------------------------------------------ run state

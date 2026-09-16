@@ -1139,6 +1139,27 @@ else
   no "python3 ausente: no se pudo validar el UTF-8 de task_summary"
 fi
 
+# hk_utf8_cut, directo. El test end-to-end de arriba SOLO falla donde `cut -c`
+# es byte-based -- o sea en Linux, nunca en macOS, cuyo cut BSD si respeta el
+# locale. Eso lo dejo verde durante un dia entero mientras CI estaba en rojo.
+# Estas afirmaciones ejercitan el helper contra bytes elegidos a mano, asi que
+# tienen dientes en TODA plataforma.
+cut_case() { # $1 label  $2 bytes (formato de printf)  $3 n  $4 esperado
+  # shellcheck disable=SC2059  # el argumento ES el formato: asi se expanden los
+  # escapes octales que construyen los bytes exactos que se quieren probar
+  got=$(printf "$2" | ( . "$SRC/hooks/lib.sh"; hk_utf8_cut "$3" ))
+  if [ "$got" = "$4" ]; then ok "hk_utf8_cut: $1"
+  else no "hk_utf8_cut: $1 (esperaba '$4', obtuvo '$got')"; fi
+}
+# El corte cae DENTRO de una 'o' acentuada (2 bytes): se descarta entera.
+cut_case "descarta un caracter partido al medio" 'abcdefghi\303\263XYZ\n' 10 "abcdefghi"
+# El mismo caracter, completo justo en el limite: se conserva, no se sobre-corta.
+cut_case "conserva un caracter completo en el limite" 'abcdefgh\303\263XYZ\n' 10 "$(printf 'abcdefgh\303\263')"
+# Un emoji de 4 bytes partido: tambien entero.
+cut_case "descarta un emoji partido" 'abcdefgh\360\237\232\200ZZ\n' 10 "abcdefgh"
+cut_case "corte limpio en ASCII" 'abcdefghijKLM\n' 10 "abcdefghij"
+cut_case "entrada mas corta que el limite" 'abc\n' 10 "abc"
+
 if command -v python3 >/dev/null 2>&1; then
   if python3 -c "
 import json,sys

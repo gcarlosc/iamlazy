@@ -139,7 +139,7 @@ else
     cost_priced=0; start_cost=0
   fi
 
-  # shellcheck disable=SC2046  # word splitting is the point: "N N N" into $1 $2 $3
+  # shellcheck disable=SC2086  # word splitting is the point: "N N N" into $1 $2 $3
   set -- $scan_tok
   start_out="${1:-0}"; start_cw="${2:-0}"; start_cr="${3:-0}"
 fi
