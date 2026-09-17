@@ -78,13 +78,6 @@ c_same() {
   else c_bad "$3: la copia instalada difiere de este repo"; fi
 }
 
-# c_load_failure <plugin file> -- shared by both OpenCode adapter shapes. A
-# load failure only matters if it happened to the bytes installed NOW: the
-# log keeps every past one forever, and reporting those would make this check
-# cry wolf about a bug already fixed -- a guarantee firing outside its domain
-# is a defect, this project's own rule. ISO-8601 UTC strings compare
-# correctly as strings, so the whole thing is one lexicographic comparison
-# against the plugin file's own mtime.
 # c_adapter_matches_daemon <V1|V2> -- the installed adapter shape against the
 # daemon that has to load it. This asks the binary BEFORE anything fails, where
 # c_load_failure below can only report a failure that already happened: a fresh
@@ -103,10 +96,32 @@ c_adapter_matches_daemon() {
   fi
 }
 
+# c_load_failure <plugin file> -- shared by both OpenCode adapter shapes. A
+# load failure only matters if it happened to the bytes installed NOW: the
+# log keeps every past one forever, and reporting those would make this check
+# cry wolf about a bug already fixed -- a guarantee firing outside its domain
+# is a defect, this project's own rule. ISO-8601 UTC strings compare
+# correctly as strings, so the whole thing is one lexicographic comparison
+# against the plugin file's own mtime.
 c_load_failure() {
   oc_log="$HOME/.local/share/opencode/log/opencode.log"
-  last_fail="$(grep 'failed to load plugin.*iamlazy' "$oc_log" 2>/dev/null | tail -1 \
-               | sed -n 's/^timestamp=\([^ ]*\).*/\1/p')"
+  # Keyed on target= being EXACTLY this plugin, not on the line mentioning
+  # "iamlazy" anywhere. The old pattern also matched a differently-named file
+  # in the same directory -- a probe, a backup, a fork -- and reported ITS
+  # failure as the installed adapter's. Found by tripping it for real: a
+  # throwaway iamlazy-v1-probe.ts, deployed while proving V1 cannot load on a
+  # 2.x daemon, made --check fail about a bundle that was loading fine.
+  #
+  # awk compares the field as a literal string, so a path full of regex
+  # metacharacters needs no escaping, and target= is matched wherever it sits
+  # rather than assuming another field always follows it.
+  last_fail="$(awk -v want="target=$1" '
+    index($0, "\"failed to load plugin\"") == 0 { next }
+    {
+      for (i = 2; i <= NF; i++)
+        if ($i == want) { ts = $1; sub(/^timestamp=/, "", ts); print ts; break }
+    }
+  ' "$oc_log" 2>/dev/null | tail -1)"
   if [ -z "$last_fail" ]; then
     c_ok "opencode nunca fallo al cargar el plugin"
     return 0

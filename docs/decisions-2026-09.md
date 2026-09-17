@@ -1045,3 +1045,28 @@ the auto/explicit distinction (2), treating an unreadable version as 2.x (2), re
 `--check` direction (1 each), and making the version probe return a constant instead of reading the
 binary (7 — the broadest, which is right, since every other behaviour rests on it). `test.sh`
 182 → 195, `test-hooks.sh` 301, shellcheck clean.
+
+### c_load_failure was blaming the wrong plugin (2026-09-17)
+
+Noted while closing Candidate 19, fixed now. The check grepped for
+`failed to load plugin.*iamlazy`, which matches any line where "iamlazy" appears anywhere after
+that phrase — including a load failure belonging to a DIFFERENT file in the same directory. It
+fired for real: the throwaway `iamlazy-v1-probe.ts` used to prove V1 cannot load on a 2.x daemon
+made `--check` report `opencode fallo al cargar el plugin ... DESPUES de instalar estos bytes`
+about the V2 bundle, which was loading perfectly.
+
+Now keyed on the `target=` field being EXACTLY the plugin passed in. awk compares it as a literal
+string, so a path full of regex metacharacters needs no escaping, and `target=` is found wherever
+it sits in the line rather than assuming another field always follows it. The message match also
+tightened to the quoted `"failed to load plugin"` the daemon actually writes.
+
+Both halves are tested, because a precision fix can fail in two opposite directions and only one of
+them is loud: a failure naming a different `iamlazy*` file must NOT be reported, and one naming the
+installed adapter still MUST be. Three mutations, each killing exactly one of those: broadening the
+comparison back to "any field containing iamlazy" and dropping the target check entirely both kill
+the precision assertion; dropping the message match kills the detection assertion. `test.sh`
+195 → 197.
+
+The same edit put `c_load_failure`'s comment block back above `c_load_failure`:
+`c_adapter_matches_daemon` had been inserted in the middle of it the day before, leaving seven lines
+about mtime comparison sitting above a function that does not do any.

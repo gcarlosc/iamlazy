@@ -550,6 +550,40 @@ if [ -f "$UNKH/.config/opencode/plugins/iamlazy.ts" ]; then
   ok "the V1 adapter is installed when the version cannot be read"
 else no "no V1 adapter when the version cannot be read"; fi
 
+# --------------------------------------------- load failures, attributed right
+echo
+echo "a load failure is attributed to the plugin it names"
+# c_load_failure used to grep for any line mentioning "iamlazy", so a failure
+# belonging to a DIFFERENT file in the same directory -- a probe, a backup, a
+# fork -- was reported as the installed adapter's. That is not hypothetical:
+# it fired on a real machine during the Candidate 19 work and failed --check
+# about a bundle that was loading fine.
+stub_opencode "$VBIN" "opencode v1.18.31"
+LFH="$(mktmp)"
+PATH="$VBIN:$PATH" HOME="$LFH" "$SRC/install.sh" --tool=opencode >/dev/null 2>&1
+LFLOG="$LFH/.local/share/opencode/log/opencode.log"
+mkdir -p "$(dirname "$LFLOG")"
+# Far-future so it is unambiguously AFTER the plugin's mtime: this test is
+# about WHICH plugin the line names, not about the timestamp comparison.
+lfline() { # $1 target path
+  printf 'timestamp=2099-01-01T00:00:00.000Z level=WARN run=deadbeef message="failed to load plugin" target=%s ref=err_x cause="Cause([Fail(...)])"\n' "$1"
+}
+
+lfline "$LFH/.config/opencode/plugins/iamlazy-v1-probe.ts" > "$LFLOG"
+if PATH="$VBIN:$PATH" HOME="$LFH" "$SRC/install.sh" --check >/dev/null 2>&1; then
+  ok "a failure naming a different iamlazy* file is not the installed adapter's"
+else no "a failure naming a different iamlazy* file was blamed on the installed adapter"; fi
+
+lfline "$LFH/.config/opencode/plugins/iamlazy.ts" >> "$LFLOG"
+if lfout="$(PATH="$VBIN:$PATH" HOME="$LFH" "$SRC/install.sh" --check 2>&1)"; then
+  no "a failure naming the installed adapter must still be reported"
+else
+  case "$lfout" in
+    *"2099-01-01"*) ok "a failure naming the installed adapter is reported, with its timestamp" ;;
+    *) no "--check failed but not for the adapter's own load failure" ;;
+  esac
+fi
+
 # ------------------------------------------------------- layer 0 (hooks)
 # The hook suite is a separate file because it tests runtime decisions, not
 # install mechanics. Running it here means one command still covers everything.
