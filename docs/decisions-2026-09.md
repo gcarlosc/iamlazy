@@ -1008,3 +1008,40 @@ path merely CONTAINING "iamlazy". A reinstall cleared it (the check compares aga
 file's mtime). Not worth a candidate of its own — no real install flow produces a differently-named
 `iamlazy*` plugin file — but noted, since `--check` is the only safety net Candidate 19 currently
 has, and its precision is what that net is made of.
+
+## 2026-09-17 — the installer stopped guessing which OpenCode it is talking to
+
+Candidate 19 delivered. `install.sh` picked V1 whenever `command -v opencode` answered — a proxy
+that was true when "opencode exists" implied the V1 plugin API, and stopped being true at 2.0. The
+fix is not "pick V2 instead", which is the same mistake pointing the other way: it is to read
+`opencode --version` (local, 39ms, no network) and act on evidence.
+
+`auto` and an explicit `--tool` get different answers, deliberately. `auto` GUESSED that opencode
+means V1; correcting a wrong guess is not an error, so it drops the OpenCode half, says so, and
+still installs whatever else was asked for — refusing the whole run would deny someone a working
+Claude Code install over an unrelated host. Naming the tool ASSERTS it, and an assertion that
+cannot be honoured exits with the remedy, which is the standard `build_opencode_v2_plugin` already
+applies to a missing `bun`. An unreadable version installs V1 unchanged: a binary that is absent or
+whose output does not parse is not a 1.x binary, and guessing either way is the exact mistake being
+removed.
+
+`--check` gained the same comparison in both directions, and it matters that it is PROSPECTIVE.
+`c_load_failure` can only report a failure that already reached the log; a fresh install on the
+wrong daemon has no log line yet, so the check would have said "nunca fallo al cargar el plugin"
+about a plugin that cannot possibly load. Asking the binary closes that window.
+
+**The test suite had been inheriting the answer it was supposed to be testing.** Adding the guard
+turned 33 existing assertions red — every `--tool=both` / `--tool=opencode` test, because this
+machine's real daemon is 2.x. They had never declared which host they were installing for; they
+just took whatever the developer happened to have, which means the same suite at the same commit
+gave different answers on different machines and nobody could see it. The suite now pins a 1.x stub
+on `PATH` for the whole run (1.x is what V1 is for, and what both official channels still serve),
+and the tests that are specifically about the guard prepend their own stub. The V1 adapter's `bun`
+suite got the same treatment for the same reason — it imports the installed adapter directly and
+never talks to a daemon, so it is a V1-host test and now says so.
+
+Six mutations, each killing exactly its own assertions: disabling the guard (5 kills), collapsing
+the auto/explicit distinction (2), treating an unreadable version as 2.x (2), removing each
+`--check` direction (1 each), and making the version probe return a constant instead of reading the
+binary (7 — the broadest, which is right, since every other behaviour rests on it). `test.sh`
+182 → 195, `test-hooks.sh` 301, shellcheck clean.

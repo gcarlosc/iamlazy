@@ -57,6 +57,30 @@ cp_repo() {
     --exclude=adapters/opencode-v2/dist -f - . 2>/dev/null | tar -C "$1" -xf - 2>/dev/null
 }
 
+# stub_opencode <dir> <what `opencode --version` should print> -- a fake binary
+# to put FIRST on PATH, so the adapter-vs-daemon guard can be tested against
+# both major versions on a machine that has only one of them (or none).
+# Deliberately prints rather than mimicking: the guard reads exactly this.
+stub_opencode() {
+  mkdir -p "$1"
+  printf '#!/bin/sh\necho "%s"\n' "$2" > "$1/opencode"
+  chmod +x "$1/opencode"
+}
+
+# The suite pins the OpenCode major it is testing against, for the whole run.
+#
+# install.sh refuses to put the V1 adapter on a 2.x daemon (DELTAS Candidate
+# 19), so every `--tool=both` / `--tool=opencode` test below would pass on a
+# developer's 1.x machine and fail on a 2.x one -- the same suite, the same
+# commit, a different answer depending on a detail none of those tests are
+# about. 1.x is what V1 is FOR and what both official channels still serve, so
+# that is what they declare. Tests that are specifically about the version
+# guard prepend their own stub, which wins because it comes first on PATH.
+GLOBAL_OC_STUB="$(mktmp)"
+stub_opencode "$GLOBAL_OC_STUB" "opencode v1.18.31"
+PATH="$GLOBAL_OC_STUB:$PATH"
+export PATH
+
 # ---------------------------------------------------------------- syntax
 echo "syntax"
 # Globbed, not listed. A list you have to remember to extend is the failure mode
@@ -392,8 +416,18 @@ if command -v bun >/dev/null 2>&1; then
   assert_grep "iamlazy-managed" "$V2H/.config/opencode/plugins/iamlazy.js" "opencode-v2: plugin carries the marker"
   assert_no_grep '"@opencode/plugin"' "$V2H/.config/opencode/plugins/iamlazy.js" "opencode-v2: bundle has no unresolved import left"
 
-  if HOME="$V2H" "$SRC/install.sh" --check >/dev/null 2>&1; then ok "--check passes right after an opencode-v2 install"
+  # Checked against a 2.x host specifically: that is the daemon V2 exists for,
+  # and --check now verifies the adapter shape against the version rather than
+  # waiting for a load failure to appear in the log. The rest of this section
+  # stays on the suite's 1.x pin, because the switch tests below install V1.
+  V2HOST="$(mktmp)"; stub_opencode "$V2HOST" "opencode v2.0.1"
+  if PATH="$V2HOST:$PATH" HOME="$V2H" "$SRC/install.sh" --check >/dev/null 2>&1; then
+    ok "--check passes right after an opencode-v2 install"
   else no "--check fails on a machine opencode-v2 just set up"; fi
+  # And the mirror image: V2's bundle on a 1.x daemon is just as wrong.
+  if HOME="$V2H" "$SRC/install.sh" --check >/dev/null 2>&1; then
+    no "--check should flag a V2 adapter on a 1.x daemon"
+  else ok "--check flags a V2 adapter on a 1.x daemon"; fi
 
   # Switching hosts on the SAME machine must never leave two adapter shapes,
   # in either direction.
@@ -430,6 +464,91 @@ else
     *) no "opencode-v2 refused without a git checkout, but did not explain why" ;;
   esac
 fi
+
+# ------------------------------------------- adapter shape vs daemon version
+echo
+echo "V1 adapter vs a 2.x daemon (DELTAS Candidate 19)"
+# A 2.x daemon rejects V1's whole plugin -- "Plugin must export a default
+# definition with an id and an effect or setup function" -- so an install that
+# proceeds leaves Layer 0 present and dead. Every assertion here drives the
+# REAL install.sh against a stubbed `opencode --version`, because the machine
+# running the suite has at most one of the two majors.
+VBIN="$(mktmp)"
+
+# Explicit --tool ASSERTS the host. An assertion that cannot be honoured exits,
+# and nothing is written -- the same standard as opencode-v2 without bun.
+stub_opencode "$VBIN" "opencode v2.0.1"
+V2DH="$(mktmp)"
+if vrefusal="$(PATH="$VBIN:$PATH" HOME="$V2DH" "$SRC/install.sh" --tool=opencode 2>&1)"; then
+  no "--tool=opencode on a 2.x daemon should refuse, not succeed"
+else
+  case "$vrefusal" in
+    *"2.x"*) ok "--tool=opencode refuses on a 2.x daemon, naming the version" ;;
+    *) no "--tool=opencode refused on a 2.x daemon but did not name the version (got: $vrefusal)" ;;
+  esac
+fi
+if [ -f "$V2DH/.config/opencode/plugins/iamlazy.ts" ]; then
+  no "the refusal still wrote the V1 adapter: a refusal must leave no half-install"
+else ok "the refusal wrote no V1 adapter"; fi
+
+# --tool=both carries the same assertion, so it gets the same answer.
+BOTHH="$(mktmp)"
+if PATH="$VBIN:$PATH" HOME="$BOTHH" "$SRC/install.sh" --tool=both >/dev/null 2>&1; then
+  no "--tool=both on a 2.x daemon should refuse: it includes the V1 adapter"
+else ok "--tool=both refuses on a 2.x daemon too"; fi
+
+# auto GUESSED. Correcting a wrong guess is not an error: drop the OpenCode
+# half, keep the rest, exit 0.
+AUTOH="$(mktmp)"; mkdir -p "$AUTOH/.claude"
+if autoout="$(PATH="$VBIN:$PATH" HOME="$AUTOH" "$SRC/install.sh" 2>&1)"; then
+  case "$autoout" in
+    *"salteo OpenCode"*) ok "auto skips OpenCode on a 2.x daemon and says so" ;;
+    *) no "auto did not report skipping OpenCode on a 2.x daemon" ;;
+  esac
+else no "auto should still succeed on a 2.x daemon by installing the rest"; fi
+if [ -f "$AUTOH/.config/opencode/plugins/iamlazy.ts" ]; then
+  no "auto wrote the V1 adapter onto a 2.x daemon"
+else ok "auto wrote no V1 adapter on a 2.x daemon"; fi
+if [ -f "$AUTOH/.claude/commands/iamlazy.md" ]; then
+  ok "auto still installed Claude Code after skipping OpenCode"
+else no "auto skipped OpenCode and dropped Claude Code with it"; fi
+
+# The guard must not fire on the host V1 is actually FOR. Both official
+# channels still serve 1.x, so this is the common case, not the exotic one.
+stub_opencode "$VBIN" "opencode v1.18.31"
+V1DH="$(mktmp)"
+if PATH="$VBIN:$PATH" HOME="$V1DH" "$SRC/install.sh" --tool=opencode >/dev/null 2>&1; then
+  ok "--tool=opencode still installs on a 1.x daemon"
+else no "the guard fired on a 1.x daemon, where V1 is the correct adapter"; fi
+if [ -f "$V1DH/.config/opencode/plugins/iamlazy.ts" ]; then
+  ok "the V1 adapter is installed on a 1.x daemon"
+else no "no V1 adapter on a 1.x daemon"; fi
+if PATH="$VBIN:$PATH" HOME="$V1DH" "$SRC/install.sh" --check >/dev/null 2>&1; then
+  ok "--check passes for a V1 adapter on a 1.x daemon"
+else no "--check failed for a correctly matched V1 adapter"; fi
+
+# --check is prospective: it must flag the mismatch with no log line to read,
+# which is exactly the state a fresh install on the wrong daemon is in.
+stub_opencode "$VBIN" "opencode v2.0.1"
+if checkout_v="$(PATH="$VBIN:$PATH" HOME="$V1DH" "$SRC/install.sh" --check 2>&1)"; then
+  no "--check should fail for a V1 adapter on a 2.x daemon"
+else
+  case "$checkout_v" in
+    *"adaptador V1 instalado"*) ok "--check flags a V1 adapter on a 2.x daemon" ;;
+    *) no "--check failed but not for the adapter/daemon mismatch" ;;
+  esac
+fi
+
+# No evidence is not evidence of 2.x: an unreadable version installs V1
+# unchanged, rather than refusing on a guess.
+stub_opencode "$VBIN" "opencode (dev build)"
+UNKH="$(mktmp)"
+if PATH="$VBIN:$PATH" HOME="$UNKH" "$SRC/install.sh" --tool=opencode >/dev/null 2>&1; then
+  ok "an unreadable version installs V1 rather than refusing on a guess"
+else no "an unreadable version refused the install: no evidence is not evidence of 2.x"; fi
+if [ -f "$UNKH/.config/opencode/plugins/iamlazy.ts" ]; then
+  ok "the V1 adapter is installed when the version cannot be read"
+else no "no V1 adapter when the version cannot be read"; fi
 
 # ------------------------------------------------------- layer 0 (hooks)
 # The hook suite is a separate file because it tests runtime decisions, not

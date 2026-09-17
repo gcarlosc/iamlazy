@@ -191,109 +191,6 @@ Trigger `[log]`: 2+ runs whose `models_seen` names a model the close banner did 
 where the banner claims to be derived. Now checkable; it was not before.
 Status: 1 recorded (session `7f32cddc`, both of its close banners).
 
-## Candidate 19 — V1's plugin shape cannot load on a real OpenCode 2.x daemon
-(origin: 2026-09-16, investigating Candidate 18's closure)
-
-Idea: `install.sh`'s auto-detect (`--tool` omitted) should not select V1 on a host where V1
-provably cannot load.
-
-What was found while re-testing Candidate 18: deploying the actual, unmodified
-`adapters/opencode/iamlazy.ts` against the real, installed `v2.0.1` daemon fails outright —
-`"Plugin must export a default definition with an id and an effect or setup function."` — before a
-single hook runs. Not specific to this file: a pre-existing, unrelated loose plugin already on this
-machine (`engram.ts`) fails with the byte-identical error, because it shares V1's export shape
-(`export const X: Plugin = async (ctx) => {...}`, no `Plugin.define`, no `id`). The modern loader
-requires `export default Plugin.define({id, setup})`.
-
-`install.sh`'s `auto` path has no daemon-version check: `command -v opencode` or the presence of
-`~/.config/opencode` selects V1 unconditionally. On any machine whose real binary is 2.x, that
-silently deploys a plugin that never loads — zero Layer 0 from the very first `/iamlazy`, worse than
-Candidate 18 ever described, and undetected unless `install.sh --check` is run afterward (it DOES
-catch this correctly — `c_load_failure` matches the real log line — just not at install time).
-
-Trigger `[human]`: a real install on a host running OpenCode 2.x, via the `auto` or `--tool=opencode`
-path, confirms V1 never loaded (`opencode api GET /api/plugin` never lists it `active`, or
-`opencode.log` shows the load-failure line). Not `[log]`: this needs the actual daemon queried, not
-a `runs.jsonl` field.
-
-**Scoped 2026-09-17 by a registry audit, which settles the direction.** Both official default
-channels still serve 1.x: `curl | bash` resolves `releases/latest`, which is **v1.18.31**, and
-`npm i -g opencode-ai` is **1.18.31** too, with no deprecation notice and a release dated three days
-AFTER 2.0.0 went stable. The 2.x line lives on renamed packages (`@opencode/cli`, `@opencode/core`,
-`@opencode/plugin`), has no GitHub release in that repo at all, and went stable only on 2026-09-11.
-
-So **retiring V1 is off the table** — it targets what the majority still installs — and the fix is
-version detection, not replacement. It also narrows the blast radius honestly: this hits people who
-deliberately moved to the renamed 2.x packages, not the typical fresh install, which still gets 1.x
-where V1 is the correct adapter.
-
-Still a design call, hence still a candidate: whether detection should refuse V1 on a 2.x daemon
-(loud, minimal, does not touch the "never auto-select V2" decision), or go further and promote V2
-automatically there (better UX, but inverts that decision and fails without `bun`). See
-`docs/decisions-2026-09.md` for the full evidence trail.
-Trigger `[human]`: reported as a real interactive-TUI session losing its run mid-conversation —
-would confirm this is not a `opencode run`-only artifact.
-Trigger `[log]`: an OpenCode run in `runs.jsonl` whose `outcome` is `abandoned` at an early
-`stage_reached` while its own transcript/session shows work continuing past that point — not
-directly checkable from `runs.jsonl` alone today, since the abandoned line carries no pointer to
-what came after it.
-Status: 1 recorded (the run above, `opencode run --continue`, never in the interactive TUI).
-
----
-
-## Rejected — lower the auto-compact window (evaluated 2026-08-22)
-
-Recorded so it is not re-proposed. Idea: shrink the host's auto-compact threshold so long sessions
-compact themselves, attacking the ~97.6% of spend that is `cache_read`.
-Rejected on three counts, in order of weight:
-
-- **Compaction invalidates the prompt cache.** The turns after it pay `cache_write` (1.25x)
-  instead of `cache_read` (0.1x) to rebuild — roughly 12x per token — so it only amortizes if many
-  turns follow. Ending the session does the same thing and restarts from a genuinely small context
-  (`PROJECT.md` + contract), not from a 40–50k summary. The cheaper lever already exists.
-- **Its failure mode is silent, and this harness exists to make drift loud.** If compaction drops
-  the approved contract and the model builds from a half-remembered plan instead of re-reading
-  `.iamlazy/contract.md`, the diff still looks plausible and nothing flags it.
-- **No evidence of the problem.** Zero compaction events observed across the logged runs.
-
-Reconsider only if a run is observed where compaction fired and handoff-by-file was unavailable.
-
----
-
-## Rejected — migrate to Pi as the sole host (evaluated 2026-09-10)
-
-Recorded so it is not re-proposed without new evidence. The question was not adding Pi as a third
-target — it was **replacing Claude Code and OpenCode with it**. Pi's own extension API is the best
-of the three: typed `{block, reason}` tool denial, an explicit `turn_end` event where OpenCode
-requires inferring turn boundaries from `session.idle`, `ctx.exec()` in place of raw shell
-interpolation, and a `session_before_compact` hook that would finally make `compactions` derivable
-— a field no host has ever been able to produce.
-
-Rejected on usage alone, measured against the real logs, not against the technical comparison:
-
-| Host | Assistant messages, last 30 days | Days used |
-|---|---|---|
-| Claude Code | 63,282 | 31 / 31 |
-| OpenCode | 785 | 17 |
-| Pi | 9 | 2, and both are from this evaluation itself |
-
-Claude Code is where essentially all real work happens. Moving the harness to Pi would move it off
-the host actually in use, onto one with no real sessions to speak of. The value of iamlazy is that
-it runs where the work happens, not that its adapter is more elegant.
-
-Two things worth keeping from the evaluation:
-
-- **Pi has no built-in sub-agents, plan mode, or permission bypass** (its own docs say so
-  explicitly) — a Pi port would mean building the Critic as a registered tool from scratch, not
-  translating an existing primitive the way the OpenCode adapter does. This is construction, not
-  adaptation, regardless of the decision above.
-- **Its package.json declares an `./hooks` export pointing at a directory that does not exist.**
-  Pi's own types lag its build the same way OpenCode's SDK types do — verify against the installed
-  `dist/`, never the `.d.ts` in isolation, if this is ever revisited.
-
-Reconsider only if real day-to-day usage shifts toward Pi on its own — not if it is adopted because
-its API is better in the abstract.
-
 ---
 
 ## Resolved and retired
@@ -310,4 +207,5 @@ records; a backlog whose triggers cannot fire is cost without signal.
 | 9 | Reinstate one delegated builder sub-agent | **Retired as unfalsifiable.** `guard-agent.sh` denies every sub-agent but the Critic, so the controlled pair can no longer be gathered passively. Reviving it means deliberately disabling the guard for an experiment — a decision, not a trigger. The one uncontrolled observation (delegation 1.67x cheaper per changed line, but with more retries and interventions) stands unresolved. |
 | 12 | The reversibility tier barely discriminates | **Retired — the outcome it contemplated happened.** It proposed collapsing the dial to what still had an effect; the dial was removed entirely. |
 | — | Field audit of self-reported log fields (2026-08-21) | **Absorbed.** Its conclusion — introspection fails when a field needs a quantity estimated or has an ambiguous definition — is now the standing rule in `PROJECT.md`, with the full record in `docs/measurement-history.md`. |
+| 19 | V1's plugin shape cannot load on a real OpenCode 2.x daemon | **Delivered 2026-09-17.** `install.sh` reads `opencode --version` before writing anything: on 2.x, `auto` drops the OpenCode half (and still installs the rest), an explicit `--tool` exits with the remedy, and an unreadable version installs V1 unchanged — no evidence is not evidence of 2.x. `--check` compares adapter shape against the daemon in both directions, prospectively, instead of waiting for a load failure to reach the log. Auto-promoting V2 on 2.x was deliberately NOT adopted: it would invert the "never auto-select V2" decision and fail without `bun`. The registry audit that scoped this is in `docs/decisions-2026-09.md`. |
 | 18 | OpenCode's Layer 0 goes inert the moment a human answers in a new process | **Pruned 2026-09-16 — resolved by an upstream change, not a code fix.** Found against `v1.18.30`; the daemon this project actually runs is now `v2.0.1`. A real end-to-end run (opened via API on a CLI-created session, continued across three separate `opencode run --continue` processes, ~10 minutes) shows zero `session.deleted` events and a normal automatic close — `outcome:"flushed"`, real Critic findings. See `docs/decisions-2026-09.md`; superseded by Candidate 19, found while closing this one. |

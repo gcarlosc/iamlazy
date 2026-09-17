@@ -7,7 +7,19 @@ const REPO = join(import.meta.dir, "..", "..")
 const HOME = mkdtempSync(join(tmpdir(), "iamlazy-oc-home-"))
 process.env.HOME = HOME
 
-const installed = Bun.spawnSync([join(REPO, "install.sh"), "--tool=opencode"], { env: { ...process.env, HOME } })
+// install.sh refuses to put the V1 adapter on an OpenCode 2.x daemon, which
+// rejects that plugin shape outright (DELTAS Candidate 19). This suite IS a
+// V1-host test -- it imports the installed adapter directly, so it never talks
+// to a daemon at all -- and so it declares the host it is written for instead
+// of inheriting whichever opencode the developer happens to have installed.
+// Without this stub the suite's result depends on a machine detail it does not
+// test, which is the accident the guard exists to prevent.
+const STUB = mkdtempSync(join(tmpdir(), "iamlazy-oc-stub-"))
+writeFileSync(join(STUB, "opencode"), '#!/bin/sh\necho "opencode v1.18.31"\n', { mode: 0o755 })
+
+const installed = Bun.spawnSync([join(REPO, "install.sh"), "--tool=opencode"], {
+  env: { ...process.env, HOME, PATH: `${STUB}:${process.env.PATH ?? ""}` },
+})
 if (installed.exitCode !== 0) throw new Error(`install.sh failed: ${installed.stderr.toString()}`)
 
 const INSTALLED_PLUGIN = join(HOME, ".config", "opencode", "plugins", "iamlazy.ts")

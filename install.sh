@@ -31,6 +31,31 @@ templates/opencode/subagent-critic.frontmatter \
 templates/opencode/guarantees.md templates/opencode/gate.md \
 models.conf prices.conf DELTAS.md"
 
+# oc_major -> OpenCode's MAJOR version number, empty when it cannot be read.
+#
+# The two adapter shapes are not interchangeable, and the daemon says which one
+# it wants only by refusing the other -- into its own log, where nobody looks.
+# V1 is a loose module whose exports must all be functions; V2 needs
+# `export default Plugin.define({id, setup})`. Deploying V1 on a 2.x daemon
+# gets "Plugin must export a default definition with an id and an effect or
+# setup function" and zero Layer 0, after install.sh has printed "listo."
+# Confirmed against the real v2.0.1 binary with the unmodified V1 adapter, and
+# corroborated by an unrelated plugin of the same shape failing identically.
+#
+# This is a GUARD, not a switch. Both official channels still serve 1.x
+# (curl|bash resolves releases/latest = v1.18.31; `npm i -g opencode-ai` =
+# 1.18.31, undeprecated), and 2.x ships under renamed packages
+# (`@opencode/cli`), so V1 remains the correct default for most installs.
+# See DELTAS.md Candidate 19.
+#
+# Empty means "no evidence", never "old" -- a binary that is absent or whose
+# output does not parse is not a 1.x binary, and guessing either way is the
+# exact mistake this exists to stop.
+oc_major() {
+  command -v opencode >/dev/null 2>&1 || return 0
+  opencode --version 2>/dev/null | grep -oE '[0-9]+' | head -1 || true
+}
+
 # --------------------------------------------------------------------- check
 #
 # What is INSTALLED is what runs, and it drifts from the repo silently: three
@@ -60,6 +85,24 @@ c_same() {
 # is a defect, this project's own rule. ISO-8601 UTC strings compare
 # correctly as strings, so the whole thing is one lexicographic comparison
 # against the plugin file's own mtime.
+# c_adapter_matches_daemon <V1|V2> -- the installed adapter shape against the
+# daemon that has to load it. This asks the binary BEFORE anything fails, where
+# c_load_failure below can only report a failure that already happened: a fresh
+# install on the wrong daemon has no log line yet, so without this the check
+# says "nunca fallo al cargar" about a plugin that cannot possibly load.
+c_adapter_matches_daemon() {
+  cam_major="$(oc_major)"
+  if [ -z "$cam_major" ]; then
+    c_skip "no pude leer la version de OpenCode: no puedo verificar que el adaptador $1 sea el que este daemon carga"
+  elif [ "$1" = "V1" ] && [ "$cam_major" -ge 2 ]; then
+    c_bad "hay un adaptador V1 instalado y este OpenCode es ${cam_major}.x: el daemon lo rechaza entero (DELTAS Candidate 19). Usá --tool=opencode-v2"
+  elif [ "$1" = "V2" ] && [ "$cam_major" -lt 2 ]; then
+    c_bad "hay un adaptador V2 instalado y este OpenCode es ${cam_major}.x: ese daemon espera la forma V1. Usá --tool=opencode"
+  else
+    c_ok "el adaptador $1 corresponde a OpenCode ${cam_major}.x"
+  fi
+}
+
 c_load_failure() {
   oc_log="$HOME/.local/share/opencode/log/opencode.log"
   last_fail="$(grep 'failed to load plugin.*iamlazy' "$oc_log" 2>/dev/null | tail -1 \
@@ -128,6 +171,7 @@ run_check() {
       if [ -f "$OC_CMD_DIR/iamlazy.md" ]; then
         c_bad "commands/iamlazy.md esta presente: duplica el comando /iamlazy que el plugin V2 ya registra solo"
       else c_ok "no hay commands/iamlazy.md duplicado (V2 registra /iamlazy por su cuenta)"; fi
+      c_adapter_matches_daemon V2
       c_load_failure "$OC_PLUGIN_DIR/iamlazy.js"
     elif [ -f "$OC_PLUGIN_DIR/iamlazy.ts" ]; then
       c_same "$SRC/adapters/opencode/iamlazy.ts" "$OC_PLUGIN_DIR/iamlazy.ts" "adaptador actualizado"
@@ -136,6 +180,7 @@ run_check() {
       if grep -qE '^export (const|let|var) [A-Za-z_]+ *(:[^=]*)?= *["`0-9]' "$OC_PLUGIN_DIR/iamlazy.ts"; then
         c_bad "el adaptador exporta algo que no es una funcion: OpenCode va a rechazar todo el plugin"
       else c_ok "las exportaciones del adaptador parecen funciones"; fi
+      c_adapter_matches_daemon V1
       c_load_failure "$OC_PLUGIN_DIR/iamlazy.ts"
     else
       c_bad "hay hooks de opencode instalados pero no se encontro ningun adaptador (ni iamlazy.ts ni iamlazy.js en $OC_PLUGIN_DIR)"
@@ -179,6 +224,12 @@ instalador de iamlazy
     PROJECT.md) y necesita un checkout clonado mas bun para construir su
     adaptador; siempre requiere este flag exacto. `--tool=opencode` sigue
     significando OpenCode V1.
+  Las dos formas de adaptador no son intercambiables, y un daemon OpenCode 2.x
+    RECHAZA el plugin V1 entero -- Layer 0 quedaria instalado y muerto. Por eso
+    se lee `opencode --version` antes de escribir nada: si es 2.x, --tool=auto
+    saltea OpenCode (e instala el resto) y un --tool explicito se niega y sale.
+    Si la version no se puede leer, se instala V1 igual: no tener evidencia no
+    es evidencia de 2.x. --check compara lo mismo, sin esperar a que falle.
   --model=<id> fija AMBOS roles (principal + critico) para una sola
     herramienta, persiste la eleccion en models.conf, y reinstala. Requiere
     un solo --tool (claude, opencode u opencode-v2) porque los namespaces de
@@ -522,6 +573,34 @@ case "$TOOL" in
     ;;
   *) echo "iamlazy: --tool=$TOOL desconocido (usá claude|opencode|opencode-v2|both)" >&2; exit 1 ;;
 esac
+
+# A 2.x daemon does not degrade the V1 adapter, it refuses it outright, before
+# a single hook runs. Checked here -- after the tool is picked, before any file
+# is written -- so the outcome is never a half-install.
+#
+# `auto` and an explicit --tool are answered differently on purpose. `auto`
+# GUESSED that "opencode exists" means V1; correcting a wrong guess is not an
+# error, so it drops the OpenCode half and still installs whatever else was
+# asked for. Naming the tool ASSERTS it, and an assertion that cannot be
+# honoured exits -- the same standard build_opencode_v2_plugin already applies
+# to a missing bun. An unreadable version installs V1 unchanged: no evidence is
+# not evidence of 2.x, and --check catches a real load failure afterwards.
+if [ "$do_opencode" -eq 1 ]; then
+  oc_seen="$(oc_major)"
+  if [ -n "$oc_seen" ] && [ "$oc_seen" -ge 2 ]; then
+    if [ "$TOOL" = "auto" ]; then
+      do_opencode=0
+      echo "iamlazy: detecte OpenCode ${oc_seen}.x, que no puede cargar el adaptador V1 -- salteo OpenCode." >&2
+      echo "  Para Layer 0 en OpenCode ${oc_seen}.x: install.sh --tool=opencode-v2 (necesita bun y un checkout clonado)." >&2
+    else
+      echo "iamlazy: --tool=$TOOL instala el adaptador V1, y este OpenCode es ${oc_seen}.x." >&2
+      echo "  Un daemon ${oc_seen}.x rechaza ese plugin entero, asi que Layer 0 quedaria instalado y MUERTO," >&2
+      echo "  sin avisar (ver DELTAS.md Candidate 19). Corré install.sh --tool=opencode-v2 para este host," >&2
+      echo "  y --tool=claude aparte si tambien querias Claude Code." >&2
+      exit 1
+    fi
+  fi
+fi
 
 if [ "$do_claude" -eq 0 ] && [ "$do_opencode" -eq 0 ] && [ "$do_opencode_v2" -eq 0 ]; then
   echo "iamlazy: no se detecto ni claude ni opencode. Forzalo con --tool=claude|opencode|opencode-v2|both." >&2

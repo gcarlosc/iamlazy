@@ -210,15 +210,20 @@ justification; an undeclared deviation is an automatic reviewer finding.
   loader requires `Plugin.define({id, setup})`; V1 predates that shape entirely. `install.sh`'s
   `auto` detection has no daemon-version check, so on any host running OpenCode 2.x — this one
   included — the DEFAULT install path silently ships a plugin that never loads: zero Layer 0 from
-  the first `/iamlazy`, not just after `--continue`. `install.sh --check` does catch it after the
-  fact (`c_load_failure` matches the real log line), just not at install time. Tracked as DELTAS
-  Candidate 19 rather than fixed unilaterally — it is a detection-design call, the same kind V2's own
-  "never auto-select" clause already made on the opposite assumption. A registry audit (2026-09-17)
-  scoped it: **both official default channels still serve 1.x** — `curl | bash` resolves
-  `releases/latest` = v1.18.31, and `npm i -g opencode-ai` = 1.18.31, undeprecated, released three
-  days after 2.0.0 went stable — while 2.x lives on renamed packages (`@opencode/cli`). So V1 is not
-  dead code and retiring it is off the table; the gap hits people who moved to the 2.x packages
-  deliberately, not the typical fresh install.
+  the first `/iamlazy`, not just after `--continue`. **Closed 2026-09-17 (DELTAS Candidate 19):**
+  `install.sh` reads `opencode --version` before writing anything. On a 2.x daemon, `auto` drops the
+  OpenCode half and installs the rest, while an explicit `--tool` exits with the remedy — `auto`
+  guessed and a wrong guess is not an error, naming the tool asserts it and an assertion that cannot
+  be honoured exits, the same standard `build_opencode_v2_plugin` applies to a missing `bun`. An
+  unreadable version installs V1 unchanged: no evidence is not evidence of 2.x. `--check` compares
+  adapter shape against the daemon in both directions, prospectively, where `c_load_failure` could
+  only report a failure that had already happened — a fresh install on the wrong daemon has no log
+  line yet. A registry audit settled the direction: **both official default channels still serve
+  1.x** — `curl | bash` resolves `releases/latest` = v1.18.31, and `npm i -g opencode-ai` = 1.18.31,
+  undeprecated, released three days after 2.0.0 went stable — while 2.x lives on renamed packages
+  (`@opencode/cli`). So V1 is not dead code, retiring it was off the table, and this is a guard
+  rather than a switch. Auto-promoting V2 on 2.x was deliberately not adopted: it would invert the
+  "never auto-select" decision below and fail without `bun`.
 - **A separate OpenCode V2 adapter exists at `adapters/opencode-v2/iamlazy.ts`**, targeting the
   native `@opencode/plugin` API (v2.0.x) rather than V1's `@opencode-ai/plugin`. Unlike V1's
   adapter, it has a real runtime dependency and must be bundled (`build.sh`, `bun build
@@ -230,11 +235,10 @@ justification; an undeclared deviation is an automatic reviewer finding.
   `docs/decisions-2026-09.md`. `install.sh --tool=opencode-v2` installs it (builds from a real
   checkout, refuses cleanly under `curl|bash` or without `bun`); `--check` and `uninstall.sh`
   know its shape too. It is never auto-selected -- `--tool=opencode` still means V1, and `auto`
-  never picks V2 -- a deliberate, opposite-direction bet from Candidate 19 above: V1 is the
-  auto-selected default on the unstated assumption that it is the safe, boring choice, when in fact
-  it is the one confirmed NOT to load on this project's own real daemon. Keeping V2 opt-in was never
-  meant to imply V1 is proven reliable; it just has not been re-examined since that assumption broke.
-  Its
+  never picks V2. That assumption -- V1 is the safe, boring default -- held only because nothing
+  checked it; on a 2.x daemon V1 is the shape that cannot load at all. Since 2026-09-17 the version
+  guard above enforces the real boundary, so `auto` still never picks V2, but it no longer picks V1
+  onto a host that would reject it. Its
   `@opencode/plugin` dependency (build-time only, never at runtime) is a second declared exception
   to the "zero external deps" rule below, on top of V1's type-only one. `test.sh` now covers the
   installer's V2 path (a real install + build, byte-for-byte switching between V1/V2 leaves no
