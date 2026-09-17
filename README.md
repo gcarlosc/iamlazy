@@ -2,6 +2,75 @@
 
 [![test](https://github.com/gcarlosc/iamlazy/actions/workflows/test.yml/badge.svg)](https://github.com/gcarlosc/iamlazy/actions/workflows/test.yml)
 
+## What this is, if you are not a programmer
+
+**iamlazy is a set of rules an AI assistant cannot talk its way out of.**
+
+The longer answer needs one scene.
+
+Imagine hiring someone to renovate your kitchen. They are skilled and fast. Halfway through, you
+notice they have also repainted the hallway and moved a door in the bedroom. You ask whether an
+electrician checked the wiring. They say "yes, it's fine" — and you have no way to know whether
+anyone actually looked.
+
+That is roughly what it is like to hand a real task to an AI coding assistant. It is genuinely
+capable. It also drifts: it changes things nobody asked about, it spends two hours on something
+that deserved twenty minutes, and it reports its own work as finished and reviewed — because
+*saying so* is easier than *being so*.
+
+You can ask it not to. Asking works right up until the moment it doesn't, and you find out
+afterwards.
+
+### The contract
+
+iamlazy puts one thing in the middle of every job: a **contract**.
+
+Before a single line of code is written, the assistant has to write down what it is about to do —
+which files it will touch, what "finished" will mean, how you will be able to check. You read it.
+You approve it, or you send it back.
+
+Then it works. And when it claims to be done, *the machine* — not the assistant — compares what
+actually changed against what you approved. Touched something that was not on the list? It cannot
+quietly declare victory. It has to say so.
+
+It is the difference between a builder's written quote and a builder's word.
+
+### Asked, or guaranteed
+
+This distinction is the whole idea:
+
+| | What it means | Example |
+|---|---|---|
+| **Asked** | Written in the instructions. Usually followed. | "Explain your conclusion first." |
+| **Guaranteed** | Enforced by code that runs whether the assistant likes it or not. | It cannot finish while a file it changed sits outside what you approved. |
+
+This project learned the difference the expensive way. It once had six rules it called
+"inviolable" — five were merely *asked*, and the single most-broken one was the one written in the
+biggest letters. Calling something a law does not make it one. So now anything a machine can check
+is checked by a machine, and everything else is honestly labelled as advice.
+
+### Nobody grades their own homework
+
+The assistant that did the work is not allowed to be the one who signs it off. A separate reviewer
+reads the changes cold and reports what it finds — and the assistant cannot skip that step by
+deciding it went well.
+
+### Every job leaves a receipt
+
+How long it took, what it cost, what changed, what the reviewer found. Measurements, not the
+assistant's summary of itself. That is how you discover that one job quietly cost twenty-four times
+more per line of code than normal — the kind of thing nobody notices without a receipt.
+
+### So why "iamlazy"?
+
+Because that is the goal. If it works, you do not have to hover, re-read every change, or remember
+to ask "did you really test that?". The watching is done by something that does not get tired or
+optimistic.
+
+---
+
+**Everything below is for people who will install and run it.**
+
 A software-development harness for **Claude Code** and **OpenCode**. It runs **one task end to
 end** — analyse, ask, contract, approve, execute, review — in a single thread. No MCP, no external
 dependencies. Bash and files — plus one TypeScript file that lets OpenCode run the same bash.
