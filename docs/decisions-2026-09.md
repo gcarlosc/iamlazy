@@ -901,3 +901,70 @@ command substitution. The intent was right and the code was wrong, so the suppre
 Separately, `install.sh`'s `SCRIPT_DIR="$(cd ... && pwd || true)"` tripped SC2015 on CI's older
 shellcheck: rewritten as `"$(cd ... && pwd)" || SCRIPT_DIR=""`, which says what it means under
 `set -e` instead of relying on `A && B || C`.
+
+## 2026-09-16 (2) — Candidate 18 does not reproduce; a worse, unrelated finding took its place
+
+Candidate 18 (DELTAS.md) was found 2026-09-11 against a real `opencode run`: `command.execute.before`
+opened the run correctly, but the CLI's one-shot process exit fired `session.deleted`, which
+`end-run.sh` treated as an ordinary `SessionEnd` and flushed the run as `abandoned` before a human
+ever answered. The reply that followed, via `--continue` in a new process, ran with zero Layer 0
+tracking — real edits, a real Critic spawn, a real close, none of it checked against a run file that
+no longer existed.
+
+Re-tested today against the daemon this machine actually runs, `v2.0.1`. The log confirms Candidate
+18 was found on `v1.18.30` (`grep version= 2026-09-1[01]` in `opencode.log`) — a major version behind
+what is installed now.
+
+**The mechanism does not reproduce.** A real, unmodified end-to-end run: `/iamlazy` opened via the
+API on a session a genuine CLI process had created (so its `location.directory` was real, unlike an
+API-created session — see [[opencode-v2-daemon-facts]]), the model asked a real pending question via
+the `question` tool, and the reply was sent from THREE separate, brand-new `opencode run --continue`
+CLI processes (two hit transient upstream provider errors — infra noise, unrelated to this — the
+third got through with a different model). SSE captured across the entire ~10-minute window shows
+**zero `session.deleted` events**. `--continue` correctly resolved to the SAME session every time
+(confirmed by session ID and by the `iamlazy` agent name persisting), never forked, never lost.
+Layer 0's run file and its `.cost`/`.stage` sidecars survived every continuation. The run closed
+normally: `outcome:"flushed"`, `stage_reached:"CIERRE"`, `close_detected_via:"contract"`,
+`critic_findings:"0/0/2/0"`, `duration_seconds:601` — a real Critic spawn, a real close, spanning
+three separate processes, checked against a run file that was there the whole time.
+
+This also settles the two open sub-questions DELTAS.md's entry left explicit: whether the
+interactive TUI shares the bug (moot — the stronger case, separate CLI processes, does not reproduce
+it either) and whether `chat.message` reopening a run is enough (moot, nothing needs reopening).
+
+**Decision: close Candidate 18. Not a code fix — the daemon it was found against no longer exists on
+this machine, and the failure it described does not reproduce on the one that replaced it.** Pruned
+to DELTAS.md's "Resolved and retired" table with a one-line outcome, per that file's own convention.
+Reopen only against real evidence from a currently-supported OpenCode CLI version, should one surface.
+
+**A more severe, unrelated finding surfaced while setting up the repro.** Deploying the ACTUAL,
+unmodified `adapters/opencode/iamlazy.ts` (V1's adapter) as a loose plugin file against this same
+`v2.0.1` daemon fails outright:
+
+```
+"failed to load plugin" ... cause="... PluginModule.LoadError: Plugin must export a default
+definition with an id and an effect or setup function. (cause: SchemaError(Missing key at ["default"]))"
+```
+
+Not a fluke of this specific file: a pre-existing, unrelated loose plugin already sitting in
+`~/.config/opencode/plugins/` (`engram.ts`, not part of this project) fails with the byte-identical
+error, because it shares the same export shape (`export const X: Plugin = async (ctx) => {...}`,
+no `Plugin.define`, no `id`). V2.0's plugin loader requires `export default Plugin.define({id,
+setup})` — V1's whole adapter shape is a schema the modern loader rejects outright, unconditionally,
+before a single hook ever runs.
+
+`install.sh`'s auto-detect (`--tool` omitted) has no daemon-version check: `command -v opencode` or
+the presence of `~/.config/opencode` is enough to select V1. On any machine whose real OpenCode
+binary is 2.x — this one included — that default path silently deploys a plugin that never loads.
+That is a strictly worse failure than Candidate 18 described: not "degrades after `--continue`," but
+zero Layer 0 from the very first `/iamlazy` invocation, on the host most likely to be a fresh
+install. `install.sh --check`'s `c_load_failure` (shared with V2's path) DOES correctly flag it after
+the fact — confirmed against the daemon's actual log line, which contains "iamlazy" after "failed to
+load plugin" and so matches its grep — but nothing catches it at install time, and `install.sh` never
+prompts to run `--check` afterward.
+
+Recorded as DELTAS Candidate 19 rather than folded into a silent install.sh change: whether the fix
+is a version probe at install time, a stronger `install.sh` warning, porting V1's shape forward, or
+accepting the risk is a real design call, not a bug fix — the same reasoning this project has applied
+to every other host-detection decision (V2's own "never auto-select" clause exists for the identical
+reason, on the opposite assumption).

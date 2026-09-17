@@ -186,26 +186,34 @@ justification; an undeclared deviation is an automatic reviewer finding.
 - **The Critic's Bash guard reads the command string, not the process.** It stops the shell from
   writing; it does not stop a program the Critic legitimately runs — `npm test` may create
   fixtures, and that is intended. The discipline hole is closed, the hermetic seal is not.
-- **A real end-to-end OpenCode run (2026-09-11, `opencode run`, disposable repo) confirmed one
-  question and raised a more serious one.** `command.execute.before` does fire for `/iamlazy`:
-  `open-run.sh` ran, logged `stage_reached:"ANALYSIS"`. But between that turn and the human's
-  reply approving the contract, the CLI's one-shot process exit fired `session.deleted` —
-  `end-run.sh` flushed the run as `abandoned` before a human ever answered. The reply that
-  followed (`--continue`, in a NEW process) wrote the contract, edited both files, ran the tests,
-  correctly spawned `iamlazy-critic` as a real sub-agent (right model, right session, its own
-  re-verification) and closed — all of it true on its own merits, and **all of it with zero Layer
-  0 tracking active**: no run file existed, so the scope gate, the Critic guard and the close
-  signal were never consulted. Had the diff strayed out of scope, or the Critic call been faked,
-  nothing would have caught it. This is unconfirmed for the interactive TUI (a long-lived process
-  might never fire `session.deleted` between ordinary turns) — what is confirmed is that
-  `opencode run`'s documented `--continue` workflow, which is exactly how a script or a second
-  CLI invocation resumes a conversation, silently degrades every OpenCode guarantee back to prose
-  the moment a human answer arrives in a separate process. See DELTAS Candidate 18.
-  Still unconfirmed, for a different reason now (nothing ever got far enough to trigger either):
-  whether a `throw` shows its reason to the model, and whether the gate's block fed back through
-  `session.promptAsync` makes it continue. A Critic spawned in the **background** returns before
-  it has reviewed; since 2026-09-16 `guard-agent.sh` refuses that spawn outright rather than
-  relying on the prompt to ask for the foreground — see the V2 entry below.
+- **A multi-process `opencode run --continue` no longer degrades Layer 0 to prose — confirmed on the
+  daemon this project actually runs, `v2.0.1`.** A 2026-09-11 run against `v1.18.30` found the
+  opposite: the CLI's one-shot process exit fired `session.deleted`, `end-run.sh` flushed the run as
+  `abandoned` before a human answered, and the reply that followed in a new process ran with zero
+  Layer 0 tracking (DELTAS Candidate 18). Re-tested 2026-09-16, since that daemon is a major version
+  behind what is installed now: a real end-to-end run, continued across THREE separate
+  `opencode run --continue` processes over ~10 minutes, produced zero `session.deleted` events
+  (captured on the raw SSE stream the whole time), `--continue` correctly resolved the same session
+  every time, and the run closed normally — `outcome:"flushed"`, a real Critic spawn, real findings.
+  Candidate 18 closed as resolved by the upstream change, not by a code fix; see
+  `docs/decisions-2026-09.md` for the full trace. Still unconfirmed, for a different reason now
+  (nothing ever got far enough to trigger either): whether a `throw` shows its reason to the model,
+  and whether the gate's block fed back through `session.promptAsync` makes it continue. A Critic
+  spawned in the **background** returns before it has reviewed; since 2026-09-16 `guard-agent.sh`
+  refuses that spawn outright rather than relying on the prompt to ask for the foreground — see the
+  V2 entry below.
+- **A more severe, unrelated gap surfaced while closing that one: V1's plugin shape cannot load AT
+  ALL on a real `v2.0.1` daemon.** Deploying the actual `adapters/opencode/iamlazy.ts` (unmodified)
+  fails with `"Plugin must export a default definition with an id and an effect or setup
+  function."` — confirmed not a fluke by an unrelated pre-existing plugin on this machine
+  (`engram.ts`) failing with the byte-identical error, since it shares V1's export shape. The modern
+  loader requires `Plugin.define({id, setup})`; V1 predates that shape entirely. `install.sh`'s
+  `auto` detection has no daemon-version check, so on any host running OpenCode 2.x — this one
+  included — the DEFAULT install path silently ships a plugin that never loads: zero Layer 0 from
+  the first `/iamlazy`, not just after `--continue`. `install.sh --check` does catch it after the
+  fact (`c_load_failure` matches the real log line), just not at install time. Tracked as DELTAS
+  Candidate 19 rather than fixed unilaterally — it is a detection-design call, the same kind V2's own
+  "never auto-select" clause already made on the opposite assumption.
 - **A separate OpenCode V2 adapter exists at `adapters/opencode-v2/iamlazy.ts`**, targeting the
   native `@opencode/plugin` API (v2.0.x) rather than V1's `@opencode-ai/plugin`. Unlike V1's
   adapter, it has a real runtime dependency and must be bundled (`build.sh`, `bun build
@@ -217,8 +225,11 @@ justification; an undeclared deviation is an automatic reviewer finding.
   `docs/decisions-2026-09.md`. `install.sh --tool=opencode-v2` installs it (builds from a real
   checkout, refuses cleanly under `curl|bash` or without `bun`); `--check` and `uninstall.sh`
   know its shape too. It is never auto-selected -- `--tool=opencode` still means V1, and `auto`
-  never picks V2 -- which is what keeps this the same "candidate, not committed" status as
-  Candidate 18 above, deliberately, rather than a side effect of wiring it in. Its
+  never picks V2 -- a deliberate, opposite-direction bet from Candidate 19 above: V1 is the
+  auto-selected default on the unstated assumption that it is the safe, boring choice, when in fact
+  it is the one confirmed NOT to load on this project's own real daemon. Keeping V2 opt-in was never
+  meant to imply V1 is proven reliable; it just has not been re-examined since that assumption broke.
+  Its
   `@opencode/plugin` dependency (build-time only, never at runtime) is a second declared exception
   to the "zero external deps" rule below, on top of V1's type-only one. `test.sh` now covers the
   installer's V2 path (a real install + build, byte-for-byte switching between V1/V2 leaves no

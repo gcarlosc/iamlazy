@@ -191,32 +191,34 @@ Trigger `[log]`: 2+ runs whose `models_seen` names a model the close banner did 
 where the banner claims to be derived. Now checkable; it was not before.
 Status: 1 recorded (session `7f32cddc`, both of its close banners).
 
-## Candidate 18 — OpenCode's Layer 0 goes inert the moment a human answers in a new process
-(origin: 2026-09-11, real end-to-end `opencode run`)
+## Candidate 19 — V1's plugin shape cannot load on a real OpenCode 2.x daemon
+(origin: 2026-09-16, investigating Candidate 18's closure)
 
-Idea: detect and refuse to silently continue a `/iamlazy` conversation once its run tracking is
-gone, instead of letting the rest of the conversation proceed on prose alone.
+Idea: `install.sh`'s auto-detect (`--tool` omitted) should not select V1 on a host where V1
+provably cannot load.
 
-What was found: `command.execute.before` opens the run correctly (`open-run.sh` logged
-`stage_reached:"ANALYSIS"`), but the CLI process exit that follows — the ordinary shape of
-`opencode run`'s own `--continue` workflow, not a crash — fires `session.deleted`, which
-`end-run.sh` treats as an ordinary exit and flushes the run as `abandoned`. The human's reply then
-arrives in a **new process**, with no active run file. Everything after that point — writing the
-contract, editing files, spawning `iamlazy-critic` as a real, correctly-modeled sub-agent, closing
-— ran with zero Layer 0 enforcement. It was all correct in this run because the model happened to
-follow the prose correctly; nothing structural would have caught it if it had not.
+What was found while re-testing Candidate 18: deploying the actual, unmodified
+`adapters/opencode/iamlazy.ts` against the real, installed `v2.0.1` daemon fails outright —
+`"Plugin must export a default definition with an id and an effect or setup function."` — before a
+single hook runs. Not specific to this file: a pre-existing, unrelated loose plugin already on this
+machine (`engram.ts`) fails with the byte-identical error, because it shares V1's export shape
+(`export const X: Plugin = async (ctx) => {...}`, no `Plugin.define`, no `id`). The modern loader
+requires `export default Plugin.define({id, setup})`.
 
-This is the same failure class as the very first `guard-agent.sh` gap this backlog's Candidate
-list has already fixed once (a fabricated "the human declined" close) and once more since (the
-`AskUserQuestion` channel) — Layer 0 silently not being there, rather than Layer 0 refusing
-something. The difference is the cause: not a prompt choosing a different channel, but the host's
-own process lifecycle.
+`install.sh`'s `auto` path has no daemon-version check: `command -v opencode` or the presence of
+`~/.config/opencode` selects V1 unconditionally. On any machine whose real binary is 2.x, that
+silently deploys a plugin that never loads — zero Layer 0 from the very first `/iamlazy`, worse than
+Candidate 18 ever described, and undetected unless `install.sh --check` is run afterward (it DOES
+catch this correctly — `c_load_failure` matches the real log line — just not at install time).
 
-Two things this needs before a fix is designed, not after: (1) whether the interactive TUI shares
-this (a long-lived process might never fire `session.deleted` between ordinary turns — unconfirmed,
-no PTY access to test it from here); (2) if it does, whether `chat.message` reopening a run when a
-reply continues an agent that was mid-`/iamlazy` is enough, or whether the fix has to live in
-`hk_guard` refusing to proceed silently when a session that WAS tracked no longer is.
+Trigger `[human]`: a real install on a host running OpenCode 2.x, via the `auto` or `--tool=opencode`
+path, confirms V1 never loaded (`opencode api GET /api/plugin` never lists it `active`, or
+`opencode.log` shows the load-failure line). Not `[log]`: this needs the actual daemon queried, not
+a `runs.jsonl` field.
+
+Deliberately left as a candidate rather than a code change: whether the fix is a version probe at
+install time, a louder warning, porting V1's shape forward, or accepting the risk is a design call —
+see `docs/decisions-2026-09.md` for the full evidence trail.
 Trigger `[human]`: reported as a real interactive-TUI session losing its run mid-conversation —
 would confirm this is not a `opencode run`-only artifact.
 Trigger `[log]`: an OpenCode run in `runs.jsonl` whose `outcome` is `abandoned` at an early
@@ -296,3 +298,4 @@ records; a backlog whose triggers cannot fire is cost without signal.
 | 9 | Reinstate one delegated builder sub-agent | **Retired as unfalsifiable.** `guard-agent.sh` denies every sub-agent but the Critic, so the controlled pair can no longer be gathered passively. Reviving it means deliberately disabling the guard for an experiment — a decision, not a trigger. The one uncontrolled observation (delegation 1.67x cheaper per changed line, but with more retries and interventions) stands unresolved. |
 | 12 | The reversibility tier barely discriminates | **Retired — the outcome it contemplated happened.** It proposed collapsing the dial to what still had an effect; the dial was removed entirely. |
 | — | Field audit of self-reported log fields (2026-08-21) | **Absorbed.** Its conclusion — introspection fails when a field needs a quantity estimated or has an ambiguous definition — is now the standing rule in `PROJECT.md`, with the full record in `docs/measurement-history.md`. |
+| 18 | OpenCode's Layer 0 goes inert the moment a human answers in a new process | **Pruned 2026-09-16 — resolved by an upstream change, not a code fix.** Found against `v1.18.30`; the daemon this project actually runs is now `v2.0.1`. A real end-to-end run (opened via API on a CLI-created session, continued across three separate `opencode run --continue` processes, ~10 minutes) shows zero `session.deleted` events and a normal automatic close — `outcome:"flushed"`, real Critic findings. See `docs/decisions-2026-09.md`; superseded by Candidate 19, found while closing this one. |
