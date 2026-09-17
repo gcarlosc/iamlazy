@@ -213,7 +213,12 @@ justification; an undeclared deviation is an automatic reviewer finding.
   the first `/iamlazy`, not just after `--continue`. `install.sh --check` does catch it after the
   fact (`c_load_failure` matches the real log line), just not at install time. Tracked as DELTAS
   Candidate 19 rather than fixed unilaterally — it is a detection-design call, the same kind V2's own
-  "never auto-select" clause already made on the opposite assumption.
+  "never auto-select" clause already made on the opposite assumption. A registry audit (2026-09-17)
+  scoped it: **both official default channels still serve 1.x** — `curl | bash` resolves
+  `releases/latest` = v1.18.31, and `npm i -g opencode-ai` = 1.18.31, undeprecated, released three
+  days after 2.0.0 went stable — while 2.x lives on renamed packages (`@opencode/cli`). So V1 is not
+  dead code and retiring it is off the table; the gap hits people who moved to the 2.x packages
+  deliberately, not the typical fresh install.
 - **A separate OpenCode V2 adapter exists at `adapters/opencode-v2/iamlazy.ts`**, targeting the
   native `@opencode/plugin` API (v2.0.x) rather than V1's `@opencode-ai/plugin`. Unlike V1's
   adapter, it has a real runtime dependency and must be bundled (`build.sh`, `bun build

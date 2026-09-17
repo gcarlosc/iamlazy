@@ -957,8 +957,10 @@ before a single hook ever runs.
 the presence of `~/.config/opencode` is enough to select V1. On any machine whose real OpenCode
 binary is 2.x — this one included — that default path silently deploys a plugin that never loads.
 That is a strictly worse failure than Candidate 18 described: not "degrades after `--continue`," but
-zero Layer 0 from the very first `/iamlazy` invocation, on the host most likely to be a fresh
-install. `install.sh --check`'s `c_load_failure` (shared with V2's path) DOES correctly flag it after
+zero Layer 0 from the very first `/iamlazy` invocation. (Written the same day as "the host most
+likely to be a fresh install" — **that part was wrong**, and the distribution audit the next day
+disproved it: a fresh install still gets 1.x from both official channels. The failure is real, the
+population it hits is narrower. Corrected below.) `install.sh --check`'s `c_load_failure` (shared with V2's path) DOES correctly flag it after
 the fact — confirmed against the daemon's actual log line, which contains "iamlazy" after "failed to
 load plugin" and so matches its grep — but nothing catches it at install time, and `install.sh` never
 prompts to run `--check` afterward.
@@ -968,3 +970,41 @@ is a version probe at install time, a stronger `install.sh` warning, porting V1'
 accepting the risk is a real design call, not a bug fix — the same reasoning this project has applied
 to every other host-detection decision (V2's own "never auto-select" clause exists for the identical
 reason, on the opposite assumption).
+
+### The distribution audit that scopes Candidate 19 (2026-09-17)
+
+Candidate 19 was left open on one unanswered question: is OpenCode 1.x still supported, or is V1
+dead code? If 1.x were EOL, the answer would be "retire V1", not "detect the version". Checked
+against the registries themselves, not against impressions:
+
+| Channel | What a fresh install gets today |
+|---|---|
+| `curl -fsSL https://opencode.ai/install \| bash` | **v1.18.31** — the installer pulls `github.com/anomalyco/opencode/releases/latest`, and GitHub's `Latest` release is 1.18.31 |
+| `npm i -g opencode-ai` | **1.18.31** — still the package's `latest` dist-tag |
+| `npm i -g @opencode/cli` | **2.0.5** — the 2.x line, published under a NEW scoped package name |
+
+So 1.x is not merely alive, it is what **both official default channels still serve**. 1.18.31
+shipped 2026-09-14, three days AFTER 2.0.0 went stable (2026-09-11), and `opencode-ai` carries no
+deprecation notice. The 2.x line lives on renamed packages (`@opencode/cli`, `@opencode/core`,
+`@opencode/plugin`), has no GitHub release at all in `anomalyco/opencode`, and reached stable only
+six days ago — 2.0.0 on 09-11, through 2.0.5 on 09-16, with dev snapshots several times a day.
+`opencode-ai` has no 2.x version published under it, ever: the two lines are parallel, not
+successive.
+
+**This settles Candidate 19 as "detect the version", and retires "retire V1" as an option.** V1
+targets what the majority still runs; deleting it would break every user on both default channels to
+fix a failure that only reaches those who deliberately moved to the renamed 2.x packages.
+
+It also corrects the severity claim written the day before. The failure is real and total where it
+lands, but it lands on early adopters of a six-day-old line, not on the typical fresh install — the
+opposite of what that entry assumed. Worth stating plainly because this project's rule is that an
+overstated finding costs the same credibility as a missed one.
+
+One unplanned confirmation of the same asymmetry: `install.sh --check` reported
+`opencode fallo al cargar el plugin ... DESPUES de instalar estos bytes` on this machine after the
+Candidate 18 testing — a false positive from the throwaway `iamlazy-v1-probe.ts` used to prove V1
+cannot load, because `c_load_failure`'s grep is `'failed to load plugin.*iamlazy'` and matches any
+path merely CONTAINING "iamlazy". A reinstall cleared it (the check compares against the plugin
+file's mtime). Not worth a candidate of its own — no real install flow produces a differently-named
+`iamlazy*` plugin file — but noted, since `--check` is the only safety net Candidate 19 currently
+has, and its precision is what that net is made of.

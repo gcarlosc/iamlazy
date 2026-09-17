@@ -216,9 +216,21 @@ path, confirms V1 never loaded (`opencode api GET /api/plugin` never lists it `a
 `opencode.log` shows the load-failure line). Not `[log]`: this needs the actual daemon queried, not
 a `runs.jsonl` field.
 
-Deliberately left as a candidate rather than a code change: whether the fix is a version probe at
-install time, a louder warning, porting V1's shape forward, or accepting the risk is a design call —
-see `docs/decisions-2026-09.md` for the full evidence trail.
+**Scoped 2026-09-17 by a registry audit, which settles the direction.** Both official default
+channels still serve 1.x: `curl | bash` resolves `releases/latest`, which is **v1.18.31**, and
+`npm i -g opencode-ai` is **1.18.31** too, with no deprecation notice and a release dated three days
+AFTER 2.0.0 went stable. The 2.x line lives on renamed packages (`@opencode/cli`, `@opencode/core`,
+`@opencode/plugin`), has no GitHub release in that repo at all, and went stable only on 2026-09-11.
+
+So **retiring V1 is off the table** — it targets what the majority still installs — and the fix is
+version detection, not replacement. It also narrows the blast radius honestly: this hits people who
+deliberately moved to the renamed 2.x packages, not the typical fresh install, which still gets 1.x
+where V1 is the correct adapter.
+
+Still a design call, hence still a candidate: whether detection should refuse V1 on a 2.x daemon
+(loud, minimal, does not touch the "never auto-select V2" decision), or go further and promote V2
+automatically there (better UX, but inverts that decision and fails without `bun`). See
+`docs/decisions-2026-09.md` for the full evidence trail.
 Trigger `[human]`: reported as a real interactive-TUI session losing its run mid-conversation —
 would confirm this is not a `opencode run`-only artifact.
 Trigger `[log]`: an OpenCode run in `runs.jsonl` whose `outcome` is `abandoned` at an early
