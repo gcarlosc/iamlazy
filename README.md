@@ -114,6 +114,12 @@ The installer:
 - auto-detects `claude` and `opencode` (V1). `opencode-v2` targets OpenCode's native v2.0.x plugin
   API instead — a candidate host, not a committed one (see `PROJECT.md`) — so it always needs the
   explicit flag, plus `bun` and a real checkout to build its adapter; never auto-selected,
+- **reads `opencode --version` before writing anything, because the two adapter shapes are not
+  interchangeable**: an OpenCode **2.x** daemon rejects the V1 plugin outright, which would leave
+  Layer 0 installed and dead. On 2.x, auto-detect skips OpenCode and tells you to run
+  `--tool=opencode-v2`; an explicit `--tool=opencode`/`--tool=both` refuses instead of installing
+  something that cannot load. If the version can't be read, V1 is installed as before. `--check`
+  verifies the same pairing, so a mismatch is reported rather than discovered later,
 - writes the slash commands and the Critic sub-agent to their global config dirs,
 - installs Layer 0: the hooks, registered in Claude Code's `settings.json`, or behind the plugin
   on OpenCode,
@@ -245,7 +251,10 @@ mode Layer 0 exists to remove.
 `@opencode/plugin`. V2 needs a build step first — its adapter has a real runtime import the V2
 daemon cannot resolve when it loads a local plugin dynamically, so it ships as one bundled,
 dependency-free file instead; see `adapters/opencode-v2/README.md` for the full story and its own
-`build.sh`. Both do the same one thing: translate OpenCode's events into the JSON payloads the
+`build.sh`. **They are not interchangeable**: each daemon major accepts only its own shape — a 2.x
+daemon rejects V1's whole plugin with `Plugin must export a default definition with an id and an
+effect or setup function`, and the failure goes to OpenCode's log, not your terminal. That is why
+the installer checks the version instead of assuming. Both do the same one thing: translate OpenCode's events into the JSON payloads the
 hooks already read, invoke them, and translate a denial back into the `throw` that blocks a tool
 there. Neither reads a contract, computes scope, or knows about the breaker — a test greps each
 for those words and fails if any appears. The one thing that differs from Claude Code is cost:
