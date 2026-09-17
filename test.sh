@@ -580,7 +580,37 @@ if lfout="$(PATH="$VBIN:$PATH" HOME="$LFH" "$SRC/install.sh" --check 2>&1)"; the
 else
   case "$lfout" in
     *"2099-01-01"*) ok "a failure naming the installed adapter is reported, with its timestamp" ;;
-    *) no "--check failed but not for the adapter's own load failure" ;;
+    *) no "--check failed but not for the adapter's own load failure (got: $lfout)" ;;
+  esac
+fi
+
+# The same path, with a GNU-shaped `stat`. `stat -f %m` is BSD; on GNU `-f` is
+# --file-system, so "%m" is just a FILE operand that fails while the real
+# file's filesystem block still reaches stdout. Reading both as one value made
+# every later parse fail and, under `set -e`, took the whole check down
+# mid-run -- which is exactly how this suite found it: green on macOS, an
+# unexplained non-zero exit on ubuntu. Stubbed rather than skipped, so the
+# platform that has the bug is tested from the platform that does not.
+GSTAT="$(mktmp)"
+cat > "$GSTAT/stat" <<'STATSTUB'
+#!/bin/sh
+if [ "$1" = "-f" ]; then
+  shift
+  for op in "$@"; do
+    [ -e "$op" ] && echo "  File: \"$op\"  ID: 0 Namelen: 255 Type: ext2/ext3"
+  done
+  exit 1
+fi
+if [ "$1" = "-c" ]; then echo 1700000000; exit 0; fi
+exit 1
+STATSTUB
+chmod +x "$GSTAT/stat"
+if lfgnu="$(PATH="$GSTAT:$VBIN:$PATH" HOME="$LFH" "$SRC/install.sh" --check 2>&1)"; then
+  no "--check should still report the load failure under a GNU-shaped stat"
+else
+  case "$lfgnu" in
+    *"2099-01-01"*) ok "the load-failure check survives a GNU-shaped stat instead of aborting" ;;
+    *) no "--check under a GNU-shaped stat did not reach the load-failure comparison (got: $lfgnu)" ;;
   esac
 fi
 

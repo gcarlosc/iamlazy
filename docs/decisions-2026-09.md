@@ -1070,3 +1070,32 @@ the precision assertion; dropping the message match kills the detection assertio
 The same edit put `c_load_failure`'s comment block back above `c_load_failure`:
 `c_adapter_matches_daemon` had been inserted in the middle of it the day before, leaving seven lines
 about mtime comparison sitting above a function that does not do any.
+
+### The precision fix uncovered a second bug in the same function, Linux-only
+
+Tightening `c_load_failure`'s match turned CI red on ubuntu while macOS stayed green — the new test
+was the first thing that ever drove that code path on Linux.
+
+`stat -f %m` is BSD. On GNU, `-f` is `--file-system`, so `%m` becomes a FILE operand that fails
+while the real file's filesystem block **still reaches stdout**. Written as
+`mtime="$(stat -f %m "$1" || stat -c %Y "$1")"`, the substitution captured that block together with
+the epoch on the next line. Every later parse then failed — including both `date` forms — and under
+`set -e` the failing assignment aborted `run_check` mid-section, so `--check` exited non-zero having
+printed nothing about the plugin at all. That is precisely the symptom CI reported: a failure with
+no explanation attached to it.
+
+Two consequences, both worse than they look. On Linux the `DESPUES de instalar estos bytes` branch
+was **unreachable**: a real post-install load failure could never be reported there. And whenever
+the log did contain a matching line, `--check` died partway through instead of finishing its other
+checks. Neither had a test, on either platform, until now.
+
+Each form is now taken only if it yields a plain integer, `date`'s two dialects are shape-checked
+the same way (BSD `-r` reads an epoch, GNU `-r` reads a file and needs `-d @epoch`), and nothing in
+the function may abort. When the date genuinely cannot be read it reports that instead of
+`"sin fallas de carga"` — claiming no failure while holding one in hand is the kind of quiet lie
+this check exists to prevent.
+
+Reproduced locally before fixing, with a `stat` stub emulating GNU's argument handling, and that
+stub is now the regression test: the platform that has the bug is tested from the platform that
+does not. Mutation-verified by restoring the fragile derivation, which reproduces the CI failure
+exactly. `test.sh` 197 → 198.

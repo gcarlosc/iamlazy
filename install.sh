@@ -126,9 +126,33 @@ c_load_failure() {
     c_ok "opencode nunca fallo al cargar el plugin"
     return 0
   fi
-  mtime="$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null)"
-  installed_at="$(date -u -r "$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"
-  if [ -n "$installed_at" ] && awk -v a="$last_fail" -v b="$installed_at" 'BEGIN{exit !(a>b)}'; then
+  # `stat -f %m` is BSD. On GNU, `-f` is --file-system, so "%m" becomes a FILE
+  # operand that fails while the real file's filesystem block STILL goes to
+  # stdout -- a bare `a || b` captures that garbage together with the epoch,
+  # every later parse fails, and under `set -e` the failing assignment took the
+  # whole check down mid-run. Silently, and only on the platform CI runs: the
+  # branch below was unreachable on Linux until a test finally reached it.
+  # So each form is taken only if it yields a plain integer, and nothing here
+  # is allowed to abort.
+  mtime="$(stat -f %m "$1" 2>/dev/null || true)"
+  case "$mtime" in ""|*[!0-9]*) mtime="$(stat -c %Y "$1" 2>/dev/null || true)" ;; esac
+  case "$mtime" in ""|*[!0-9]*) mtime="" ;; esac
+  installed_at=""
+  if [ -n "$mtime" ]; then
+    # Same split: BSD `date -r` reads an epoch, GNU `-r` reads a FILE and needs
+    # `-d @epoch` instead. Shape-checked rather than trusted, for the same reason.
+    installed_at="$(date -u -r "$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+    case "$installed_at" in
+      [0-9][0-9][0-9][0-9]-*) ;;
+      *) installed_at="$(date -u -d "@$mtime" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)" ;;
+    esac
+    case "$installed_at" in [0-9][0-9][0-9][0-9]-*) ;; *) installed_at="" ;; esac
+  fi
+  if [ -z "$installed_at" ]; then
+    # Saying "no failures since this install" here would be a lie: there IS a
+    # failure, what is missing is the date to compare it against.
+    c_skip "hay una falla de carga ($last_fail) pero no pude leer la fecha del adaptador para compararla"
+  elif awk -v a="$last_fail" -v b="$installed_at" 'BEGIN{exit !(a>b)}'; then
     c_bad "opencode fallo al cargar el plugin en $last_fail, DESPUES de instalar estos bytes"
   else
     c_ok "sin fallas de carga desde que se instalo este adaptador (la ultima fue $last_fail)"
