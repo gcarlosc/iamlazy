@@ -2,87 +2,44 @@
 
 [![test](https://github.com/gcarlosc/iamlazy/actions/workflows/test.yml/badge.svg)](https://github.com/gcarlosc/iamlazy/actions/workflows/test.yml)
 
-## Qué es esto, y por qué te puede interesar
+**Le das una tarea. Apruebas un plan de una página. No puede cerrarla fuera de ese plan.**
 
-**iamlazy te ayuda a terminar bien una tarea — y después se hace a un lado.**
+Un harness para **Claude Code** y **OpenCode**. Un comando para instalarlo, cero dependencias:
+bash y archivos.
 
-Tú traes la tarea y las decisiones. Él trae la disciplina: las preguntas que vale la pena hacer
-antes de escribir una línea, un acuerdo escrito sobre qué significa "listo", y un reporte honesto
-cuando lo está. La parte que es fácil omitir cuando estás cansado es justo la que él se encarga de
-hacer.
+```sh
+git clone <repo> iamlazy && cd iamlazy && ./install.sh
+```
 
-### Cómo se siente usarlo
+```
+/iamlazy agrega soporte para --lang=de en greet.sh
+```
 
-1. **Pides algo.** "Agrega soporte para alemán al script de saludo."
-2. **Te pregunta de vuelta — una sola vez.** Las dos o tres cosas que realmente cambian la
-   respuesta, en un único bloque. No un goteo de preguntas durante veinte minutos.
-3. **Escribe el trato.** Qué archivos va a tocar, qué va a significar terminado, cómo lo vas a
-   verificar. Una página, en lenguaje claro.
-4. **Dices que sí.** O corriges el plan primero — que cuesta un minuto ahora en lugar de una tarde
-   después.
-5. **Trabaja, y te entrega un reporte.** Qué cambió, qué encontró un segundo revisor, cuánto costó,
-   y cualquier cosa que haya hecho sin que la aprobaras.
+### Qué obtienes
 
-Ese último punto es donde se fue la mayor parte del diseño, y es la razón por la que vale leer el
-resto.
+- **Un plan antes del código.** Los archivos en alcance, qué significa "terminado", y el comando
+  exacto que lo prueba. Lo apruebas o lo corriges: un minuto ahora, en lugar de una tarde revisando
+  un diff que no pediste.
+- **No puede salirse del alcance.** Si tocó un archivo que no aprobaste, la corrida no cierra: lo
+  declara. No es una línea en el prompt pidiendo buena conducta — es un hook que corre siempre.
+- **Lo revisa otro agente.** Uno separado, que lee el diff en frío y busca qué más dependía de lo
+  que cambió. El que escribió el código no firma su propia revisión.
+- **Números, no impresiones.** Cada corrida deja en `runs.jsonl` el costo real en dólares, la
+  duración, los archivos tocados y los hallazgos del revisor. Sabes qué costó, no qué te pareció.
 
-### El contrato es para ti, no para él
+### El número que lo explica
 
-Esa página que apruebas no es papeleo. Sigue trabajando después de que la firmas.
-
-Cuando el asistente dice que terminó, **la máquina** —no el asistente— compara lo que cambió de
-verdad contra lo que acordaste. Cualquier cosa fuera del trato tiene que decirse en voz alta, en el
-reporte que ya estás leyendo. No escribirse en un log que nunca vas a abrir.
-
-Es la diferencia entre el presupuesto escrito de un contratista y su palabra. Los dos pueden ser
-buenos. Solo uno se puede verificar.
-
-### Promesas que se sostienen, y consejos que ayudan
-
-Aquí viven dos tipos de cosas, y están etiquetadas con honestidad:
-
-| | Qué es | Ejemplo |
-|---|---|---|
-| **Garantizado** | Lo hace cumplir código que corre sin importar si alguien se acuerda. | El trabajo no puede declararse terminado si se cambió un archivo que nunca aprobaste. |
-| **Pedido** | Buen criterio, escrito. Se suele cumplir. | "Empieza por la conclusión." |
-
-Este proyecto aprendió a distinguirlos del modo costoso. En su momento tuvo seis reglas que llamaba
-"inviolables" — cinco eran solo *pedidos*, y la más incumplida de todas era justamente la que
-estaba escrita con las letras más grandes. Así que ahora todo lo que una máquina puede verificar lo
-verifica una máquina, y el resto se llama por su nombre: consejo. Nada se promueve a promesa por
-sonar importante.
-
-### Obtienes un segundo lector, gratis
-
-El asistente que hizo el trabajo no es quien lo aprueba. Un revisor aparte lee el cambio en frío
-—sin memoria de las decisiones, sin interés en defenderlas— y reporta lo que encuentra. Ves los
-hallazgos sean favorables o no, y el trabajo no puede cerrarse omitiendo ese paso en silencio.
-
-### Cada trabajo deja un recibo
-
-Cuánto tardó, cuánto costó, qué cambió, qué dijo el revisor. Mediciones, no un resumen escrito de
-memoria. En unas semanas eso se vuelve genuinamente útil: puedes ver qué tipo de trabajo sale
-fluido, y cuál cuesta en silencio veinte veces más de lo que debería — algo que nadie nota a
-simple vista.
-
-### Por qué "iamlazy"
-
-Porque ser perezoso con la *vigilancia* es lo que te ganas por no ser perezoso con las
-*decisiones*.
-
-Sigues eligiendo qué construir y si el plan está bien — esa parte es tuya. Lo que dejas de hacer
-es estar encima, releer cada cambio, y acordarte de preguntar "¿de verdad probaste eso?". Ahora
-eso lo
-hace otra cosa, todas las veces, sin cansarse ni volverse optimista.
+La peor corrida registrada tardó casi dos horas en producir 230 líneas, después de siete intentos:
+**24 veces más cara por línea** que una normal. Eso no se nota sin medirlo, y no se corta sin algo
+que lo corte. iamlazy hace las dos cosas.
 
 ---
 
-**Todo lo que sigue es para quien va a instalarlo y usarlo.**
+**Todo lo que sigue es el detalle: cómo funciona, cómo se instala y qué garantiza.**
 
-Un harness de desarrollo de software para **Claude Code** y **OpenCode**. Corre **una tarea de
-punta a punta** —analizar, preguntar, contratar, aprobar, ejecutar, revisar— en un solo hilo. Sin
-MCP, sin dependencias externas. Bash y archivos, más un archivo TypeScript que le permite a
-OpenCode correr ese mismo bash.
+Corre **una tarea de punta a punta** —analizar, preguntar, contratar, aprobar, ejecutar,
+revisar— en un solo hilo. Sin MCP, sin dependencias externas: bash y archivos, más un archivo
+TypeScript que le permite a OpenCode correr ese mismo bash.
 
 ## El modelo mental (una página)
 
