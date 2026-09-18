@@ -38,8 +38,8 @@ que lo corte. iamlazy hace las dos cosas.
 **Todo lo que sigue es el detalle: cómo funciona, cómo se instala y qué garantiza.**
 
 Corre **una tarea de punta a punta** —analizar, preguntar, contratar, aprobar, ejecutar,
-revisar— en un solo hilo. Sin MCP, sin dependencias externas: bash y archivos, más un archivo
-TypeScript que le permite a OpenCode correr ese mismo bash.
+revisar— en un solo hilo. Sin MCP: un archivo TypeScript le permite a OpenCode correr el mismo
+bash que Claude Code.
 
 ## El modelo mental (una página)
 
@@ -47,10 +47,9 @@ iamlazy no es un pipeline de agentes ni interpreta personajes. Es un ingeniero s
 una tarea, con un **contrato** en el medio: lo que acordaste hacer, firmado antes de escribir
 código, y verificado contra la realidad al final.
 
-Deliberadamente **no** está hecho para sesiones de varias horas. Una corrida larga es un
-síntoma. La peor del log tardó casi dos horas en producir 230 líneas en 3 archivos,
-después de siete intentos distintos
-— **24x peor por línea** que una corrida normal. Hacer eso visible, y frenarlo, es el punto.
+Deliberadamente **no** está hecho para sesiones de varias horas: una corrida larga es un
+síntoma, no un logro — y el número de arriba es lo que pasa cuando nadie la corta. Hacerlo
+visible, y frenarlo, es el punto.
 
 **Un hilo, y un solo escritor.** El valor está en la cadena —plan, diff, revisión— sostenida en un
 *único* contexto; si lo partes entre agentes delegados, cada uno vuelve a deducir lo que el anterior
