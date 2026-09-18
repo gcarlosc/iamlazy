@@ -33,8 +33,13 @@ stopping it is the point.
   by AUDIENCE, not by file: the composed prompts (`core/`, templates, this doc, code comments)
   stay English -- they are read by contributors and by the model regardless of who is running it.
   Everything a HUMAN reads while operating the harness is Spanish, matching this project's own:
-  hook-emitted block/breaker reasons (`flush-run.sh`, `guard-agent.sh`, always were), and
-  `install.sh`/`uninstall.sh`/`adapters/opencode-v2/build.sh`'s printed output (2026-09-14).
+  hook-emitted block/breaker reasons (`flush-run.sh`, `guard-agent.sh`, always were),
+  `install.sh`/`uninstall.sh`/`adapters/opencode-v2/build.sh`'s printed output (2026-09-14), and
+  **`README.md` in full (2026-09-17)** — it is read by whoever decides whether to install this,
+  which is the same audience as the installer's own output, not the contributor audience the
+  prompts serve. `adapters/*/README.md` stay English: their readers are building an adapter.
+  Voseo throughout, matching the printed output that came first — not neutral Spanish, because two
+  registers in one project reads as two authors.
 
 ## Architecture — two layers
 
