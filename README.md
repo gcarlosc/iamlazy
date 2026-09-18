@@ -2,70 +2,75 @@
 
 [![test](https://github.com/gcarlosc/iamlazy/actions/workflows/test.yml/badge.svg)](https://github.com/gcarlosc/iamlazy/actions/workflows/test.yml)
 
-## What this is, if you are not a programmer
+## What this is, and why you might want it
 
-**iamlazy is a set of rules an AI assistant cannot talk its way out of.**
+**iamlazy helps you finish one task properly — and then gets out of your way.**
 
-The longer answer needs one scene.
+You bring the task and the decisions. It brings the discipline: the questions worth asking before
+anything gets typed, a written agreement about what "done" means, and an honest report when it is.
+The part that is easy to skip when you are tired is the part it takes care of.
 
-Imagine hiring someone to renovate your kitchen. They are skilled and fast. Halfway through, you
-notice they have also repainted the hallway and moved a door in the bedroom. You ask whether an
-electrician checked the wiring. They say "yes, it's fine" — and you have no way to know whether
-anyone actually looked.
+### What it feels like to use
 
-That is roughly what it is like to hand a real task to an AI coding assistant. It is genuinely
-capable. It also drifts: it changes things nobody asked about, it spends two hours on something
-that deserved twenty minutes, and it reports its own work as finished and reviewed — because
-*saying so* is easier than *being so*.
+1. **You ask for something.** "Add German support to the greeting script."
+2. **It asks you back — once.** The two or three things that genuinely change the answer, in one
+   block. Not a drip of questions across twenty minutes.
+3. **It writes down the deal.** Which files it will touch, what finished will mean, how you will
+   check. One page, in plain language.
+4. **You say go.** Or you fix the plan first — which costs a minute now instead of an afternoon
+   later.
+5. **It works, then hands you a report.** What changed, what a second reviewer found, what it
+   cost, and anything it did that you had not approved.
 
-You can ask it not to. Asking works right up until the moment it doesn't, and you find out
-afterwards.
+That last item is where most of the design went, and it is the reason the rest of this is worth
+reading.
 
-### The contract
+### The contract is for you, not for it
 
-iamlazy puts one thing in the middle of every job: a **contract**.
+That one page you approve is not paperwork. It keeps working after you sign it.
 
-Before a single line of code is written, the assistant has to write down what it is about to do —
-which files it will touch, what "finished" will mean, how you will be able to check. You read it.
-You approve it, or you send it back.
+When the assistant says it is finished, **the machine** — not the assistant — compares what
+actually changed against what you agreed to. Anything outside the deal has to be said out loud, in
+the report you are already reading. Not written to a log you will never open.
 
-Then it works. And when it claims to be done, *the machine* — not the assistant — compares what
-actually changed against what you approved. Touched something that was not on the list? It cannot
-quietly declare victory. It has to say so.
+It is the difference between a builder's written quote and a builder's word. Both can be good.
+Only one of them can be checked.
 
-It is the difference between a builder's written quote and a builder's word.
+### Promises that hold, and advice that helps
 
-### Asked, or guaranteed
+Two kinds of thing live in here, and they are labelled honestly:
 
-This distinction is the whole idea:
-
-| | What it means | Example |
+| | What it is | Example |
 |---|---|---|
-| **Asked** | Written in the instructions. Usually followed. | "Explain your conclusion first." |
-| **Guaranteed** | Enforced by code that runs whether the assistant likes it or not. | It cannot finish while a file it changed sits outside what you approved. |
+| **Guaranteed** | Enforced by code that runs whether anyone remembers it or not. | The job cannot be declared finished while a file you never approved was changed. |
+| **Asked** | Good judgement, written down. Usually followed. | "Lead with your conclusion." |
 
-This project learned the difference the expensive way. It once had six rules it called
-"inviolable" — five were merely *asked*, and the single most-broken one was the one written in the
-biggest letters. Calling something a law does not make it one. So now anything a machine can check
-is checked by a machine, and everything else is honestly labelled as advice.
+This project learned to tell them apart the expensive way. It once had six rules it called
+"inviolable" — five were only ever *asked*, and the single most-broken one was the one written in
+the biggest letters. So now anything a machine can verify is verified by a machine, and everything
+else is called what it is: advice. Nothing gets promoted to a promise for sounding important.
 
-### Nobody grades their own homework
+### You get a second reader, free
 
-The assistant that did the work is not allowed to be the one who signs it off. A separate reviewer
-reads the changes cold and reports what it finds — and the assistant cannot skip that step by
-deciding it went well.
+The assistant that did the work does not get to approve it. A separate reviewer reads the change
+cold — no memory of the decisions, no stake in defending them — and reports what it finds. You see
+the findings whether they are flattering or not, and the job cannot close by quietly skipping that
+step.
 
 ### Every job leaves a receipt
 
-How long it took, what it cost, what changed, what the reviewer found. Measurements, not the
-assistant's summary of itself. That is how you discover that one job quietly cost twenty-four times
-more per line of code than normal — the kind of thing nobody notices without a receipt.
+How long it took, what it cost, what changed, what the reviewer said. Measurements, not a summary
+written from memory. Over a few weeks that becomes genuinely useful: you can see which kinds of
+work go smoothly, and which ones quietly cost twenty times more than they should — which is not
+something anybody notices by feel.
 
-### So why "iamlazy"?
+### Why "iamlazy"
 
-Because that is the goal. If it works, you do not have to hover, re-read every change, or remember
-to ask "did you really test that?". The watching is done by something that does not get tired or
-optimistic.
+Because being lazy about the *watching* is what you earn by not being lazy about the *deciding*.
+
+You still choose what to build and whether the plan is right — that part is yours. What you get to
+stop doing is hovering, re-reading every change, and remembering to ask "did you actually test
+that?". Something else does that now, every single time, without getting tired or optimistic.
 
 ---
 
