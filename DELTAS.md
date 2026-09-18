@@ -193,6 +193,42 @@ Status: 1 recorded (session `7f32cddc`, both of its close banners).
 
 ---
 
+## Rejected — migrate to Pi as the sole host (evaluated 2026-09-10)
+
+Recorded so it is not re-proposed without new evidence. The question was not adding Pi as a third
+target — it was **replacing Claude Code and OpenCode with it**. Pi's own extension API is the best
+of the three: typed `{block, reason}` tool denial, an explicit `turn_end` event where OpenCode
+requires inferring turn boundaries from `session.idle`, `ctx.exec()` in place of raw shell
+interpolation, and a `session_before_compact` hook that would finally make `compactions` derivable
+— a field no host has ever been able to produce.
+
+Rejected on usage alone, measured against the real logs, not against the technical comparison:
+
+| Host | Assistant messages, last 30 days | Days used |
+|---|---|---|
+| Claude Code | 63,282 | 31 / 31 |
+| OpenCode | 785 | 17 |
+| Pi | 9 | 2, and both are from this evaluation itself |
+
+Claude Code is where essentially all real work happens. Moving the harness to Pi would move it off
+the host actually in use, onto one with no real sessions to speak of. The value of iamlazy is that
+it runs where the work happens, not that its adapter is more elegant.
+
+Two things worth keeping from the evaluation:
+
+- **Pi has no built-in sub-agents, plan mode, or permission bypass** (its own docs say so
+  explicitly) — a Pi port would mean building the Critic as a registered tool from scratch, not
+  translating an existing primitive the way the OpenCode adapter does. This is construction, not
+  adaptation, regardless of the decision above.
+- **Its package.json declares an `./hooks` export pointing at a directory that does not exist.**
+  Pi's own types lag its build the same way OpenCode's SDK types do — verify against the installed
+  `dist/`, never the `.d.ts` in isolation, if this is ever revisited.
+
+Reconsider only if real day-to-day usage shifts toward Pi on its own — not if it is adopted because
+its API is better in the abstract.
+
+---
+
 ## Resolved and retired
 
 Pruned 2026-09-05. Each was either delivered or written against a field the harness no longer
