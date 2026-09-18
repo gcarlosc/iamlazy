@@ -38,8 +38,11 @@ stopping it is the point.
   **`README.md` in full (2026-09-17)** — it is read by whoever decides whether to install this,
   which is the same audience as the installer's own output, not the contributor audience the
   prompts serve. `adapters/*/README.md` stay English: their readers are building an adapter.
-  Voseo throughout, matching the printed output that came first — not neutral Spanish, because two
-  registers in one project reads as two authors.
+  **Neutral Spanish, no voseo** (2026-09-18). The register was NOT inherited from what came
+  first: `flush-run.sh`'s block reason, the oldest Spanish here, mixes both inside one sentence
+  (`declara` and `marca` beside `revertí`, `spawnealo`, `podes`), and `install.sh`'s output
+  (2026-09-14) is voseo throughout. So there was no existing standard to match -- the README sets
+  one. The hook and installer strings are not yet aligned to it.
 
 ## Architecture — two layers
 

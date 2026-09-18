@@ -6,18 +6,19 @@
 
 **iamlazy te ayuda a terminar bien una tarea — y después se hace a un lado.**
 
-Vos traés la tarea y las decisiones. Él trae la disciplina: las preguntas que vale la pena hacer
+Tú traes la tarea y las decisiones. Él trae la disciplina: las preguntas que vale la pena hacer
 antes de escribir una línea, un acuerdo escrito sobre qué significa "listo", y un reporte honesto
-cuando lo está. La parte que es fácil saltearse cuando estás cansado es justo la que se encarga él.
+cuando lo está. La parte que es fácil omitir cuando estás cansado es justo la que él se encarga de
+hacer.
 
 ### Cómo se siente usarlo
 
-1. **Pedís algo.** "Agregá soporte para alemán al script de saludo."
+1. **Pides algo.** "Agrega soporte para alemán al script de saludo."
 2. **Te pregunta de vuelta — una sola vez.** Las dos o tres cosas que realmente cambian la
    respuesta, en un único bloque. No un goteo de preguntas durante veinte minutos.
 3. **Escribe el trato.** Qué archivos va a tocar, qué va a significar terminado, cómo lo vas a
    verificar. Una página, en lenguaje claro.
-4. **Decís dale.** O corregís el plan primero — que cuesta un minuto ahora en lugar de una tarde
+4. **Dices que sí.** O corriges el plan primero — que cuesta un minuto ahora en lugar de una tarde
    después.
 5. **Trabaja, y te entrega un reporte.** Qué cambió, qué encontró un segundo revisor, cuánto costó,
    y cualquier cosa que haya hecho sin que la aprobaras.
@@ -25,50 +26,53 @@ cuando lo está. La parte que es fácil saltearse cuando estás cansado es justo
 Ese último punto es donde se fue la mayor parte del diseño, y es la razón por la que vale leer el
 resto.
 
-### El contrato es para vos, no para él
+### El contrato es para ti, no para él
 
-Esa página que aprobás no es papeleo. Sigue trabajando después de que la firmás.
+Esa página que apruebas no es papeleo. Sigue trabajando después de que la firmas.
 
 Cuando el asistente dice que terminó, **la máquina** —no el asistente— compara lo que cambió de
 verdad contra lo que acordaste. Cualquier cosa fuera del trato tiene que decirse en voz alta, en el
 reporte que ya estás leyendo. No escribirse en un log que nunca vas a abrir.
 
-Es la diferencia entre el presupuesto escrito de un albañil y su palabra. Los dos pueden ser
+Es la diferencia entre el presupuesto escrito de un contratista y su palabra. Los dos pueden ser
 buenos. Solo uno se puede verificar.
 
 ### Promesas que se sostienen, y consejos que ayudan
 
-Acá viven dos tipos de cosas, y están etiquetadas con honestidad:
+Aquí viven dos tipos de cosas, y están etiquetadas con honestidad:
 
 | | Qué es | Ejemplo |
 |---|---|---|
 | **Garantizado** | Lo hace cumplir código que corre sin importar si alguien se acuerda. | El trabajo no puede declararse terminado si se cambió un archivo que nunca aprobaste. |
-| **Pedido** | Buen criterio, escrito. Se suele cumplir. | "Empezá por la conclusión." |
+| **Pedido** | Buen criterio, escrito. Se suele cumplir. | "Empieza por la conclusión." |
 
-Este proyecto aprendió a distinguirlos por las malas. En su momento tuvo seis reglas que llamaba
+Este proyecto aprendió a distinguirlos del modo costoso. En su momento tuvo seis reglas que llamaba
 "inviolables" — cinco eran solo *pedidos*, y la más incumplida de todas era justamente la que
 estaba escrita con las letras más grandes. Así que ahora todo lo que una máquina puede verificar lo
 verifica una máquina, y el resto se llama por su nombre: consejo. Nada se promueve a promesa por
 sonar importante.
 
-### Te llevás un segundo lector, gratis
+### Obtienes un segundo lector, gratis
 
 El asistente que hizo el trabajo no es quien lo aprueba. Un revisor aparte lee el cambio en frío
 —sin memoria de las decisiones, sin interés en defenderlas— y reporta lo que encuentra. Ves los
-hallazgos sean favorables o no, y el trabajo no puede cerrarse salteándose ese paso por lo bajo.
+hallazgos sean favorables o no, y el trabajo no puede cerrarse omitiendo ese paso en silencio.
 
 ### Cada trabajo deja un recibo
 
 Cuánto tardó, cuánto costó, qué cambió, qué dijo el revisor. Mediciones, no un resumen escrito de
-memoria. En unas semanas eso se vuelve genuinamente útil: podés ver qué tipo de trabajo sale
-fluido, y cuál cuesta calladito veinte veces más de lo que debería — algo que nadie nota a ojo.
+memoria. En unas semanas eso se vuelve genuinamente útil: puedes ver qué tipo de trabajo sale
+fluido, y cuál cuesta en silencio veinte veces más de lo que debería — algo que nadie nota a
+simple vista.
 
 ### Por qué "iamlazy"
 
-Porque ser vago con la *vigilancia* es lo que te ganás por no ser vago con las *decisiones*.
+Porque ser perezoso con la *vigilancia* es lo que te ganas por no ser perezoso con las
+*decisiones*.
 
-Seguís eligiendo qué construir y si el plan está bien — esa parte es tuya. Lo que dejás de hacer es
-estar encima, releer cada cambio, y acordarte de preguntar "¿de verdad probaste eso?". Ahora eso lo
+Sigues eligiendo qué construir y si el plan está bien — esa parte es tuya. Lo que dejas de hacer
+es estar encima, releer cada cambio, y acordarte de preguntar "¿de verdad probaste eso?". Ahora
+eso lo
 hace otra cosa, todas las veces, sin cansarse ni volverse optimista.
 
 ---
@@ -92,11 +96,12 @@ después de siete intentos distintos
 — **24x peor por línea** que una corrida normal. Hacer eso visible, y frenarlo, es el punto.
 
 **Un hilo, y un solo escritor.** El valor está en la cadena —plan, diff, revisión— sostenida en un
-*único* contexto; si la partís entre agentes delegados, cada uno vuelve a deducir lo que el anterior
-ya sabía. Por eso ningún sub-agente salvo el revisor puede spawnearse, y por eso es un hook y no un
+*único* contexto; si lo partes entre agentes delegados, cada uno vuelve a deducir lo que el anterior
+ya sabía. Por eso ningún sub-agente salvo el revisor puede lanzarse, y por eso es un hook y no un
 pedido. Un escritor delegado además esconde su propio costo: `runs.jsonl` contabiliza el hilo
 principal, así que el trabajo delegado nunca llega al número con el que juzgarías si el harness
-vale la pena. Si una búsqueda se siente demasiado grande para este hilo, achicala — no la delegues.
+vale la pena. Si una búsqueda se siente demasiado grande para este hilo, redúcela — no la
+delegues.
 
 ### Dos capas, y la diferencia importa
 
@@ -105,8 +110,8 @@ inviolables" eran prosa, y la más violada de todas era la que estaba declarada 
 
 | Capa 0 — garantizado | Capa 1 — pedido |
 |---|---|
-| Scripts de hook que no podés saltear | El prompt: criterio |
-| Solo el revisor puede spawnearse, y spawnearlo pregunta primero | Cómo analizar, qué preguntar |
+| Scripts de hook que no puedes saltear | El prompt: criterio |
+| Solo el revisor puede lanzarse, y lanzarlo pregunta primero | Cómo analizar, qué preguntar |
 | Identidad de la corrida, tiempos y la línea de log | Cómo escribir el contrato |
 | Cada edición trazada automáticamente | Ediciones quirúrgicas, qué recibe el revisor |
 | No cierra mientras haya un archivo fuera del scope declarado | Tono, orden, conclusiones primero |
@@ -117,19 +122,19 @@ prevenir, es una garantía. Si sí pero solo después, es protocolo. Si no, es e
 llama ley. **Nada se promueve por ser importante.**
 
 La prosa no es el enemigo; la *longitud* sí. La corrida corta del log obedeció cada instrucción en
-prosa, banner incluido. Las largas se comieron el log, el banner y la línea de costo. Así que la
+prosa, banner incluido. Las largas omitieron el log, el banner y la línea de costo. Así que la
 Capa 0 no vigila cada regla — cuida el **perímetro** que mantiene la tarea acotada, y deja que el
 criterio sea criterio.
 
 ### Los tres archivos
 
 - **`PROJECT.md`** (raíz del repo, versionado) — lo que el harness sabe de tu proyecto: dónde están
-  las cosas, qué comandos funcionan, las restricciones, y **qué revisar acá**, que crece con cada
+  las cosas, qué comandos funcionan, las restricciones, y **qué revisar aquí**, que crece con cada
   hallazgo. Solo entra lo que habría acortado el reconocimiento, evitado una pregunta o cambiado un
   paso; todo lo demás es un diario, no memoria. Nunca se edita sin mostrarte el diff.
 - **`.iamlazy/contract.md`** — la tarea: terreno, preguntas resueltas, opciones descartadas, el
   **scope** declarado, los **grupos** (cada uno con el comando que prueba que está hecho), y los
-  **claims** que sostienen el peso, con su salida real. **Esto es lo que aprobás.**
+  **claims** que sostienen el peso, con su salida real. **Esto es lo que apruebas.**
 - **`.iamlazy/journal.md`** — solo se le agrega, se escribe mientras el trabajo pasa, nunca se
   reescribe al final. Incluye lo que se intentó y se **abandonó** — eso que un revisor nunca puede
   reconstruir desde un diff.
@@ -144,20 +149,20 @@ criterio sea criterio.
    reconocimiento. **Sin zonas grises:** cada paso tiene que trazarse a un hecho observado, una
    pregunta respondida o `PROJECT.md`. Ningún paso puede apoyarse en una suposición.
 3. **Contrato** — escrito a disco, con la forma de arriba.
-4. **Aprobación** — tu gate, sobre el plan mode nativo. Leés **comandos, no párrafos** — que es la
+4. **Aprobación** — tu gate, sobre el plan mode nativo. Lees **comandos, no párrafos** — que es la
    respuesta a por qué el gate viejo no rechazó un plan ni una vez en 27 corridas: leer prosa
    cansa, leer `rspec spec/services/rate_limiter_spec.rb` toma tres segundos.
 5. **Ejecución** — grupo por grupo, releyendo el contrato desde el disco. Un path fuera del scope
    declarado frena el trabajo en lugar de absorberse. **Dos intentos, y para:** un segundo intento
    tiene que declarar qué cambia en la hipótesis; un tercero significa que la hipótesis está mal.
 6. **Revisión** — siempre un sub-agente **aparte** y de solo lectura, nunca un "reset" del mismo
-   hilo. **Spawnearlo pregunta primero:** si lo aprobás, la corrida no puede cerrar antes de que
-   vuelva; si lo rechazás, cierra sin revisión, como desvío declarado. Recibe el contrato y el
+   hilo. **Lanzarlo pregunta primero:** si lo apruebas, la corrida no puede cerrar antes de que
+   vuelva; si lo rechazas, cierra sin revisión, como desvío declarado. Recibe el contrato y el
    journal **como claims a poner a prueba, no como contexto a creer**, y **deriva su propio diff**
-   desde los paths — no elegís qué ve tu auditor.
+   desde los paths — no eliges qué ve tu auditor.
 7. **Cierre** — el reporte, más la actualización propuesta de `PROJECT.md` como diff.
 
-**Para qué sirve el revisor.** Vos podés probar si la funcionalidad anda. Lo que no podés ver es
+**Para qué sirve el revisor.** Tú puedes probar si la funcionalidad anda. Lo que no puedes ver es
 *qué más dependía de lo que cambió* — así que ese es su trabajo principal: elige las 3–5 cosas más
 riesgosas que toca el diff, busca sus otros llamadores, y dice cuáles verificó y cuáles dejó
 quietas. Los contratos implícitos cuentan tanto como las firmas. Una lista cuyo orden usa otra
@@ -167,20 +172,20 @@ su búsqueda adversarial; un "se ve bien" pelado es un veredicto inválido.
 
 ## Instalación
 
-Cloná y corré (totalmente offline):
+Clona y ejecuta (totalmente offline):
 
 ```sh
 git clone <repo> iamlazy && cd iamlazy
 ./install.sh
 ```
 
-O forzá una herramienta específica:
+O fuerza una herramienta específica:
 
 ```sh
 ./install.sh --tool=claude      # o --tool=opencode, --tool=opencode-v2, o --tool=both
 ```
 
-`curl | bash` (fijá la URL base de los archivos crudos de tu fork/repo):
+`curl | bash` (fija la URL base de los archivos crudos de tu fork/repo):
 
 ```sh
 IAMLAZY_RAW_BASE="https://raw.example/iamlazy/main" curl -fsSL https://raw.example/iamlazy/main/install.sh | bash
@@ -193,7 +198,7 @@ El instalador:
   nunca se auto-selecciona,
 - **lee `opencode --version` antes de escribir nada, porque las dos formas de adaptador no son
   intercambiables**: un daemon de OpenCode **2.x** rechaza el plugin V1 de plano, lo que dejaría la
-  Capa 0 instalada y muerta. En 2.x, la auto-detección saltea OpenCode y te dice que corras
+  Capa 0 instalada y muerta. En 2.x, la auto-detección omite OpenCode y te indica ejecutar
   `--tool=opencode-v2`; un `--tool=opencode`/`--tool=both` explícito se niega en lugar de instalar
   algo que no puede cargar. Si la versión no se puede leer, se instala V1 como antes. `--check`
   verifica el mismo emparejamiento, así que un desajuste se reporta en vez de descubrirse después,
@@ -201,7 +206,8 @@ El instalador:
 - instala la Capa 0: los hooks, registrados en el `settings.json` de Claude Code, o detrás del
   plugin en OpenCode,
 - proyecta `models.conf` en el frontmatter de cada archivo,
-- es **idempotente** (corrélo cuando quieras) y **nunca pisa** un archivo que no sea de iamlazy,
+- es **idempotente** (ejecútalo cuando quieras) y **nunca sobrescribe** un archivo que no sea de
+  iamlazy,
 - crea `~/.iamlazy/` para el log de corridas,
 - estampa `~/.iamlazy/hooks_version` (un SHA de git, o una huella de contenido en una instalación
   por `curl|bash` sin `.git`) para que cada línea del log pueda decir qué versión del código de
@@ -210,7 +216,7 @@ El instalador:
 ## Uso
 
 ```
-/iamlazy <tu tarea>       # corre el harness completo
+/iamlazy <tu tarea>       # ejecuta el harness completo
 /iamlazy-review           # muestra las últimas 20 corridas, legible
 ```
 
@@ -221,11 +227,11 @@ esfuerzo que la produjeron, así que un cambio de modelo se ve exactamente donde
 
 Durante una tarea, `.iamlazy/` en la raíz de tu proyecto guarda el contrato aprobado —persistido
 **textual, tal como lo aprobaste**— y el journal, para que el revisor trabaje contra eso y para que
-vos lo inspecciones después. Agregá `.iamlazy/` a tu `.gitignore` (iamlazy lo propone si falta).
+tú lo inspecciones después. Agrega `.iamlazy/` a tu `.gitignore` (iamlazy lo propone si falta).
 
 ## Modelos y credenciales
 
-`models.conf` mapea modelos **por herramienta** — editalo y volvé a correr `./install.sh`, o fijá
+`models.conf` mapea modelos **por herramienta** — edítalo y vuelve a ejecutar `./install.sh`, o fija
 los dos roles de una herramienta en un solo comando: `./install.sh --tool=claude --model=<id>`
 (persiste la elección en `models.conf`, y después reinstala). Un `--model` apunta a una sola
 herramienta — Claude Code y OpenCode usan namespaces distintos de model-id.
@@ -244,18 +250,18 @@ para toda su corrida.
 
 **Fijá el modelo donde es durable: en settings, no en `models.conf`.** Sin un modelo de sesión
 fijado, el build corre sobre lo que la sesión tenga por default — la única fuente real de
-no-determinismo acá. Poné `"model"` en `~/.claude/settings.json`, o en un `.claude/settings.json`
+no-determinismo aquí. Coloca `"model"` en `~/.claude/settings.json`, o en un `.claude/settings.json`
 del proyecto, que tiene precedencia y se reaplica en cada arranque incluso por encima de un cambio
 con `/model`:
 
-| Lo que querés | Fijá |
+| Lo que quieres | Fija |
 |---|---|
 | Un solo modelo todo el camino | `"model": "claude-opus-5"` |
 | Planner fuerte, builder barato | `"model": "opusplan"` |
 
 `opusplan` corre Opus durante el plan mode y cambia a Sonnet en la ejecución. Como el gate de
 iamlazy va montado sobre el plan mode nativo, ese cambio cae exactamente en el límite
-plan/build — una política declarada, no una moneda al aire. **Vas a ver qué modelo está
+plan/build — una política declarada, no una moneda al aire. **Verás qué modelo está
 corriendo**: cada banner de artefacto lleva el modelo y el esfuerzo que lo produjeron —
 `── CONTRATO · opus-5 · high ──` — leídos del transcript de la sesión, nunca adivinados. Así que el
 cambio en el gate se ve exactamente donde pasa, y un cambio que esperabas y no ocurrió se ve igual
@@ -271,13 +277,13 @@ modelo del *builder* por default: medido en una corrida real, 15 mensajes de pla
 `kimi-k2.7-code` mientras el default configurado de OpenCode era `deepseek-v4-pro`. Cambiar ese
 default no lo arregla.
 
-Para conseguir la división, fijá el agente de fábrica en tu propio `opencode.json`:
+Para conseguir la división, fija el agente de fábrica en tu propio `opencode.json`:
 
 ```json
 { "agent": { "plan": { "model": "opencode-go/deepseek-v4-pro" } } }
 ```
 
-`models.conf` no puede hacerlo por vos — el agente `plan` es de OpenCode, y el instalador nunca
+`models.conf` no puede hacerlo por ti — el agente `plan` es de OpenCode, y el instalador nunca
 escribe configuración del usuario.
 
 **`*_CRITIC_MODEL` ahora cubre todas las revisiones.** Antes esto era la excepción y no la regla:
@@ -285,15 +291,15 @@ con tres modos de revisión, `inline` y `same-thread-reset` corrían *en el hilo
 corridas logueadas, 58%— así que bajo `opusplan` la mayoría de las revisiones pasaban calladas en
 Sonnet después del gate, y nadie eligió eso. Hacer que el revisor sea **siempre un sub-agente** lo
 arregló como efecto lateral: el modelo de un sub-agente vale para toda su corrida, así que lo que
-fijás acá es lo que revisa tu código. También significa que revisor y builder pueden
+fijas aquí es lo que revisa tu código. También significa que revisor y builder pueden
 **descorrelacionarse** a propósito — modelos distintos tienen puntos ciegos distintos, y un revisor
 que comparte los del builder no puede ver lo que el builder no pudo.
 
 > **Atención:** la variable de entorno `CLAUDE_CODE_SUBAGENT_MODEL`, cuando está seteada,
-> sobreescribe `CC_CRITIC_MODEL` en silencio. Sacala del entorno si querés que aplique
+> sobreescribe `CC_CRITIC_MODEL` en silencio. Quítala del entorno si quieres que aplique
 > `models.conf`.
 
-> **OpenCode necesita una credencial para su provider, que configurás vos** — una API key en tu
+> **OpenCode necesita una credencial para su provider, que configuras tú** — una API key en tu
 > entorno o en `opencode.json`. El instalador escribe el `model` en el frontmatter; **no**
 > configura credenciales, y tampoco puede alcanzar el modelo del agente `plan`.
 
@@ -306,14 +312,14 @@ iamlazy **no** escribe código hasta que apruebes el contrato, salvo en cambios 
 reversibles. En Claude Code el gate va montado sobre el **plan mode nativo** — estructura impuesta
 por la plataforma, no prosa imitándola.
 
-**No corras iamlazy bajo `--dangerously-skip-permissions` (ni ningún modo de bypass).** Elimina el
+**No ejecutes iamlazy bajo `--dangerously-skip-permissions` (ni ningún modo de bypass).** Elimina el
 gate estructural sobre el que está construido el harness. Con la Capa 0 instalada esto ya no es un
 pedido: el harness **se niega a arrancar** bajo un bypass de permisos.
 
 ## Capa 0
 
 Instalada y registrada **por default**. No hay un paso extra, y eso es a propósito: una garantía
-que tenés que acordarte de encender no es una garantía, y la falla es silenciosa — dos
+que tienes que acordarte de encender no es una garantía, y la falla es silenciosa — dos
 instalaciones se ven idénticas mientras solo una impone algo.
 
 El instalador respalda tu `settings.json`, valida el resultado antes de reemplazarlo, restaura el
@@ -321,7 +327,7 @@ backup si algo sale mal, y **nunca toca tus propios hooks ni tu configuración**
 los desregistra de vuelta, con el mismo cuidado.
 
 ```sh
-./install.sh --tool=claude --no-hooks   # optar por NO tenerlos, si de verdad querés
+./install.sh --tool=claude --no-hooks   # optar por NO tenerlos, si de verdad lo quieres
 ```
 
 Sin ellos el harness igual corre, pero cada garantía degrada de vuelta a prosa — exactamente el
@@ -338,8 +344,10 @@ intercambiables**: cada major de daemon acepta solo su propia forma — un daemo
 plugin V1 entero con `Plugin must export a default definition with an id and an effect or setup
 function`, y la falla va al log de OpenCode, no a tu terminal. Por eso el instalador chequea la
 versión en lugar de suponerla. Los dos hacen la misma única cosa: traducir los eventos de OpenCode
-a los payloads JSON que los hooks ya leen, invocarlos, y traducir una negación de vuelta al `throw`
-que bloquea una tool allá. Ninguno lee un contrato, calcula scope ni sabe del breaker — un test
+a los payloads JSON que los hooks ya leen, invocarlos, y traducir una negación de vuelta al
+`throw`
+que bloquea una tool en ese host. Ninguno lee un contrato, calcula scope ni sabe del breaker —
+un test
 grepea cada uno buscando esas palabras y falla si aparece alguna. Lo único que difiere de Claude
 Code es el costo: OpenCode tarifa cada mensaje por su cuenta, así que el adaptador reenvía cada
 cifra a `host-cost.sh` en vez de que los hooks retarifen la corrida desde `prices.conf`. Dos cosas
@@ -356,13 +364,15 @@ Cubre el instalador y los invariantes declarados — composición de archivos, p
 idempotencia, anti-pisado, `--model`, registro de hooks, y que `uninstall.sh` nunca toque tu log de
 corridas. Delega en `./test-hooks.sh` las decisiones en runtime de la Capa 0, alimentadas con
 payloads reales capturados y validadas por mutación en lugar de por dar verde. Corre en un `HOME`
-aislado, así que no puede alterar tu setup. Bash y coreutils, más Bun para el único archivo que
+aislado, así que no puede alterar tu configuración. Bash y coreutils, más Bun para el único
+archivo que
 corre bajo Bun.
 
 El adaptador de OpenCode se ejercita con `bun test` — Bun es el runtime de OpenCode, así que es
 bajo lo que el plugin realmente corre. Cada test le da un evento real de OpenCode al plugin
-*instalado* y afirma qué hicieron los hooks reales en disco; nada de la Capa 0 está mockeado. **Bun
-es obligatorio**, y la suite falla en vez de saltearse cuando no está: un traductor que
+*instalado* y afirma qué hicieron los hooks reales en disco; nada de la Capa 0 está mockeado.
+**Bun
+es obligatorio**, y la suite falla en vez de omitirse cuando no está: un traductor que
 nadie corrió,
 reportado como verde, es el falso verde que el resto de esta suite existe para rechazar.
 
@@ -374,12 +384,12 @@ durante semanas.
 
 CI lo corre en cada push sobre Linux y macOS, más un job que lo invoca específicamente a través de
 `/bin/bash` — ese es el bash 3.2 que este proyecto dice soportar, y `env bash` en un runner puede
-resolver calladito a uno más nuevo. Un job aparte de `lint` corre `bash -n` en cada script y
+resolver en silencio a uno más nuevo. Un job aparte de `lint` corre `bash -n` en cada script y
 `shellcheck -x` con severidad style — siguiendo los `source`, así que `lib.sh` y `models.conf`
 también se chequean, no solo la línea que los incluye. Su primera corrida real encontró un bug
 genuino (`hk_rel_path` fallando en silencio sobre un path de proyecto con un carácter de glob), que
 es el argumento para mantenerlo en severidad style y no solo en los defaults. Localmente,
-`git config core.hooksPath .githooks` instala un hook de pre-push que se niega a pushear una suite
+`git config core.hooksPath .githooks` instala un hook de pre-push que se niega a publicar una suite
 en rojo.
 
 Lo que **no** cubre: una corrida real de `/iamlazy`. El contrato, el gate y la revisión siguen
@@ -389,16 +399,16 @@ punta sigue sin ejercitarse. Vale saberlo antes de confiar en un verde.
 
 ## Validación
 
-No te creas el harness por fe. Durante el primer mes, corré unas cuantas tareas comparables de las
-dos formas —con `/iamlazy`, y con la herramienta pelada más un buen `CLAUDE.md`— y compará tres
-preguntas: ¿el gate atajó algo real? ¿hubo que deshacer trabajo? ¿cuál fue el tiempo total? Cada
+No aceptes el harness por fe. Durante el primer mes, ejecuta unas cuantas tareas comparables de
+las dos formas —con `/iamlazy`, y con la herramienta sola más un buen `CLAUDE.md`— y compara tres
+preguntas: ¿el gate detuvo algo real? ¿hubo que deshacer trabajo? ¿cuál fue el tiempo total? Cada
 corrida loguea una cifra `cost_usd` derivada del transcript de la sesión y de una tabla de precios,
 no estimada, así que el costo es comparable entre corridas — y un conteo `models_seen`, así que una
 corrida es comparable contra lo que realmente la respondió y no contra lo que la config decía que
 la iba a responder. `runs.jsonl` + `/iamlazy-review` son la mitad de la instrumentación — y la
 revisión además barre los triggers de `DELTAS.md` contra tus corridas, reportando cuáles se
-dispararon, para que el backlog te avise cuando tiene evidencia en lugar de esperar que le
-preguntes. Si iamlazy no gana con claridad, la conclusión correcta es recortarlo, no defenderlo.
+dispararon, para que el backlog avise cuando tiene evidencia en lugar de esperar que le
+pregunten. Si iamlazy no gana con claridad, la conclusión correcta es recortarlo, no defenderlo.
 
 **El mismo estándar aplica al harness mismo.** Cada idea que sonaba bien y no se adoptó vive en
 `DELTAS.md` detrás de un trigger — la condición, escrita por adelantado, bajo la cual vale la pena
@@ -432,7 +442,7 @@ iamlazy/
   adapters/        OpenCode: los plugins (V1, V2) que convierten sus eventos en esos payloads, y sus tests
   test.sh          el instalador y los invariantes declarados
   test-hooks.sh    decisiones en runtime de la Capa 0, validadas por mutación, bajo dos locales
-  .githooks/       pre-push: se niega a pushear una suite en rojo
+  .githooks/       pre-push: se niega a publicar una suite en rojo
   .github/         CI: la suite en Linux + macOS, y bajo /bin/bash para bash 3.2
 ```
 
