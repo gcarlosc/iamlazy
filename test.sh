@@ -502,7 +502,7 @@ else ok "--tool=both refuses on a 2.x daemon too"; fi
 AUTOH="$(mktmp)"; mkdir -p "$AUTOH/.claude"
 if autoout="$(PATH="$VBIN:$PATH" HOME="$AUTOH" "$SRC/install.sh" 2>&1)"; then
   case "$autoout" in
-    *"salteo OpenCode"*) ok "auto skips OpenCode on a 2.x daemon and says so" ;;
+    *"omito OpenCode"*) ok "auto skips OpenCode on a 2.x daemon and says so" ;;
     *) no "auto did not report skipping OpenCode on a 2.x daemon" ;;
   esac
 else no "auto should still succeed on a 2.x daemon by installing the rest"; fi

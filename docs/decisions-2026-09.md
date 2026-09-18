@@ -1099,3 +1099,36 @@ Reproduced locally before fixing, with a `stat` stub emulating GNU's argument ha
 stub is now the regression test: the platform that has the bug is tested from the platform that
 does not. Mutation-verified by restoring the fragile derivation, which reproduces the CI failure
 exactly. `test.sh` 197 → 198.
+
+### The Spanish register, settled (2026-09-18)
+
+The README went neutral first; this aligns everything else the project prints, so a user is not
+addressed two different ways by the same tool.
+
+Changed: `install.sh` (`Cloná`/`corré`/`usá`/`Usá`/`por vos` → `Clona`/`corre`/`usa`/`Usa`/`por ti`,
+plus the regionalisms `aca` → `aqui` and `saltea`/`salteo` → `omite`/`omito`), `uninstall.sh`
+(`sacá` → `quita`), and `flush-run.sh`'s close-block reason (`revertí` → `revierte`, `spawnealo` →
+`lanza el sub-agente`, `podes` → `puedes`).
+
+**A second convention surfaced while doing it, and it was not deliberate on my part.** Every Spanish
+string the hooks emit is written WITHOUT accents — `todavia`, `justificacion`, `garantias`,
+`dolares` — and it turned out that every accented word in `install.sh`'s output was a voseo form.
+So the voseo was not just a register mismatch; it was the only thing breaking an ASCII-only
+convention that otherwise held everywhere. Neutralising restored it: all three files are now
+accent-free. Given that this project's close-by-banner path died twice over encoding in exactly
+these strings, staying inside ASCII is the cheaper default, and `PROJECT.md` now says so instead of
+leaving it to be rediscovered.
+
+The test-facing risk was real and checked first, because this repo has been bitten by it before: an
+assertion matching a Spanish substring breaks silently when the string is reworded. Eight glob
+assertions match program output; one of them, `*"salteo OpenCode"*`, matched a string this change
+rewords, and was updated with it. The other seven match text left untouched.
+
+Five mutations, each killing exactly one assertion: blanking the auto-skip message, the
+adapter/daemon mismatch message, the no-checkout refusal, the "Critic nunca fue invocado" blocker,
+and the no-git warning. A sixth attempt killed nothing and was discarded rather than reported — it
+had rewritten the `usage` text instead of the refusal, since both contain the same phrase and the
+replacement took the first occurrence. Worth naming: a mutation that fails to kill is only evidence
+once you have confirmed it mutated the thing you meant.
+
+`test.sh` 198, `test-hooks.sh` 301, shellcheck clean.

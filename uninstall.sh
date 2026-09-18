@@ -45,7 +45,7 @@ if [ -d "${HOME}/.claude/iamlazy-hooks" ]; then
   if [ -x "${HOME}/.claude/iamlazy-hooks/merge-settings.sh" ]; then
     "${HOME}/.claude/iamlazy-hooks/merge-settings.sh" \
       "${HOME}/.claude/settings.json" "${HOME}/.claude/iamlazy-hooks" --remove \
-      || echo "  NOTA: no pude editar settings.json; sacá el bloque de hooks de iamlazy a mano." >&2
+      || echo "  NOTA: no pude editar settings.json; quita el bloque de hooks de iamlazy a mano." >&2
   fi
   rm -rf "${HOME}/.claude/iamlazy-hooks"
   echo "  elimine ${HOME}/.claude/iamlazy-hooks/ (scripts de Layer 0)"

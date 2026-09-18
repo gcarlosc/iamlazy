@@ -274,7 +274,7 @@ if ! signal=$(hk_close_signal "$payload" "$contract" "$root" "$base" "$ubase"); 
       if [ "$blockers" != "$(cat "$gate" 2>/dev/null)" ]; then
         printf '%s' "$blockers" > "$gate"
         one_line=$(printf '%s' "$blockers" | tr '\n' ' ' | tr -d '\\"')
-        printf '{"decision":"block","reason":"iamlazy: la corrida no puede cerrar todavia. %s Si es alcance o grupos: declara el desvio en ## Scope con su justificacion, o revertí el archivo, y marca los grupos con - [x]. Si es el Critic: spawnealo de verdad -- si te rechaza, recien ahi podes cerrar sin revision.","systemMessage":"iamlazy: cierre bloqueado -- %s"}\n' \
+        printf '{"decision":"block","reason":"iamlazy: la corrida no puede cerrar todavia. %s Si es alcance o grupos: declara el desvio en ## Scope con su justificacion, o revierte el archivo, y marca los grupos con - [x]. Si es el Critic: lanza el sub-agente de verdad -- si te rechaza, recien ahi puedes cerrar sin revision.","systemMessage":"iamlazy: cierre bloqueado -- %s"}\n' \
           "$one_line" "$one_line"
         printf 'iamlazy: close blocked -- %s\n' "$one_line" >&2
         exit 2

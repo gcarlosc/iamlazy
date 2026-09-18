@@ -88,9 +88,9 @@ c_adapter_matches_daemon() {
   if [ -z "$cam_major" ]; then
     c_skip "no pude leer la version de OpenCode: no puedo verificar que el adaptador $1 sea el que este daemon carga"
   elif [ "$1" = "V1" ] && [ "$cam_major" -ge 2 ]; then
-    c_bad "hay un adaptador V1 instalado y este OpenCode es ${cam_major}.x: el daemon lo rechaza entero (DELTAS Candidate 19). Usá --tool=opencode-v2"
+    c_bad "hay un adaptador V1 instalado y este OpenCode es ${cam_major}.x: el daemon lo rechaza entero (DELTAS Candidate 19). Usa --tool=opencode-v2"
   elif [ "$1" = "V2" ] && [ "$cam_major" -lt 2 ]; then
-    c_bad "hay un adaptador V2 instalado y este OpenCode es ${cam_major}.x: ese daemon espera la forma V1. Usá --tool=opencode"
+    c_bad "hay un adaptador V2 instalado y este OpenCode es ${cam_major}.x: ese daemon espera la forma V1. Usa --tool=opencode"
   else
     c_ok "el adaptador $1 corresponde a OpenCode ${cam_major}.x"
   fi
@@ -243,7 +243,7 @@ run_check() {
   # locale -- which is the one production runs in, and not CI's.
   if printf '── CIERRE · m · high ──' | grep -Eq '─[^"]{0,60}(CLOSE|CIERRE)|(CLOSE|CIERRE)[^"]{0,60}─'; then
     c_ok "el banner de cierre matchea bajo este locale (${LC_ALL:-${LANG:-unset}})"
-  else c_bad "el banner de cierre NO matchea bajo este locale: el camino de cierre esta muerto aca"; fi
+  else c_bad "el banner de cierre NO matchea bajo este locale: el camino de cierre esta muerto aqui"; fi
 
   echo
   if [ "$CHECK_FAIL" -eq 0 ]; then echo "todo bien."; else echo "SE ENCONTRARON PROBLEMAS -- corre install.sh para alinear esta maquina con el repo." >&2; fi
@@ -266,7 +266,7 @@ instalador de iamlazy
   Las dos formas de adaptador no son intercambiables, y un daemon OpenCode 2.x
     RECHAZA el plugin V1 entero -- Layer 0 quedaria instalado y muerto. Por eso
     se lee `opencode --version` antes de escribir nada: si es 2.x, --tool=auto
-    saltea OpenCode (e instala el resto) y un --tool explicito se niega y sale.
+    omite OpenCode (e instala el resto) y un --tool explicito se niega y sale.
     Si la version no se puede leer, se instala V1 igual: no tener evidencia no
     es evidencia de 2.x. --check compara lo mismo, sin esperar a que falle.
   --model=<id> fija AMBOS roles (principal + critico) para una sola
@@ -280,12 +280,12 @@ instalador de iamlazy
     garantias de verdad y no pedidos, asi que no son un extra opcional. Tu
     settings.json se respalda antes, se valida despues, y tus propios hooks
     quedan intactos.
-  --no-hooks los saltea. El harness igual funciona, pero cada garantia
+  --no-hooks los omite. El harness igual funciona, pero cada garantia
     degrada a prosa -- el modo de falla que Layer 0 existe para eliminar.
   Para instalaciones por curl|bash, fija IAMLAZY_RAW_BASE a la URL base de
     los archivos crudos. opencode-v2 se rechaza bajo curl|bash: su adaptador
     tiene una dependencia npm real que hay que empaquetar desde un checkout
-    real, y aca no hay con que construirla. Cloná el repo en su lugar.
+    real, y aqui no hay con que construirla. Clona el repo en su lugar.
 EOF
 }
 
@@ -450,7 +450,7 @@ build_opencode_v2_plugin() {
   v2dir="$SRC/adapters/opencode-v2"
   if [ ! -d "$SRC/.git" ]; then
     echo "iamlazy: opencode-v2 necesita un checkout clonado para construirse (curl|bash no tiene ninguno)." >&2
-    echo "  Cloná el repo y corré install.sh --tool=opencode-v2 desde ahi." >&2
+    echo "  Clona el repo y corre install.sh --tool=opencode-v2 desde ahi." >&2
     exit 1
   fi
   if ! command -v bun >/dev/null 2>&1; then
@@ -483,7 +483,7 @@ print_hook_block() {
   if [ "$HOOKS_REGISTERED" -eq 1 ]; then
     cat <<EOF
 
-  LAYER 0 ACTIVO. Esto corre por vos ahora, no depende de tu disciplina:
+  LAYER 0 ACTIVO. Esto corre por ti ahora, no depende de tu disciplina:
     - solo el Critic puede spawnearse como sub-agente, y su Bash no puede escribir
     - el log de la corrida se escribe, derivado, en cada cierre
     - cada edicion queda trazada en .iamlazy/journal.md
@@ -610,7 +610,7 @@ case "$TOOL" in
     if command -v claude >/dev/null 2>&1 || [ -d "$HOME/.claude" ]; then do_claude=1; fi
     if command -v opencode >/dev/null 2>&1 || [ -d "$HOME/.config/opencode" ]; then do_opencode=1; fi
     ;;
-  *) echo "iamlazy: --tool=$TOOL desconocido (usá claude|opencode|opencode-v2|both)" >&2; exit 1 ;;
+  *) echo "iamlazy: --tool=$TOOL desconocido (usa claude|opencode|opencode-v2|both)" >&2; exit 1 ;;
 esac
 
 # A 2.x daemon does not degrade the V1 adapter, it refuses it outright, before
@@ -629,12 +629,12 @@ if [ "$do_opencode" -eq 1 ]; then
   if [ -n "$oc_seen" ] && [ "$oc_seen" -ge 2 ]; then
     if [ "$TOOL" = "auto" ]; then
       do_opencode=0
-      echo "iamlazy: detecte OpenCode ${oc_seen}.x, que no puede cargar el adaptador V1 -- salteo OpenCode." >&2
+      echo "iamlazy: detecte OpenCode ${oc_seen}.x, que no puede cargar el adaptador V1 -- omito OpenCode." >&2
       echo "  Para Layer 0 en OpenCode ${oc_seen}.x: install.sh --tool=opencode-v2 (necesita bun y un checkout clonado)." >&2
     else
       echo "iamlazy: --tool=$TOOL instala el adaptador V1, y este OpenCode es ${oc_seen}.x." >&2
       echo "  Un daemon ${oc_seen}.x rechaza ese plugin entero, asi que Layer 0 quedaria instalado y MUERTO," >&2
-      echo "  sin avisar (ver DELTAS.md Candidate 19). Corré install.sh --tool=opencode-v2 para este host," >&2
+      echo "  sin avisar (ver DELTAS.md Candidate 19). Corre install.sh --tool=opencode-v2 para este host," >&2
       echo "  y --tool=claude aparte si tambien querias Claude Code." >&2
       exit 1
     fi

@@ -38,11 +38,14 @@ stopping it is the point.
   **`README.md` in full (2026-09-17)** — it is read by whoever decides whether to install this,
   which is the same audience as the installer's own output, not the contributor audience the
   prompts serve. `adapters/*/README.md` stay English: their readers are building an adapter.
-  **Neutral Spanish, no voseo** (2026-09-18). The register was NOT inherited from what came
-  first: `flush-run.sh`'s block reason, the oldest Spanish here, mixes both inside one sentence
-  (`declara` and `marca` beside `revertí`, `spawnealo`, `podes`), and `install.sh`'s output
-  (2026-09-14) is voseo throughout. So there was no existing standard to match -- the README sets
-  one. The hook and installer strings are not yet aligned to it.
+  **Neutral Spanish, no voseo, and no accents** (2026-09-18) -- across every Spanish string the
+  project emits, not just the README. There was no standard to inherit: `flush-run.sh`'s block
+  reason, the oldest Spanish here, mixed both registers inside ONE sentence, and `install.sh`'s
+  output (2026-09-14) was voseo throughout. Both are now neutral. The accent rule is not a style
+  preference either -- it was already the de facto convention in the hook output (`todavia`,
+  `justificacion`, `garantias`), and every accented word in the installer turned out to be a voseo
+  form, so neutralising restored it. Given this project's history of encoding bugs in exactly these
+  strings (the close banner died twice over it), staying inside ASCII is the cheaper default.
 
 ## Architecture — two layers
 
