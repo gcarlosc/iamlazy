@@ -16,11 +16,16 @@ A trigger written against a field that no longer exists is **unmeasurable**, not
 have been retired below rather than left to accumulate — 8 of 11 candidates were in that state on
 2026-09-05, which made the whole sweep noise.
 
-Fields a `[log]` trigger may use today (schema 8): `host`, `duration_seconds`,
+Fields a `[log]` trigger may use today (schema 9): `host`, `duration_seconds`,
 `human_interventions`, `files_changed`, `lines_changed`, `cost_usd`, `models_seen`,
 `hooks_version`, `tokens_output` / `tokens_cache_write` / `tokens_cache_read`, `project_md`,
 `stage_reached`, `critic_findings`, `close_detected_via`, `drift_thresholds`, `drift_fired`,
-`outcome`, `base_ref`.
+`drift_reason`, `outcome`, `base_ref`.
+
+A field being listed is not the same as a field being able to answer the question asked of it.
+`models_seen` is a per-RUN tally — which models answered and how often — and it cannot say which
+of them answered as the builder and which as the Critic. A trigger phrased as "builder and Critic
+shared a model" is unmeasurable against it, however well the field itself works (see Candidate 10).
 
 ---
 
@@ -71,13 +76,21 @@ run, so that knob works. What remains is the case where the session model and `C
 happen to be equal. Note the asymmetry between hosts: OpenCode can cross *providers* for free;
 Claude Code is Anthropic-only, so there the knob is tier, not family — and lowering the Critic's
 tier contradicts the fact that it earns its cost.
-Trigger `[log]`: **unblocked 2026-09-11** — `models_seen` now records which models answered a run
-and how often, so a run where builder and Critic shared one model is readable from the log.
-Fires on 2+ runs whose `models_seen` names a single model.
+Trigger `[log]`: ~~fires on 2+ runs whose `models_seen` names a single model~~ — **retired as
+unmeasurable 2026-09-18**, one week after being declared unblocked. `models_seen` is a per-run
+tally and does not attribute a model to a role, so a single-model run and a run where the Critic
+merely shared the builder's model are indistinguishable in it. Worse, the reading is inverted on
+Claude Code today: `models.conf` sets `CC_MAIN_MODEL` and `CC_CRITIC_MODEL` to the SAME
+`claude-opus-5`, which is exactly the correlation this candidate is about — and all 7 measurable
+runs still log two models, because under `opusplan` the builder drops to Sonnet after the gate.
+The log reads "decorrelated" precisely where the configuration says "correlated". Now **blocked**
+on the Critic's own model recorded as its own field; `subagent-done.sh` already fires on the
+event that would know it.
 Trigger `[human]`: a controlled pair — the same diff reviewed twice, once by a Critic sharing the
 builder's model and once by a different one — comparing unique findings.
-Status: 0 recorded. The `[log]` half was unmeasurable until the field existed; it has no history
-behind it, so it starts counting from the runs logged after that date, not before.
+Status: 0 recorded, and the `[log]` half is now known to be unable to record any. The accidental
+tier split from `opusplan` is not a decorrelation anyone chose, and it disappears the moment that
+mode is not in use.
 
 ## Candidate 14 — Stop the close depending on a stage name the model invents (origin: audit D5)
 
@@ -190,6 +203,83 @@ rule in `PROJECT.md`, applied to the one number a human reads on every single ru
 Trigger `[log]`: 2+ runs whose `models_seen` names a model the close banner did not, on a host
 where the banner claims to be derived. Now checkable; it was not before.
 Status: 1 recorded (session `7f32cddc`, both of its close banners).
+
+## Candidate 20 — The Critic's severity gates nothing (origin: repo audit, 2026-09-18)
+
+`subagent-done.sh` parses the Critic's own `findings: H/M/L/I` tally and writes it to a sidecar.
+Every consumer of that file was traced: `flush-run.sh` reads it once, to print it in the log line.
+Nothing compares the H. A run whose Critic reports three `[HIGH]` closes exactly like one
+reporting `0/0/0/0` — the close gate refuses an unticked group and an undeclared path, and waves
+through the severity the review exists to produce.
+
+Idea: block the close on `H > 0` unless the human acknowledges it, the same shape the scope gate
+already uses — `decision:block`, the reason naming the count, warned once per blocker set.
+
+What argues against doing it now, and it is the whole reason this is a candidate: **no run has
+ever logged a `[HIGH]`.** Across the 14 runs carrying a tally the worst is a single `[MEDIUM]`
+(`0/1/4/2`). A gate built for a case that has never occurred would ship untested against reality,
+and this project's own history says the threshold would be wrong on first contact. There is also a
+real design question underneath: a `[HIGH]` the human reads and consciously accepts is a normal
+outcome, so the gate must have an acknowledgement path or it becomes a trap — and an
+acknowledgement the model can grant itself is the `critic_asked` failure over again.
+
+Trigger `[log]`: 2+ runs whose `critic_findings` shows a non-zero first number. Directly
+derivable; the field is canonical because it comes from the Critic's own final message.
+Trigger `[human]`: 1 run where a `[HIGH]` was reported, the run closed, and the problem reached
+the repository — the falsifiable version of "the severity should have stopped something".
+Status: 0 recorded in 14 runs with a tally.
+
+## Candidate 21 — The security lens is decided in Layer 1 (origin: repo audit, 2026-09-18)
+
+Whether the security lens applies is decided by the model, reading a glob list in
+`core/iamlazy.md` and checking it against the paths it changed. By this project's own
+classification rule — "can a command tell whether it was honoured? Yes, and it can be
+prevented →
+guarantee, Layer 0" — that is on the wrong layer. `track-edit.sh` already sees every edited path
+as a hook, on `PostToolUse`; matching it against the same globs and recording the verdict is
+mechanical work currently done by reasoning, which is the exact waste `PROJECT.md` names.
+
+Idea: `track-edit.sh` sets `security_lens=1` on the run file when a changed path matches, and
+`open-run.sh` injects it the way it already injects the run's state. The prompt would then be told
+the lens applies rather than asked to work it out, and the log could finally say how often it did.
+
+Why it is a candidate and not a fix: the failure is entirely **unmeasured**. Nothing in
+`runs.jsonl` records whether the lens was applied, so there is no evidence the model ever gets it
+wrong, and no way to check. Moving it to Layer 0 without that record would replace an unverified
+judgement with an unverified mechanism — and this repo has shipped a confidently wrong derived
+field before. The honest first step is smaller than the candidate: record the verdict, then see.
+Note also that this and Candidate 7 are complementary, not alternatives: 7 widens the glob list,
+this one moves who evaluates it. Adopting either does nothing for the other.
+
+Trigger `[log]`: **blocked** on a field recording the lens verdict — none exists. Not
+not-fired: unmeasurable until one does, per the rule at the top of this file.
+Trigger `[human]`: 2+ runs where a security-relevant path was changed and the close report shows
+the lens was not applied — readable from the transcript without any new field, which is why this
+is the half that can actually count today.
+Status: 0 recorded.
+
+## Candidate 22 — `runs.jsonl` accumulates generations and duplicates (origin: audit, 2026-09-18)
+
+65 lines carry 9 schema generations, and three of them are byte-identical: the
+2026-09-14T00:31:24Z triple, written before `hk_claim_close` existed to stop concurrent plugin
+instances each appending the same close. `/iamlazy-review` must understand every generation to
+read its own history, and any count that sweeps the file counts that run three times.
+
+Idea: a one-shot migration to the current schema plus a dedupe on `(session_id, timestamp)`.
+
+Why not yet: the log is **designed** to tolerate this — "`/iamlazy-review` reports what each line
+has and never infers across them" is a stated invariant, not an oversight, and it is what makes
+old lines readable at all. A migration would rewrite history that is currently honest about being
+partial, and the fields most worth comparing across time (`cost_usd`, `models_seen`,
+`drift_reason`) did not exist in the old lines and cannot be invented for them. The duplicate
+triple is already fixed at the source; what remains is three stale rows in a 65-row file.
+
+Trigger `[log]`: the file passes ~200 lines, or a second duplicate group appears with a
+`hooks_version` at or after the one that introduced `hk_claim_close` — the second is the one that
+matters, because it would mean the fix did not hold.
+Trigger `[human]`: a question about the harness's own history that cannot be answered because the
+generations cannot be compared — the only real cost of leaving it alone.
+Status: 3 duplicate rows, 9 generations, 65 lines. One duplicate group, from before the fix.
 
 ---
 
