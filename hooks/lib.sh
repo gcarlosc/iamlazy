@@ -918,7 +918,7 @@ hk_log_append() {
 # a real line, including the stage it died at -- which is the one thing worth
 # knowing about it.
 hk_flush_abandoned() {
-  local f sid tpath root stage start dur fired host models
+  local f sid tpath root stage start dur fired reason host models
   f="$1"
   [ -f "$f" ] || return 0
   # Same race as flush-run.sh's real close, on a different trigger: hk_sweep_stale
@@ -944,6 +944,7 @@ hk_flush_abandoned() {
   # into the log rather than losing with the run file.
   fired=0
   grep -q '"drift_warned"' "$f" 2>/dev/null && fired=1
+  reason=$(hk_field_file "$f" "drift_reason")
   # Same default as flush-run.sh: absent means claude-code. Missing here meant
   # every abandoned OpenCode run silently misattributed to the wrong host --
   # found auditing the log, not by a test. `/iamlazy-review` groups by this
@@ -956,11 +957,12 @@ hk_flush_abandoned() {
   # tally when it priced its messages, the transcript delta otherwise.
   models=$(hk_kv "$(hk_cost_file "$f")" models)
   [ -n "$models" ] || models=$(hk_models_delta "$(hk_models_run "$tpath")" "$(hk_field_file "$f" "start_models")")
-  hk_log_append "$(printf '{"schema_version":8,"host":"%s","timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","models_seen":"%s","hooks_version":"%s","drift_fired":%s,"outcome":"abandoned"}' \
+  hk_log_append "$(printf '{"schema_version":9,"host":"%s","timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","models_seen":"%s","hooks_version":"%s","drift_fired":%s,"drift_reason":"%s","outcome":"abandoned"}' \
     "$(hk_json_esc "$host")" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$root")" \
-    "$dur" "$(hk_json_esc "$stage")" "$(hk_json_esc "$models")" "$(hk_json_esc "$(hk_hooks_version)")" "$fired")"
+    "$dur" "$(hk_json_esc "$stage")" "$(hk_json_esc "$models")" "$(hk_json_esc "$(hk_hooks_version)")" \
+    "$fired" "$(hk_json_esc "$reason")")"
   hk_run_clear "$f"
 }
 

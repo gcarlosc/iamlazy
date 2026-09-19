@@ -37,7 +37,7 @@ esac
 # forged inside a string value, but a payload carrying the field twice would
 # let the first occurrence decide, so that case denies too.
 if [ "$(hk_count "$payload" "subagent_type")" != "1" ]; then
-  hk_deny "iamlazy: could not determine subagent_type unambiguously. Refused."
+  hk_deny "iamlazy: no se pudo determinar subagent_type sin ambiguedad. Rechazado."
 fi
 
 sub=$(hk_field "$payload" "subagent_type")
@@ -56,7 +56,7 @@ sub=$(hk_field "$payload" "subagent_type")
 # a payload carrying the field twice denies rather than picking one, exactly
 # like the subagent_type ambiguity above.
 if hk_bool_true "$payload" "background"; then
-  hk_deny "iamlazy: a run's sub-agent may not run in the background -- its findings would never reach the close gate, and the run would close as if no review had been attempted. Spawn it in the foreground."
+  hk_deny "iamlazy: el sub-agente de una corrida no puede correr en segundo plano -- sus hallazgos nunca llegarian a la puerta de cierre, y la corrida cerraria como si no se hubiera intentado revision. Debe correr en primer plano."
 fi
 
 if [ "$sub" = "iamlazy-critic" ]; then
@@ -64,7 +64,7 @@ if [ "$sub" = "iamlazy-critic" ]; then
   # not proof of what the human answered. hk_close_signal reads it to refuse
   # "declared as a deviation" when nothing was ever attempted -- see lib.sh.
   hk_set_field "$HK_RUN_TMP" "critic_asked" "1"
-  hk_ask "iamlazy: about to spawn the Critic to review this run's diff. Approve for an independent review before closing; decline and the run closes without one, as a declared deviation."
+  hk_ask "iamlazy: se va a lanzar el Critic para revisar el diff de esta corrida. Apruebalo para tener una revision independiente antes de cerrar; si lo rechazas, la corrida cierra sin revision, como desvio declarado."
 fi
 
-hk_deny "iamlazy: the Critic is the only sub-agent a run may spawn. Refused subagent_type='${sub:-unknown}'. Narrow the search and do it in this thread."
+hk_deny "iamlazy: el Critic es el unico sub-agente que una corrida puede lanzar. Rechazado subagent_type='${sub:-desconocido}'. Acota la busqueda y hazla en este mismo hilo."

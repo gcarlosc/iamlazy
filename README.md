@@ -310,6 +310,33 @@ cifra a `host-cost.sh` en vez de que los hooks retarifen la corrida desde `price
 que Claude Code tiene y OpenCode no: un modo de bypass de permisos que rechazar, y un plan mode que
 deniega en lugar de preguntar — el prompt lo dice en ese host, en vez de fingir paridad.
 
+### Cuándo te corta, y cómo ajustarlo
+
+El breaker detiene una corrida **una sola vez**, cuando cruza alguno de estos límites. Te dice
+cuál fue y por qué; después decides tú. No vuelve a hablar en esa corrida.
+
+| Umbral | Default | Corta cuando |
+|---|---|---|
+| `DRIFT_MICRO_PER_LINE` | `80000` ($0,08) | el costo por línea cambiada se dispara: esfuerzo en intentos, no en avance |
+| `DRIFT_MIN_LINES` | `50` | (piso) debajo de esto el ratio es ruido y no se evalúa |
+| `DRIFT_MIN_COST` | `3000000` ($3,00) | (piso) debajo de esto una corrida cara no es cara |
+| `DRIFT_MAX_SECONDS` | `3600` (1 h) | la corrida lleva demasiado abierta, por productiva que sea |
+| `DRIFT_MAX_COST` | `10000000` ($10,00) | el gasto total es demasiado para una sola tarea |
+
+Los dos últimos existen porque el costo por línea **baja** cuanto más crece una corrida: una
+larga, cara y productiva mantiene el ratio sano de punta a punta, y sin un techo absoluto nada
+la detenía.
+
+Se ajustan en `~/.iamlazy/config`, una línea por umbral, sin reinstalar nada:
+
+```sh
+DRIFT_MAX_SECONDS=7200    # dos horas, si tus tareas son realmente así
+```
+
+Un valor no numérico se ignora y vale el default. Los umbrales vigentes quedan registrados en
+cada línea de `runs.jsonl`, junto con cuál disparó: un corte que no puedes explicar contra qué
+se midió no sirve para recalibrar.
+
 ## Tests
 
 ```sh

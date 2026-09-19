@@ -207,6 +207,63 @@ for pair in $ADAPTERS; do
   fi
 done
 
+# Sixth surface: the REGISTER of what Layer 0 says to the human. PROJECT.md
+# declares neutral Spanish, no voseo and no accents across every Spanish string
+# the project emits -- and named flush-run.sh and guard-agent.sh as already
+# compliant while guard-agent.sh was entirely in English, the breaker's stderr
+# half was English prose, and flush-run.sh still carried two voseo forms. The
+# standard existed and nothing measured it, which is exactly how the 2026-09-18
+# migration passed over these files. A rule a command can check does not belong
+# in prose alone.
+#
+# Bytes, not character classes, and under LC_ALL=C: this project has twice
+# shipped a locale-dependent regex that matched in CI and was dead in
+# production (see hk_has_close_banner). Every accented Spanish letter begins
+# \xc3; the inverted marks are \xc2\xbf and \xc2\xa1. Matched that precisely
+# rather than as the whole \xc2 range, because TWO characters in that range are
+# load-bearing and must pass: the banner's middle dot (\xc2\xb7, which hk_stage
+# parses) and the box-drawing character (\xe2\x94\x80). A broader class fails
+# the very format this project depends on.
+# Comments are excluded here for the same reason they are in the voseo scan
+# below: they stay English by design and legitimately quote accented Spanish
+# identifiers -- flush-run.sh's own comment cites the EJECUCION stage name. The
+# rule governs what is EMITTED, not what is explained.
+for f in "$SRC"/hooks/*.sh; do
+  bn="$(basename "$f")"
+  if grep -v '^[[:space:]]*#' "$f" | LC_ALL=C grep -qE $'\xc3|\xc2\xbf|\xc2\xa1'; then
+    no "accents in an emitted string: $bn (the convention is unaccented ASCII)"
+  else
+    ok "no accented bytes emitted: $bn"
+  fi
+done
+
+# Voseo, on the lines that actually emit -- comments stay English by design, so
+# scanning them would report the prompt's own prose as a violation.
+#
+# Only forms that differ from the tu imperative in their LETTERS, never only in
+# an accent. Stripped of accents, most voseo imperatives are homographs of the
+# tu form ("lanzalo" is both "lánzalo" and "lanzalo"), so matching those would
+# fail a compliant string. What survives is diphthongisation (volve/vuelve,
+# podes/puedes) and apocope (deci/di, tene/ten) -- unambiguous either way.
+voseo_hits="$(grep -h -v '^[[:space:]]*#' "$SRC"/hooks/*.sh \
+  | grep -Eoi '\b(decilo|decila|decime|deci|volve|volvete|podes|tenes|queres|entendes|veni|sali|pone|tene|hacelo|elegi|segui)\b' \
+  | sort -u | tr '\n' ' ')"
+if [ -n "$voseo_hits" ]; then
+  no "voseo in an emitted string: $voseo_hits"
+else
+  ok "no voseo forms in what the hooks emit"
+fi
+
+# The close banner's box-drawing character must stay LITERAL in lib.sh. This
+# path has died silently three times; the last cause was the character being
+# written as an escape, which matches under LC_ALL=C and does not under the
+# UTF-8 locale the hooks actually run in.
+if LC_ALL=C grep -q $'\xe2\x94\x80' "$SRC/hooks/lib.sh"; then
+  ok "the close banner's box-drawing character is literal in lib.sh"
+else
+  no "lib.sh lost the literal box-drawing character -- the close-by-banner path is dead"
+fi
+
 # Every template must declare the idempotency marker, or uninstall can never reclaim it.
 for f in "$SRC"/templates/*/*.frontmatter; do
   assert_grep "iamlazy-managed" "$f" "marker present: $(basename "$(dirname "$f")")/$(basename "$f")"
@@ -772,4 +829,21 @@ else ok "uninstall removes the hook dir"; fi
 echo
 echo "----------------------------------------"
 echo "  passed: $PASS   failed: $FAIL"
+
+# The pre-push hook is opt-in per clone (core.hooksPath is local config, never
+# versioned), so a fresh checkout has no guard at all -- which is how CI went
+# red for nine days across two pushes to main, and how it went red again on
+# 2026-09-18. Whoever is reading this output is developing, which is the one
+# moment the reminder is useful and cheap.
+#
+# A notice, not a failure: this is a convenience for a contributor, not an
+# invariant of the code. Silent in CI, where core.hooksPath is meaningless and
+# the suite is the gate already.
+if [ -z "${CI:-}" ] && [ -d "$SRC/.git" ] \
+   && [ "$(git -C "$SRC" config core.hooksPath 2>/dev/null)" != ".githooks" ]; then
+  echo
+  echo "  note: this clone will not run .githooks/pre-push, so a red suite can reach main."
+  echo "        enable it once with:  git config core.hooksPath .githooks"
+fi
+
 [ "$FAIL" -eq 0 ] || exit 1

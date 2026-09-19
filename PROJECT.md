@@ -33,7 +33,7 @@ stopping it is the point.
   by AUDIENCE, not by file: the composed prompts (`core/`, templates, this doc, code comments)
   stay English -- they are read by contributors and by the model regardless of who is running it.
   Everything a HUMAN reads while operating the harness is Spanish, matching this project's own:
-  hook-emitted block/breaker reasons (`flush-run.sh`, `guard-agent.sh`, always were),
+  hook-emitted block/breaker reasons (`flush-run.sh`, `guard-agent.sh`, `open-run.sh`),
   `install.sh`/`uninstall.sh`/`adapters/opencode-v2/build.sh`'s printed output (2026-09-14), and
   **`README.md` in full (2026-09-17)** — it is read by whoever decides whether to install this,
   which is the same audience as the installer's own output, not the contributor audience the
@@ -46,6 +46,15 @@ stopping it is the point.
   `justificacion`, `garantias`), and every accented word in the installer turned out to be a voseo
   form, so neutralising restored it. Given this project's history of encoding bugs in exactly these
   strings (the close banner died twice over it), staying inside ASCII is the cheaper default.
+  The 2026-09-18 migration missed three files and the standard above is why: it named
+  `guard-agent.sh` as already compliant when that hook was English end to end, and never mentioned
+  `open-run.sh` or the breaker's stderr half at all. A standard that asserts compliance it never
+  measured hides exactly what it is meant to catch. **Declared exception:** `guard-critic-bash.sh`
+  stays English -- its reader is the Critic, a model whose own prompt is English, not the human.
+  Enforced since 2026-09-18 by a source invariant in `test.sh`: an accented byte or a voseo form in
+  anything a hook EMITS fails the suite, comments excluded because they legitimately quote accented
+  stage names. The same test pins the close banner's box-drawing character as a literal, the
+  regression that killed that path three times.
 
 ## Architecture — two layers
 
@@ -61,7 +70,7 @@ by the plugin, which is the registration there:
 | `guard-critic-bash.sh` | `PreToolUse` `^Bash$` | inside the Critic, Bash cannot write: redirections, file commands, in-place edits, git mutations, installs |
 | `track-edit.sh` | `PostToolUse` on edit tools | every edit appended to `.iamlazy/journal.md`; the contract's location fixes `project_root` and `base_ref` |
 | `host-cost.sh` | OpenCode only, per completed message | a host that prices its own messages hands the figure over, with the model that wrote it; accumulated into the run's cost sidecar, never re-priced |
-| `flush-run.sh` | `Stop` | the log line is written **exactly once**, derived, never self-reported; **the scope gate speaks**; **circuit breaker** on dollars per changed line |
+| `flush-run.sh` | `Stop` | the log line is written **exactly once**, derived, never self-reported; **the scope gate speaks**; **circuit breaker** on dollars per changed line, plus absolute ceilings on duration and cost |
 | `end-run.sh` | `SessionEnd` | a run that ends without closing is logged as `abandoned`, not lost — **exactly once**, same claim as a real close |
 | `subagent-done.sh` | `SubagentStop` | the review actually returned, and its `findings: H/M/L/I` tally |
 
@@ -186,9 +195,17 @@ justification; an undeclared deviation is an automatic reviewer finding.
   same hook output degrades to an allow — its adapter only recognises `deny`, so the Critic still
   always runs there, unchanged.
 - **The breaker's floors carry more weight than its ratio**, and $0.08/line rests on four runs from
-  two projects. If it fires on a run that was fine, the threshold is wrong, not the run. Its three
+  two projects. If it fires on a run that was fine, the threshold is wrong, not the run. Its
   numbers default in `flush-run.sh` and are overridable in `~/.iamlazy/config`, so recalibrating is
   an edit rather than a reinstall; whatever was in effect is logged with the run.
+  **Two absolute ceilings joined the ratio on 2026-09-18** — `DRIFT_MAX_SECONDS` (1h) and
+  `DRIFT_MAX_COST` ($10) — because the ratio was structurally blind to the symptom the Purpose
+  above names. Cost per line FALLS as a run grows, so a long, expensive, productive run keeps a
+  healthy ratio the whole way: the 2026-09-18 run logged 6386s and $12.87 at $0.0296/line with
+  `drift_fired:0`. Calibrated against all 21 closed runs, where the healthy ceiling is 2094s and
+  $5.07; each would have fired on that one run and no other. All three share one `drift_warned`
+  flag — one block per run, never two — and schema 9 adds `drift_reason` so a recalibration can
+  tell which ceiling tripped, the evidence the ratio's own numbers never had.
 - **`gate_verdict` stays underived** — it would come from `ExitPlanMode`, whose payload shape is
   unconfirmed. `runs.jsonl` carries several schema generations; `/iamlazy-review` reports what each
   line has and never infers across them.

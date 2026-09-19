@@ -73,7 +73,7 @@ fi
 # UserPromptSubmit cannot emit permissionDecision (PreToolUse only), so this
 # blocks with exit 2, which is that event's documented blocking channel.
 if printf '%s' "$payload" | grep -q '"permission_mode":"bypassPermissions"'; then
-  echo "iamlazy: refusing to start under a permission bypass. The gate rides on native plan mode; bypassing permissions removes the only structural guarantee the harness has. Restart without --dangerously-skip-permissions." >&2
+  echo "iamlazy: no se arranca con los permisos en bypass. La puerta de aprobacion se apoya en el plan mode nativo; saltarse los permisos elimina la unica garantia estructural que tiene el harness. Reinicia sin --dangerously-skip-permissions." >&2
   exit 2
 fi
 

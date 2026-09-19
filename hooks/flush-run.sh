@@ -197,6 +197,26 @@ DRIFT_MICRO_PER_LINE=80000      # $0.08 per changed line
 DRIFT_MIN_LINES=50
 DRIFT_MIN_COST=3000000          # $3.00 -- "expensive AND unproductive"
 
+# Two ABSOLUTE ceilings, added 2026-09-18, because the ratio is blind to the
+# symptom this harness says it exists to stop. PROJECT.md's Purpose is explicit:
+# "explicitly NOT built for multi-hour sessions: a long run is a symptom, not
+# the use case, and making that visible and stopping it is the point." Nothing
+# measured that. A run can be long, expensive and productive all at once, and
+# cost-per-line stays healthy the whole way down -- the fixed cost of reading,
+# planning and reviewing does not scale with lines, so the ratio FALLS as a run
+# grows. The breaker was structurally incapable of firing on the one shape the
+# Purpose names.
+#
+# Calibrated against the 21 closed runs in runs.jsonl, same standard as the
+# ratio: a threshold that fires on a run that was fine is the wrong threshold.
+# The healthy ceiling on Claude Code is 2094s and $5.07; the 2026-09-18 run was
+# 6386s and $12.87 with drift_fired:0 and a perfectly healthy $0.0296/line.
+# Both numbers below sit between the two clusters -- 1.7x and 2x clear of the
+# worst healthy run, and each would have fired on exactly that one run out of
+# 21. OpenCode's runs are all far below either, so this is inert there today.
+DRIFT_MAX_SECONDS=3600          # 1h -- past this it is a session, not a task
+DRIFT_MAX_COST=10000000         # $10.00 absolute, however productive
+
 hk_conf() {
   local v
   v=$(hk_kv "${HK_DIR}/config" "$1")
@@ -206,36 +226,75 @@ hk_conf() {
 v=$(hk_conf DRIFT_MICRO_PER_LINE); [ -n "$v" ] && DRIFT_MICRO_PER_LINE="$v"
 v=$(hk_conf DRIFT_MIN_LINES);      [ -n "$v" ] && DRIFT_MIN_LINES="$v"
 v=$(hk_conf DRIFT_MIN_COST);       [ -n "$v" ] && DRIFT_MIN_COST="$v"
-drift_thresholds="${DRIFT_MICRO_PER_LINE}/${DRIFT_MIN_LINES}/${DRIFT_MIN_COST}"
+v=$(hk_conf DRIFT_MAX_SECONDS);    [ -n "$v" ] && DRIFT_MAX_SECONDS="$v"
+v=$(hk_conf DRIFT_MAX_COST);       [ -n "$v" ] && DRIFT_MAX_COST="$v"
+drift_thresholds="${DRIFT_MICRO_PER_LINE}/${DRIFT_MIN_LINES}/${DRIFT_MIN_COST}/${DRIFT_MAX_SECONDS}/${DRIFT_MAX_COST}"
 
-if ! grep -q '"drift_warned"' "$TMP" 2>/dev/null \
-   && [ "$stop_active" = 0 ] \
-   && [ -n "$run_cost" ] \
-   && [ "$run_cost" -ge "$DRIFT_MIN_COST" ] \
-   && [ "${lines_changed:-0}" -ge "$DRIFT_MIN_LINES" ]; then
-  ratio=$((run_cost / lines_changed))
-  if [ "$ratio" -ge "$DRIFT_MICRO_PER_LINE" ]; then
-    # Mark before blocking, so this warns once and never nags again.
-    hk_set_field "$TMP" "drift_warned" "1"
-    # `decision`/`reason` is the documented decision-control shape for Stop;
-    # `systemMessage` is a TOP-LEVEL field, not one nested inside
-    # hookSpecificOutput, which is where this used to put it. Per the hooks
-    # reference, on exit 2 the blocking message is the JSON reason when there
-    # is one and stderr otherwise -- so all three channels agree here instead
-    # of relying on whichever one the build happens to honour.
-    usd_line=$(hk_micro_to_usd "$ratio")
-    printf '{"decision":"block","reason":"iamlazy: esta corrida lleva gastados %s dolares por linea cambiada (las sanas estan entre 0,02 y 0,04). El esfuerzo se esta yendo en intentos, no en avance. Deja de implementar y decilo claro: cual es la hipotesis, por que fallo el ultimo intento, y que CAMBIA ahora. Si la respuesta honesta es -probar otra cosa-, la hipotesis esta mal: volve al humano con lo que quedo descartado.","systemMessage":"iamlazy: %s USD por linea cambiada. Circuit breaker disparado."}\n' "$usd_line" "$usd_line"
-    cat >&2 <<MSG
-iamlazy: this run is spending $(hk_micro_to_usd "$ratio") per changed line. Healthy runs sit
-between 0.02 and 0.04. That ratio means the effort is going into attempts, not progress.
+# Elapsed time is needed HERE, before the close signal, so the ceiling can fire
+# mid-run. The real close recomputes duration from the same baseline below.
+now_epoch=$(date +%s)
+start_epoch=$(hk_json_num "$TMP" "start_epoch")
+elapsed=0
+[ -n "$start_epoch" ] && elapsed=$((now_epoch - start_epoch))
 
-Stop implementing. Before the next edit, state plainly: what is the hypothesis, why did the
-last attempt fail, and what CHANGES in the hypothesis now? If the honest answer is "try
-something else", the hypothesis is wrong -- take it back to the human with what has been
-ruled out, rather than making another attempt.
-MSG
-    exit 2
+# WHICH ceiling tripped, so the log can say. Without it a recalibration cannot
+# tell a ratio breach from a duration one, and the ratio's own thresholds went
+# four runs unchallenged precisely because nothing recorded what they measured.
+# Ratio first: it is the most specific diagnosis and the only one with a
+# prescribed remedy. All three share one `drift_warned` flag -- they are the
+# same sentence to the model ("this run is sick, stop and re-plan"), and two
+# blocks in a row would be nagging, which this hook already refuses to do.
+drift_reason=""
+if ! grep -q '"drift_warned"' "$TMP" 2>/dev/null && [ "$stop_active" = 0 ]; then
+  if [ -n "$run_cost" ] \
+     && [ "$run_cost" -ge "$DRIFT_MIN_COST" ] \
+     && [ "${lines_changed:-0}" -ge "$DRIFT_MIN_LINES" ] \
+     && [ $((run_cost / lines_changed)) -ge "$DRIFT_MICRO_PER_LINE" ]; then
+    drift_reason="ratio"
+  elif [ "$elapsed" -ge "$DRIFT_MAX_SECONDS" ]; then
+    drift_reason="duration"
+  elif [ -n "$run_cost" ] && [ "$run_cost" -ge "$DRIFT_MAX_COST" ]; then
+    drift_reason="cost"
   fi
+fi
+
+if [ -n "$drift_reason" ]; then
+  # Mark before blocking, so this warns once and never nags again.
+  hk_set_field "$TMP" "drift_warned" "1"
+  hk_set_field "$TMP" "drift_reason" "\"$drift_reason\""
+  # `decision`/`reason` is the documented decision-control shape for Stop;
+  # `systemMessage` is a TOP-LEVEL field, not one nested inside
+  # hookSpecificOutput, which is where this used to put it. Per the hooks
+  # reference, on exit 2 the blocking message is the JSON reason when there
+  # is one and stderr otherwise -- so all three channels agree here instead
+  # of relying on whichever one the build happens to honour.
+  case "$drift_reason" in
+    ratio)
+      usd_line=$(hk_micro_to_usd $((run_cost / lines_changed)))
+      printf '{"decision":"block","reason":"iamlazy: esta corrida lleva gastados %s dolares por linea cambiada (las sanas estan entre 0,02 y 0,04). El esfuerzo se esta yendo en intentos, no en avance. Deja de implementar y dilo claro: cual es la hipotesis, por que fallo el ultimo intento, y que CAMBIA ahora. Si la respuesta honesta es -probar otra cosa-, la hipotesis esta mal: vuelve al humano con lo que quedo descartado.","systemMessage":"iamlazy: %s USD por linea cambiada. Circuit breaker disparado."}\n' "$usd_line" "$usd_line"
+      cat >&2 <<MSG
+iamlazy: esta corrida lleva gastados $usd_line dolares por linea cambiada. Las
+sanas estan entre 0,02 y 0,04. Ese ratio significa que el esfuerzo se esta yendo en intentos y
+no en avance.
+
+Deja de implementar. Antes de la proxima edicion, dilo claro: cual es la hipotesis, por que
+fallo el ultimo intento, y que CAMBIA en la hipotesis ahora. Si la respuesta honesta es
+-probar otra cosa-, la hipotesis esta mal: vuelve al humano con lo que quedo descartado, en
+lugar de hacer un intento mas.
+MSG
+      ;;
+    duration)
+      mins=$((elapsed / 60))
+      printf '{"decision":"block","reason":"iamlazy: esta corrida lleva %s minutos abierta. El harness esta hecho para UNA tarea de punta a punta, no para una sesion de horas: una corrida larga es el sintoma, no el caso de uso. Cierra lo que ya este completo y declara el resto como una tarea aparte, con su propio contrato. Si de verdad falta poco, dilo y sigue; el aviso no se repite.","systemMessage":"iamlazy: %s minutos abiertos. Circuit breaker por duracion."}\n' "$mins" "$mins"
+      printf 'iamlazy: esta corrida lleva %s minutos abierta. El harness esta hecho para una tarea, no para una sesion de horas: corta aqui y declara el resto como tarea aparte.\n' "$mins" >&2
+      ;;
+    cost)
+      usd_total=$(hk_micro_to_usd "$run_cost")
+      printf '{"decision":"block","reason":"iamlazy: esta corrida lleva gastados %s dolares en total. El ratio por linea puede verse sano y aun asi ser demasiado dinero para una sola tarea. Cierra lo que ya este completo y declara el resto como una tarea aparte, con su propio contrato. Si el gasto esta justificado, dilo y sigue; el aviso no se repite.","systemMessage":"iamlazy: %s USD en total. Circuit breaker por costo."}\n' "$usd_total" "$usd_total"
+      printf 'iamlazy: esta corrida lleva gastados %s dolares en total. Corta aqui y declara el resto como tarea aparte.\n' "$usd_total" >&2
+      ;;
+  esac
+  exit 2
 fi
 
 # ---------------------------------------------------------------- Guarantee 2
@@ -276,7 +335,7 @@ if ! signal=$(hk_close_signal "$payload" "$contract" "$root" "$base" "$ubase"); 
         one_line=$(printf '%s' "$blockers" | tr '\n' ' ' | tr -d '\\"')
         printf '{"decision":"block","reason":"iamlazy: la corrida no puede cerrar todavia. %s Si es alcance o grupos: declara el desvio en ## Scope con su justificacion, o revierte el archivo, y marca los grupos con - [x]. Si es el Critic: lanza el sub-agente de verdad -- si te rechaza, recien ahi puedes cerrar sin revision.","systemMessage":"iamlazy: cierre bloqueado -- %s"}\n' \
           "$one_line" "$one_line"
-        printf 'iamlazy: close blocked -- %s\n' "$one_line" >&2
+        printf 'iamlazy: cierre bloqueado -- %s\n' "$one_line" >&2
         exit 2
       fi
     fi
@@ -294,10 +353,11 @@ fi
 # exits clean: the close it wanted already happened, on another invocation.
 hk_claim_close "$TMP" || exit 0
 
-start_epoch=$(hk_json_num "$TMP" "start_epoch")
-now_epoch=$(date +%s)
+# start_epoch and now_epoch were read above, for the duration ceiling. `elapsed`
+# is that same subtraction; duration stays empty when the run file carried no
+# baseline, which is the honest value and what the log expects.
 duration=""
-[ -n "$start_epoch" ] && duration=$((now_epoch - start_epoch))
+[ -n "$start_epoch" ] && duration="$elapsed"
 
 # Counted as a DELTA, like the token cost: the transcript accumulates the whole
 # session, so a second run in it would otherwise inherit the first one's
@@ -368,16 +428,24 @@ fi
 # thresholds still rest on four runs from two projects. Found the first time it
 # ever fired in production (2026-09-07), by having to go to the host's own
 # store to find out whether it had.
+#
+# `drift_reason` joins it at schema 9 (2026-09-18), when the breaker stopped
+# having one trigger. A bare 0/1 cannot tell a ratio breach from a duration
+# ceiling, and recalibrating needs to know which fired -- the same gap that let
+# the ratio's own three numbers go four runs unchallenged. Empty when nothing
+# fired, which is the honest value and what every pre-9 line effectively says.
 drift_fired=0
 grep -q '"drift_warned"' "$TMP" 2>/dev/null && drift_fired=1
+logged_reason=$(hk_field_file "$TMP" "drift_reason")
 
-hk_log_append "$(printf '{"schema_version":8,"host":"%s","timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","models_seen":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","drift_thresholds":"%s","drift_fired":%s,"hooks_version":"%s","outcome":"flushed"}' \
+hk_log_append "$(printf '{"schema_version":9,"host":"%s","timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","models_seen":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","drift_thresholds":"%s","drift_fired":%s,"drift_reason":"%s","hooks_version":"%s","outcome":"flushed"}' \
   "$(hk_json_esc "$host")" "$now_iso" "$task_summary" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" \
   "$(hk_json_esc "$root")" "$(hk_json_esc "$base")" \
   "${duration:-null}" "$human_interventions" "${files_changed:-0}" "${lines_changed:-0}" \
   "$cost_field" "$(hk_json_esc "$unpriced")" "$(hk_json_esc "$models_seen")" "$d_out" "$d_cw" "$d_cr" \
   "$project_md" "$(hk_json_esc "$stage")" \
-  "$(hk_json_esc "$critic_findings")" "$signal" "$drift_thresholds" "$drift_fired" "$(hk_json_esc "$(hk_hooks_version)")")"
+  "$(hk_json_esc "$critic_findings")" "$signal" "$drift_thresholds" "$drift_fired" \
+  "$(hk_json_esc "$logged_reason")" "$(hk_json_esc "$(hk_hooks_version)")")"
 
 hk_run_clear "$TMP"
 exit 0

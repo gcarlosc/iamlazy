@@ -929,7 +929,7 @@ open_run "$CBA" "$CBA" 30 s
 sed 's/}$/,"drift_warned":1}/' "$(runfile "$CBA" s)" > "$CBA/rf.tmp" && mv "$CBA/rf.tmp" "$(runfile "$CBA" s)"
 run_end "$CBA" '{"hook_event_name":"SessionEnd","session_id":"s","cwd":"'"$CBA"'"}'
 assert_grep '"drift_fired":1' "$CBA/.iamlazy/runs.jsonl" "una corrida abandonada recuerda que el breaker disparo"
-assert_grep '"schema_version":8' "$CBA/.iamlazy/runs.jsonl" "la linea abandonada declara el schema vigente"
+assert_grep '"schema_version":9' "$CBA/.iamlazy/runs.jsonl" "la linea abandonada declara el schema vigente"
 assert_grep '"tokens_output":947600' "$CB/.iamlazy/runs.jsonl" "los componentes crudos quedan para poder reprecificar"
 
 # Debajo del piso de lineas el ratio es ruido: el costo por linea SUBE cuanto
@@ -1104,7 +1104,7 @@ run_flush "$SEM" "$(stop_payload "$SEM" "$CLOSE_MSG" s "$SEMT/t.jsonl")" >/dev/n
 assert_grep '"task_summary":"Add rate limiting to the \\"login\\" endpoint"' "$SEM/.iamlazy/runs.jsonl" \
   "task_summary derivado del contrato, con las comillas ESCAPADAS (no borradas)"
 assert_grep '"project_md":"updated"' "$SEM/.iamlazy/runs.jsonl" "project_md derivado del diff"
-assert_grep '"schema_version":8' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
+assert_grep '"schema_version":9' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
 assert_grep '"cost_usd":0.5000' "$SEM/.iamlazy/runs.jsonl" "cost_usd derivado del transcript y la tabla de precios"
 assert_grep '"close_detected_via":"contract"' "$SEM/.iamlazy/runs.jsonl" \
   "PROJECT.md modificado no bloquea el cierre (es parte del cierre)"
@@ -1555,7 +1555,7 @@ DEFT="$(mkrepo)"; mk_cheap_run "$DEFT"
 if [ "$(flush_rc "$DEFT" "$(stop_payload "$DEFT" "$CLOSE_MSG" s "$DEFT/t.jsonl")")" = "2" ]; then
   no "sin config, una corrida barata no debe disparar"
 else ok "sin config valen los umbrales por defecto"; fi
-assert_grep '"drift_thresholds":"80000/50/3000000"' "$DEFT/.iamlazy/runs.jsonl" "la linea registra los umbrales por defecto"
+assert_grep '"drift_thresholds":"80000/50/3000000/3600/10000000"' "$DEFT/.iamlazy/runs.jsonl" "la linea registra los umbrales por defecto"
 assert_grep '"drift_fired":0' "$DEFT/.iamlazy/runs.jsonl" "una corrida que no lo cruzo registra drift_fired 0"
 
 LOWT="$(mkrepo)"; mk_cheap_run "$LOWT"
@@ -1569,7 +1569,55 @@ else no "el breaker ignoro los umbrales del config"; fi
 BADT="$(mkrepo)"; mk_cheap_run "$BADT"
 printf 'DRIFT_MIN_LINES=muchas\nDRIFT_MICRO_PER_LINE=\n' > "$BADT/.iamlazy/config"
 run_flush "$BADT" "$(stop_payload "$BADT" "$CLOSE_MSG" s "$BADT/t.jsonl")" >/dev/null
-assert_grep '"drift_thresholds":"80000/50/3000000"' "$BADT/.iamlazy/runs.jsonl" "un umbral no numerico se ignora y vale el default"
+assert_grep '"drift_thresholds":"80000/50/3000000/3600/10000000"' "$BADT/.iamlazy/runs.jsonl" "un umbral no numerico se ignora y vale el default"
+
+# --- techos absolutos: duracion y costo (2026-09-18) -----------------------
+# El ratio es ciego al sintoma que PROJECT.md declara como el motivo del
+# harness: "una corrida larga es el sintoma, no el caso de uso". El costo por
+# linea BAJA cuanto mas crece una corrida, asi que una corrida larga, cara y
+# productiva mantiene el ratio sano de punta a punta y el breaker no podia
+# dispararle nunca. Medido: la corrida del 2026-09-18 duro 6386s y costo
+# $12,87 con drift_fired:0 y $0,0296 por linea.
+
+# Duracion: barata y sana por ratio, pero abierta mas de una hora.
+DURT="$(mkrepo)"; mk_cheap_run "$DURT"
+sd '"start_epoch":[0-9]+' "\"start_epoch\":$(( $(date +%s) - 4000 ))" "$(runfile "$DURT" s)"
+if [ "$(flush_rc "$DURT" "$(stop_payload "$DURT" "$CLOSE_MSG" s "$DURT/t.jsonl")")" = "2" ]; then
+  ok "una corrida de mas de una hora dispara el breaker aunque el ratio este sano"
+else no "el techo de duracion no disparo sobre una corrida de 4000s"; fi
+assert_grep '"drift_reason":"duration"' "$(runfile "$DURT" s)" "el run recuerda que disparo por duracion"
+
+# Y no vuelve a hablar: misma bandera que el ratio, un aviso por corrida.
+if [ "$(flush_rc "$DURT" "$(stop_payload "$DURT" "$CLOSE_MSG" s "$DURT/t.jsonl")")" = "2" ]; then
+  no "el techo de duracion no debe repetir el aviso"
+else ok "el techo de duracion avisa una sola vez"; fi
+assert_grep '"drift_reason":"duration"' "$DURT/.iamlazy/runs.jsonl" "el motivo del breaker llega a la linea"
+assert_grep '"schema_version":9' "$DURT/.iamlazy/runs.jsonl" "la linea con motivo declara schema 9"
+
+# Costo absoluto: pocas lineas no alcanzan el piso del ratio, pero $12 es
+# demasiado para una tarea sola.
+COST="$(mkrepo)"
+mkdir -p "$COST/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$COST/.iamlazy/contract.md"
+printf 'x\n%.0s' $(seq 1 10) > "$COST/f.txt"
+mk_transcript "$COST" 12870000
+open_run_tok "$COST" "$COST"; set_base "$COST" "s" "$COST"; rm -f "$COST/.iamlazy/active/s.untracked"
+if [ "$(flush_rc "$COST" "$(stop_payload "$COST" "$CLOSE_MSG" s "$COST/t.jsonl")")" = "2" ]; then
+  ok "una corrida de \$12,87 dispara el techo de costo"
+else no "el techo de costo absoluto no disparo sobre \$12,87"; fi
+assert_grep '"drift_reason":"cost"' "$(runfile "$COST" s)" "el run recuerda que disparo por costo"
+
+# Los techos son configurables como los otros tres, y un valor no numerico
+# tampoco puede convertirse en umbral.
+RAIS="$(mkrepo)"; mk_cheap_run "$RAIS"
+sd '"start_epoch":[0-9]+' "\"start_epoch\":$(( $(date +%s) - 4000 ))" "$(runfile "$RAIS" s)"
+printf 'DRIFT_MAX_SECONDS=7200\n' > "$RAIS/.iamlazy/config"
+if [ "$(flush_rc "$RAIS" "$(stop_payload "$RAIS" "$CLOSE_MSG" s "$RAIS/t.jsonl")")" = "2" ]; then
+  no "subir DRIFT_MAX_SECONDS debia silenciar el techo de duracion"
+else ok "DRIFT_MAX_SECONDS se puede subir desde ~/.iamlazy/config"; fi
+
+# Una corrida sana no gana un motivo: el campo vacio es el valor honesto.
+assert_grep '"drift_reason":""' "$DEFT/.iamlazy/runs.jsonl" "una corrida sana registra el motivo vacio"
 
 echo
 echo "human_interventions — delta donde se puede contar, null donde no"

@@ -164,7 +164,7 @@ test("chat.message asks open-run.sh for the run's state; system.transform inject
 
 test("task with a foreign subagent_type is refused with guard-agent.sh's own reason", async () => {
   await expect(before(h, S, "task", { description: "map", subagent_type: "explore", prompt: "x" })).rejects.toThrow(
-    /the Critic is the only sub-agent/,
+    /el Critic es el unico sub-agente/,
   )
 })
 
@@ -174,7 +174,7 @@ test("task spawning iamlazy-critic passes", async () => {
 
 test("a child session's events are attributed to the parent's run", async () => {
   await created(h, C, S)
-  await expect(before(h, C, "task", { description: "n", subagent_type: "explore", prompt: "x" })).rejects.toThrow(/only sub-agent/)
+  await expect(before(h, C, "task", { description: "n", subagent_type: "explore", prompt: "x" })).rejects.toThrow(/unico sub-agente/)
 })
 
 test("the Critic's bash cannot write; its reads pass; the main thread's bash is untouched", async () => {
