@@ -1132,3 +1132,37 @@ replacement took the first occurrence. Worth naming: a mutation that fails to ki
 once you have confirmed it mutated the thing you meant.
 
 `test.sh` 198, `test-hooks.sh` 301, shellcheck clean.
+
+## 2026-09-21 — `PROJECT.md` had become a diary, and one of its claims was wrong
+
+An audit of the repo asked a question the file itself invites: every session reads `PROJECT.md`
+whole, so what is each paragraph buying? The Debt section was 125 of its 296 lines, and most of it
+recorded confirmations and closures — `SubagentStop` proven live, the Critic's spawn prompt proven
+live, Candidate 18 resolved upstream, Candidate 19 delivered, the V2 adapter's whole port history.
+None of that is debt or risk any more. It is exactly what THIS file's opening line says it exists
+to hold, so `PROJECT.md` can describe the system as it is rather than how it got there. The rule
+was already written; it had simply stopped being applied.
+
+Consolidated to 192 lines, on one test per paragraph: does it change a future decision? Every
+invariant, principle and the hook table survive untouched — those are contract. What left was
+narrative, and most of it was already written here in more detail than the summary that replaced
+it, which is how it went unnoticed: the copies each looked complete.
+
+**One claim did not survive contact with the log.** "The reviewer has caught three `[HIGH]` bugs
+that passing suites did not" had stood in `PROJECT.md` since August. `runs.jsonl` has never
+recorded a `[HIGH]` in any run — the worst tally ever logged is `0/1/4/2` — and the 2026-09-11
+entry above, the audit that claim descends from, says **3 real MEDIUM findings**. The count
+survived the retelling and the severity inflated. It is corrected to what the evidence supports,
+and the "never write a count into prose" principle now names this failure explicitly, because the
+principle existed and did not prevent it: it was read as being about assertion totals and line
+counts, not about the harness's claims regarding its own results, which is where it mattered most.
+
+Preserved from the Debt section because it is evidence about the ENVIRONMENT and is recorded
+nowhere else: `SubagentStop` fires on this Claude Code build, and its payload carries the PARENT
+session id rather than the sub-agent's own. Three real runs logged non-empty `critic_findings`
+(`0/0/2/3`, `0/0/3/1`, `0/1/4/2` — 2026-09-07T03:25:41Z, 2026-09-11T15:44:51Z,
+2026-09-11T16:04:28Z), a field only `subagent-done.sh` writes and only on that event. It proves
+the parent id too: that hook calls `hk_guard` first, which requires an active run file under the
+exact session id in the payload, and a sub-agent session — never opened through `/iamlazy` — has
+no run file of its own to match. Two further runs logged empty findings; both are `iamlazy-smoke`
+runs where the human declined the Critic, so empty is the correct value there, not a gap.
