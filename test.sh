@@ -264,6 +264,15 @@ else
   no "lib.sh lost the literal box-drawing character -- the close-by-banner path is dead"
 fi
 
+# The README is the first thing a new user copies from. A placeholder there is
+# a command that fails on the first try: `git clone <repo>` shipped in the
+# install line until 2026-10-02.
+if grep -q '<repo>' "$SRC/README.md"; then
+  no "README.md still carries a <repo> placeholder in a command a user will copy"
+else
+  ok "README.md has no <repo> placeholder"
+fi
+
 # Every template must declare the idempotency marker, or uninstall can never reclaim it.
 for f in "$SRC"/templates/*/*.frontmatter; do
   assert_grep "iamlazy-managed" "$f" "marker present: $(basename "$(dirname "$f")")/$(basename "$f")"
@@ -304,9 +313,38 @@ else no "the two hook copies differ (lib.sh)"; fi
 assert_file "$H/.iamlazy/DELTAS.md"                 "DELTAS mirror created"
 assert_file "$H/.iamlazy/prices.conf"               "price table installed"
 assert_file "$H/.iamlazy/hooks_version"             "hooks_version stamped"
-if [ "$(cat "$H/.iamlazy/hooks_version" 2>/dev/null)" = "$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null)" ]; then
-  ok "hooks_version is this checkout's git SHA"
-else no "hooks_version does not match \`git rev-parse --short HEAD\`"; fi
+want_ver="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null)"
+[ -n "$(git -C "$SRC" status --porcelain -- hooks adapters 2>/dev/null)" ] && want_ver="${want_ver}-dirty"
+if [ "$(cat "$H/.iamlazy/hooks_version" 2>/dev/null)" = "$want_ver" ]; then
+  ok "hooks_version is this checkout's git SHA ($want_ver)"
+else no "hooks_version does not match \`git rev-parse --short HEAD\` (want $want_ver)"; fi
+
+# An install from a working tree whose enforcement code differs from HEAD is
+# not HEAD. Exercised on a throwaway clone, so it holds whether or not the
+# checkout running this suite is itself clean.
+DIRTY="$(mktmp)"
+if git clone -q "$SRC" "$DIRTY/repo" 2>/dev/null; then
+  # The clone carries the COMMITTED installer; the one under test is this
+  # working tree's. The stamp only looks at hooks/ and adapters/, so copying
+  # the installer over leaves the clone clean by that measure.
+  cp "$SRC/install.sh" "$DIRTY/repo/install.sh"
+  HD="$(mktmp)"
+  HOME="$HD" "$DIRTY/repo/install.sh" --tool=claude >/dev/null 2>&1
+  clean_ver="$(cat "$HD/.iamlazy/hooks_version" 2>/dev/null)"
+  printf '\n# local change\n' >> "$DIRTY/repo/hooks/flush-run.sh"
+  HOME="$HD" "$DIRTY/repo/install.sh" --tool=claude >/dev/null 2>&1
+  dirty_ver="$(cat "$HD/.iamlazy/hooks_version" 2>/dev/null)"
+  case "$clean_ver" in
+    *-dirty) no "a clean clone was stamped dirty: $clean_ver" ;;
+    "") no "a clean clone stamped no hooks_version" ;;
+    *) ok "a clean checkout stamps the bare SHA ($clean_ver)" ;;
+  esac
+  if [ "$dirty_ver" = "${clean_ver}-dirty" ]; then
+    ok "uncommitted enforcement code stamps the SHA with -dirty ($dirty_ver)"
+  else no "uncommitted enforcement code stamped '$dirty_ver', want '${clean_ver}-dirty'"; fi
+else
+  no "could not clone the repo to test the -dirty stamp"
+fi
 
 # prices.conf is CONFIG, not a generated mirror. The human edits it when rates
 # change, and an installer that overwrites that edit makes the cost figure

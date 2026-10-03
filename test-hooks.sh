@@ -447,6 +447,19 @@ run_open "$LEG" '{"hook_event_name":"UserPromptSubmit","session_id":"nueva","tra
 assert_absent "$LEG/.iamlazy/run.tmp.json" "el run.tmp.json del layout viejo se migra"
 assert_grep 'legacy-sid' "$LEG/.iamlazy/runs.jsonl" "la corrida del layout viejo queda registrada"
 
+# Un archivo de corrida sin session_id no nombra ninguna corrida. Se limpia y
+# no se registra: el log real tiene cuatro lineas abandoned con session_id,
+# cwd y duracion vacios, contadas en cada tally hasta que alguien las vio.
+NOSID="$(mktmp)"
+mkdir -p "$NOSID/.iamlazy/active"
+printf '{"schema_version":5,"start_epoch":%s,"outcome":"incomplete"}' "$(($(date +%s)-90000))" \
+  > "$NOSID/.iamlazy/active/basura.json"
+printf '{"outcome":"incomplete"}' > "$NOSID/.iamlazy/active/vacia.json"
+run_open "$NOSID" '{"hook_event_name":"UserPromptSubmit","session_id":"otra","transcript_path":"/x.jsonl","cwd":"'"$NOSID"'","prompt":"hola"}'
+assert_absent "$NOSID/.iamlazy/active/basura.json" "un archivo de corrida sin session_id se limpia en el barrido"
+assert_absent "$NOSID/.iamlazy/active/vacia.json" "uno sin session_id ni start_epoch tambien"
+assert_absent "$NOSID/.iamlazy/runs.jsonl" "y ninguno llega al log como corrida abandonada"
+
 echo
 echo "un cierre no se cuenta dos veces — el mismo run, invocado concurrentemente"
 
@@ -977,6 +990,72 @@ assert_grep '"cost_usd":null' "$UNP/.iamlazy/runs.jsonl" "un modelo sin precio d
 assert_grep 'modelo-del-futuro' "$UNP/.iamlazy/runs.jsonl" "el log NOMBRA el modelo que falta en prices.conf"
 assert_grep '"tokens_output":1000' "$UNP/.iamlazy/runs.jsonl" "los componentes crudos se guardan igual, para reprecificar despues"
 
+# Sin precio, el breaker por costo queda apagado: el ratio y el techo en dolares
+# necesitan un costo. Eso pasaba en silencio, y es el caso normal el dia que
+# sale un modelo nuevo. Se avisa al humano UNA vez, a mitad de corrida, para que
+# lo arregle mientras todavia sirve.
+UNW="$(mkrepo)"
+mkdir -p "$UNW/.iamlazy"
+printf '## Groups\n- [ ] g1\n' > "$UNW/.iamlazy/contract.md"
+open_run_tok "$UNW" "$UNW"; set_base "$UNW" "s" "$UNW"
+printf '{"model":"modelo-del-futuro","message":{"id":"msg_X","usage":{"input_tokens":0,"output_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' > "$UNW/t.jsonl"
+out="$(run_flush "$UNW" "$(stop_payload "$UNW" 'sigo con g1' s "$UNW/t.jsonl")")"
+case "$out" in
+  *'"systemMessage"'*'no hay precio'*modelo-del-futuro*) ok "un modelo sin precio se avisa al humano, nombrandolo, a mitad de corrida" ;;
+  *) no "el breaker quedo ciego sin avisar (obtuvo: ${out:-<vacio>})" ;;
+esac
+out="$(run_flush "$UNW" "$(stop_payload "$UNW" 'sigo con g1' s "$UNW/t.jsonl")")"
+if [ -z "$out" ]; then ok "el aviso de modelo sin precio no se repite"
+else no "el aviso de modelo sin precio se repitio: $out"; fi
+
+# Y con todo valorado no se dice nada: un aviso que salta fuera de su dominio
+# es un defecto.
+PRI="$(mkrepo)"
+mkdir -p "$PRI/.iamlazy"
+printf '## Groups\n- [ ] g1\n' > "$PRI/.iamlazy/contract.md"
+open_run_tok "$PRI" "$PRI"; set_base "$PRI" "s" "$PRI"
+mk_transcript "$PRI" 25000
+out="$(run_flush "$PRI" "$(stop_payload "$PRI" 'sigo con g1' s "$PRI/t.jsonl")")"
+if [ -z "$out" ]; then ok "con todos los modelos valorados no hay aviso"
+else no "aviso de precio sin que falte ninguno: $out"; fi
+
+# Dos avisos en el mismo Stop salen en UN solo JSON. Antes cada uno imprimia el
+# suyo, y dos objetos seguidos no son JSON valido: no se mostraba ninguno.
+TWO="$(mktmp)"
+mkdir -p "$TWO/.iamlazy"
+open_run_tok "$TWO" "$TWO"
+printf '{"model":"modelo-del-futuro","message":{"id":"msg_X","usage":{"input_tokens":0,"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' > "$TWO/t.jsonl"
+out="$(run_flush "$TWO" "$(stop_payload "$TWO" 'turno' s "$TWO/t.jsonl")")"
+n_json="$(printf '%s\n' "$out" | grep -c '^{')"
+case "$out" in
+  *'no es un repositorio git'*'modelo-del-futuro'*|*'modelo-del-futuro'*'no es un repositorio git'*)
+    if [ "$n_json" = "1" ]; then ok "dos avisos en el mismo Stop salen en un solo JSON"
+    else no "dos avisos salieron en $n_json objetos JSON: la salida no es JSON valido"; fi ;;
+  *) no "faltaba alguno de los dos avisos (obtuvo: ${out:-<vacio>})" ;;
+esac
+
+# El README prometia que iamlazy propone .iamlazy/ en el .gitignore si falta, y
+# nada lo hacia. Se dice al cerrar, una vez por corrida.
+GIG="$(mkrepo)"
+mkdir -p "$GIG/.iamlazy"
+printf '## Groups\n- [x] g1\n' > "$GIG/.iamlazy/contract.md"
+open_run "$GIG" "$GIG" 5; set_base "$GIG" "sid-x" "$GIG"
+out="$(run_flush "$GIG" "$(stop_payload "$GIG" "$CLOSE_MSG")")"
+case "$out" in
+  *'"systemMessage"'*'.gitignore'*) ok "al cerrar, propone .iamlazy/ en el .gitignore si falta" ;;
+  *) no "no propuso .iamlazy/ en el .gitignore (obtuvo: ${out:-<vacio>})" ;;
+esac
+GIG2="$(mkrepo)"
+mkdir -p "$GIG2/.iamlazy"
+printf '.iamlazy/\n' > "$GIG2/.gitignore"
+printf '## Groups\n- [x] g1\n## Scope\n- .gitignore\n' > "$GIG2/.iamlazy/contract.md"
+open_run "$GIG2" "$GIG2" 5; set_base "$GIG2" "sid-x" "$GIG2"
+out="$(run_flush "$GIG2" "$(stop_payload "$GIG2" "$CLOSE_MSG")")"
+case "$out" in
+  *'.gitignore'*) no "propuso el .gitignore en un repo que ya ignora .iamlazy/" ;;
+  *) ok "si .iamlazy/ ya esta ignorado, no dice nada" ;;
+esac
+
 echo "guarantee 2 — models seen"
 
 # Que modelo respondio, y cuantas veces. La cuenta es lo que identifica la
@@ -1388,6 +1467,58 @@ gotk=$(. "$SRC/hooks/lib.sh"; hk_cost_micro "$DEDUP/c.jsonl" "$PRICES")
 # 1000x5 + 1000x5x1,25 + 10000x5x0,1 = 5.000 + 6.250 + 5.000 = 16.250 micro
 if [ "$gotk" = "16250" ]; then ok "aplica los multiplicadores de cache (x1,25 write / x0,1 read)"
 else no "multiplicadores de cache incorrectos: esperaba 16250, obtuvo $gotk"; fi
+
+# TTL de 1 hora. Toda escritura de cache en dos transcripts reales de Claude
+# Code (medido 2026-10-02) era de 1 h, que vale x2 y no x1,25. El transcript lo
+# dice por mensaje: ephemeral_1h_input_tokens, y el resto es de 5 minutos.
+printf '{"model":"claude-opus-5","message":{"id":"msg_H","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":1000,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":400,"ephemeral_1h_input_tokens":600}}}}\n' > "$DEDUP/h.jsonl"
+goth=$(. "$SRC/hooks/lib.sh"; hk_cost_micro "$DEDUP/h.jsonl" "$PRICES")
+# 400x5x1,25 + 600x5x2 = 2.500 + 6.000 = 8.500 micro
+if [ "$goth" = "8500" ]; then ok "la escritura de cache de 1 h vale x2, la de 5 min x1,25"
+else no "TTL de cache mal valorado: esperaba 8500, obtuvo $goth"; fi
+
+# Lectura de cache por modelo. Opus 5.5 lee a 0,05x y Fable 5.1 a 0,025x; con
+# la lectura cerca del 90% de los tokens, el 0,1x fijo triplicaba una corrida
+# de Fable. La cuarta columna de prices.conf es el precio de lectura.
+printf 'claude-opus-5-5 4.00 20.00 0.20\nclaude-opus-5 5.00 25.00\n' > "$DEDUP/p4.conf"
+printf '{"model":"claude-opus-5-5","message":{"id":"msg_R4","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000000}}}\n' > "$DEDUP/r4.jsonl"
+gotr=$(. "$SRC/hooks/lib.sh"; hk_cost_micro "$DEDUP/r4.jsonl" "$DEDUP/p4.conf")
+# 1.000.000 x \$0,20/MTok = 200.000 micro. Con el 0,1x fijo darian 400.000.
+if [ "$gotr" = "200000" ]; then ok "la cuarta columna de prices.conf fija el precio de lectura de cache"
+else no "lectura de cache por modelo ignorada: esperaba 200000, obtuvo $gotr"; fi
+
+# Lineas que tienen "usage" y no son un mensaje de la API. Un aviso de agente
+# en segundo plano trae su propio usage sin modelo, y un mensaje <synthetic>
+# trae un usage en cero. Las dos volvian null el costo de toda la corrida, la
+# primera sin nombrar ningun modelo en cost_unpriced.
+{
+  printf '{"type":"attachment","attachment":{"type":"queued_command","usage":{"totalTokens":57414,"toolUses":5,"durationMs":41367}}}\n'
+  printf '{"message":{"model":"<synthetic>","id":"msg_Z","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+  printf '{"model":"claude-opus-5","message":{"id":"msg_N","usage":{"input_tokens":0,"output_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+} > "$DEDUP/n.jsonl"
+gotn=$(. "$SRC/hooks/lib.sh"; hk_transcript_scan "$DEDUP/n.jsonl" "$PRICES" | sed -n '1p')
+if [ "$gotn" = "2500" ]; then ok "un aviso de agente y un mensaje <synthetic> no vuelven null el costo"
+else no "una linea que no es mensaje anulo el costo: esperaba 2500, obtuvo $gotn"; fi
+gotu=$(. "$SRC/hooks/lib.sh"; hk_unpriced_models "$DEDUP/n.jsonl" "$PRICES")
+if [ -z "$gotu" ]; then ok "<synthetic> no aparece como modelo sin precio"
+else no "se nombro como sin precio algo que no consumio tokens: $gotu"; fi
+gotm=$(. "$SRC/hooks/lib.sh"; hk_model_counts "$DEDUP/n.jsonl")
+if [ "$gotm" = "claude-opus-5:1 " ]; then ok "models_seen no cuenta mensajes que no consumieron tokens"
+else no "models_seen conto lineas que no son mensajes: '$gotm'"; fi
+
+# Sin tabla de precios el costo es NULL, nunca 0. Con NR==FNR, un primer
+# archivo vacio hacia que el cargador de precios se comiera el transcript
+# entero: costo 0, tokens 0, sin modelos, una corrida "gratis" en la maquina
+# donde --check promete que todo costo sera null.
+gotnp=$(. "$SRC/hooks/lib.sh"; hk_transcript_scan "$DEDUP/n.jsonl" "$DEDUP/no-existe.conf")
+np1=$(printf '%s\n' "$gotnp" | sed -n '1p'); np2=$(printf '%s\n' "$gotnp" | sed -n '2p'); np3=$(printf '%s\n' "$gotnp" | sed -n '3p')
+if [ "$np1" = "NULL" ] && [ "$np2" = "100 0 0" ] && [ "$np3" = "claude-opus-5:1 " ]; then
+  ok "sin prices.conf: costo NULL, y tokens y modelos se cuentan igual"
+else no "sin prices.conf: esperaba NULL / '100 0 0' / 'claude-opus-5:1 ', obtuvo $np1 / '$np2' / '$np3'"; fi
+: > "$DEDUP/vacia.conf"
+gotev=$(. "$SRC/hooks/lib.sh"; hk_cost_micro "$DEDUP/n.jsonl" "$DEDUP/vacia.conf")
+if [ -z "$gotev" ]; then ok "con un prices.conf vacio no se inventa un costo"
+else no "un prices.conf vacio produjo un costo: $gotev"; fi
 
 echo
 echo "hk_transcript_scan — una compactacion no arrastra la lectura anterior"

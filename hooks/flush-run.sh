@@ -71,6 +71,27 @@ HK_CRITIC_DONE=$(hk_json_num "$TMP" "critic_done")
 HK_CRITIC_ASKED=$(hk_json_num "$TMP" "critic_asked")
 critic_findings=$(cat "$(hk_findings_file "$TMP")" 2>/dev/null)
 
+# --- notices for the human: a guarantee that is off says so, ONCE per run.
+#
+# Collected here and printed as ONE systemMessage at the exit-0 points, never
+# printed where they are found. Each used to print its own JSON object, and the
+# hooks reference parses stdout as a single JSON value: two notices on the same
+# Stop, or a notice followed by a block, made the whole output unparseable and
+# the human saw neither. A notice is marked as said only when it is printed, so
+# one deferred by a block (exit 2) is said on the next Stop instead of lost.
+notices=""
+notice_flags=""
+add_notice() { # <flag> <text, already JSON-safe>
+  grep -q "\"$1\"" "$TMP" 2>/dev/null && return 0
+  notices="${notices:+$notices }$2"
+  notice_flags="$notice_flags $1"
+}
+emit_notices() {
+  [ -n "$notices" ] || return 0
+  for k in $notice_flags; do hk_set_field "$TMP" "$k" "1"; done
+  printf '{"systemMessage":"%s"}\n' "$notices"
+}
+
 # --- changed-file accounting (needed by the circuit breaker, so computed first)
 files_changed=""
 lines_changed=""
@@ -80,10 +101,7 @@ if [ -n "$root" ] && [ ! -d "$root/.git" ]; then
   # `git init`, and the close reported 0 lines for 132 real ones while the
   # scope gate passed everything. A guarantee that is off must say so, ONCE:
   # the same run then repeated the warning on all 33 of its turns.
-  if ! grep -q '"nogit_warned"' "$TMP" 2>/dev/null; then
-    hk_set_field "$TMP" "nogit_warned" "1"
-    printf '{"systemMessage":"iamlazy: %s no es un repositorio git. lines_changed, el registro de alcance y el undo no estan disponibles, asi que esta corrida trabaja con sus garantias degradadas. Corre git init y un commit inicial antes de seguir."}\n' "$root"
-  fi
+  add_notice nogit_warned "iamlazy: $(hk_json_esc "$root") no es un repositorio git. lines_changed, el registro de alcance y el undo no estan disponibles, asi que esta corrida trabaja con sus garantias degradadas. Corre git init y un commit inicial antes de seguir."
 fi
 if [ -n "$base" ]; then
   files_changed=$(hk_changed_files "$root" "$base" "$ubase" | grep -c . | tr -d ' ')
@@ -132,6 +150,15 @@ else
     fi
   fi
   [ -n "$run_cost" ] || unpriced=$(hk_unpriced_run "$tpath")
+
+  # Without a price the cost is null, and a null cost switches off the ratio
+  # and the dollar ceiling below: only the duration ceiling is left. That used
+  # to happen in silence, and it is the ordinary case the day a new model ships
+  # -- this repo's own session on claude-opus-5-5 was one. prices.conf is
+  # config, read on every Stop, so the fix needs no reinstall.
+  if [ -n "$unpriced" ]; then
+    add_notice unpriced_warned "iamlazy: no hay precio en ~/.iamlazy/prices.conf para $(hk_json_esc "$unpriced"). El costo de esta corrida queda null, y el circuit breaker por costo no puede actuar: solo queda el techo de duracion. Agrega el modelo a prices.conf; no hace falta reinstalar."
+  fi
 
   # Raw components, as deltas, so the run can be repriced after a table fix.
   # shellcheck disable=SC2086  # word splitting is the point: "N N N" into $1 $2 $3
@@ -340,6 +367,7 @@ if ! signal=$(hk_close_signal "$payload" "$contract" "$root" "$base" "$ubase"); 
       fi
     fi
   fi
+  emit_notices
   exit 0
 fi
 
@@ -437,6 +465,19 @@ fi
 drift_fired=0
 grep -q '"drift_warned"' "$TMP" 2>/dev/null && drift_fired=1
 logged_reason=$(hk_field_file "$TMP" "drift_reason")
+
+# The README promised that iamlazy proposes `.iamlazy/` for the .gitignore
+# when it is missing, and nothing did. Checked at the close, the one moment per
+# run, so it can never nag mid-run. `git check-ignore` takes a path that need
+# not exist, and exit 1 is the only "not ignored": an error (128) says nothing.
+if [ -n "$base" ] && [ -d "$root/.git" ]; then
+  gi_rc=0
+  (cd "$root" && git check-ignore -q .iamlazy/contract.md) 2>/dev/null || gi_rc=$?
+  if [ "$gi_rc" = 1 ]; then
+    add_notice gitignore_warned "iamlazy: .iamlazy/ no esta en el .gitignore de $(hk_json_esc "$root"). Agregalo para no versionar el contrato ni el journal de cada corrida."
+  fi
+fi
+emit_notices
 
 hk_log_append "$(printf '{"schema_version":9,"host":"%s","timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","models_seen":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","drift_thresholds":"%s","drift_fired":%s,"drift_reason":"%s","hooks_version":"%s","outcome":"flushed"}' \
   "$(hk_json_esc "$host")" "$now_iso" "$task_summary" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" \

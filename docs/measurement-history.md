@@ -4,7 +4,8 @@ Moved out of `PROJECT.md` on 2026-09-05. That file is read at the start of every
 what changes a decision **now**; this holds the record behind it.
 
 One pattern runs through all of it: **every number this harness has reported about itself has been
-wrong at least once, and a human refusing a figure that felt wrong found every one. No test did.**
+wrong at least once, and until 2026-10-02 a human refusing a figure that felt wrong found every one.
+The exception was found by reading the provider's price reference against the formula. No test did.**
 That is the reason for the standing rule — check any self-reported figure against an independent
 calculation before trusting it.
 
@@ -16,6 +17,7 @@ calculation before trusting it.
 | `tokens_weighted` | ~2.1x high (measured: 1,176,836 reported vs 561,234 actual) | human disbelief, 2026-08-27 | a transcript records the same assistant message once per streaming chunk; deduplicated by message id |
 | `tokens_weighted`, again | not numerically wrong — the wrong **unit** | human disbelief, 2026-09-05 | see below |
 | `files_changed` / `lines_changed` | 0 on real work | a run's commit of 1,774 lines logged as 0 | `git diff` with no ref shows only *unstaged* work; now diffed against `base_ref` |
+| `cost_usd` | four ways at once: 0 instead of `null` when `prices.conf` was missing or empty; cache writes at 1.25x when every real write was a 1-hour one (2x); cache reads at 0.1x when Opus 5.5 reads at 0.05x and Fable 5.1 at 0.025x; and `null` with nothing named whenever a session held a background-agent notice or a `<synthetic>` message | 2026-10-02 review, checking `prices.conf` against the claude-api reference, then measuring two real transcripts | one awk block prices every message; optional cache-read column in `prices.conf`; lines that consumed no tokens are never priced. See `docs/decisions-2026-10.md` |
 
 The second `tokens_weighted` failure is the subtlest and worth keeping in full. The figure was
 arithmetically exact — an independent recomputation matched the logged value to the digit — and

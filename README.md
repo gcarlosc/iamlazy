@@ -8,7 +8,7 @@ Un harness para **Claude Code** y **OpenCode**. Un comando para instalarlo, cero
 bash y archivos.
 
 ```sh
-git clone <repo> iamlazy && cd iamlazy && ./install.sh
+git clone https://github.com/gcarlosc/iamlazy iamlazy && cd iamlazy && ./install.sh
 ```
 
 ```
@@ -131,7 +131,7 @@ su búsqueda adversarial; un "se ve bien" pelado es un veredicto inválido.
 Clona y ejecuta (totalmente offline):
 
 ```sh
-git clone <repo> iamlazy && cd iamlazy
+git clone https://github.com/gcarlosc/iamlazy iamlazy && cd iamlazy
 ./install.sh
 ```
 
@@ -183,7 +183,7 @@ esfuerzo que la produjeron, así que un cambio de modelo se ve exactamente donde
 
 Durante una tarea, `.iamlazy/` en la raíz de tu proyecto guarda el contrato aprobado —persistido
 **textual, tal como lo aprobaste**— y el journal, para que el revisor trabaje contra eso y para que
-tú lo inspecciones después. Agrega `.iamlazy/` a tu `.gitignore` (iamlazy lo propone si falta).
+tú lo inspecciones después. Agrega `.iamlazy/` a tu `.gitignore` (en Claude Code, si falta, iamlazy te lo avisa al cerrar la corrida).
 
 ## Modelos y credenciales
 

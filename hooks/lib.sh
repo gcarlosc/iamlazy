@@ -566,6 +566,63 @@ hk_prices() { printf '%s/prices.conf' "$HK_DIR"; }
 # reflected in the very next run it opens.
 hk_hooks_version() { cat "${HK_DIR}/hooks_version" 2>/dev/null; }
 
+# HK_AWK_USAGE -- what ONE transcript line consumed, and what it cost. Prepended
+# to every awk program that reads usage, so the arithmetic exists exactly once.
+# It used to be written out twice (hk_cost_micro and hk_transcript_scan), with
+# two constants baked into both copies, and both constants were wrong for real
+# runs (measured 2026-10-02):
+#
+#   - Cache WRITES were priced at 1.25x input, the 5-minute TTL. Every cache
+#     write in two real Claude Code transcripts -- this repo's own session and
+#     the 6386s sperant run -- was a 1-HOUR write, which costs 2x. The usage
+#     block says so per message in ephemeral_1h_input_tokens; the remainder of
+#     cache_creation_input_tokens is the 5-minute write.
+#   - Cache READS were priced at 0.1x input for every model. Opus 5.5 reads at
+#     0.05x ($0.20/MTok) and Fable 5.1 / Mythos 5.1 at 0.025x ($0.25/MTok).
+#     Reads are ~90% of a run's tokens, so a Fable run was overstated ~3x.
+#
+# And two kinds of line were taken for priceable messages when they are not,
+# each turning a whole run's cost into null:
+#
+#   - A background agent's completion notice carries its own "usage":{...}
+#     (totalTokens, toolUses) and no model. The scan read "no model" as
+#     "unknown model": cost null, and nothing named in cost_unpriced, because
+#     the unpriced listing skipped the same line. Found in this repo's own
+#     session transcript; present in 6 transcripts on the author's machine.
+#   - Claude Code's "<synthetic>" messages carry a usage block of zeros. 409 of
+#     them across the same machine's transcripts. A message that consumed
+#     nothing costs nothing whatever its model, so it is never looked up.
+#
+# hk_tokens <line> sets T_I T_O T_C T_R T_W1 and returns 1 only for a usage
+# block whose token fields add up to more than zero. That one rule covers both
+# shapes above: the agent notice carries no token field at all, and the
+# synthetic message carries four zeros.
+# A fourth column in prices.conf, when present, is the cache-read price in
+# $/MTok; absent means the 0.1x every older model actually charges.
+# shellcheck disable=SC2016  # awk source, not shell: $0 and $1 are awk's own fields
+HK_AWK_USAGE='
+function hk_price_line() {
+  if ($0 ~ /^[[:space:]]*#/ || NF < 3) return
+  pin[$1] = $2; pout[$1] = $3
+  if (NF >= 4 && $4 ~ /^[0-9.]+$/) pcr[$1] = $4
+}
+function hk_tokens(line) {
+  T_I = T_O = T_C = T_R = T_W1 = 0
+  if (!match(line, /"usage":\{/)) return 0
+  if (match(line, /"output_tokens":[0-9]+/))               T_O  = substr(line, RSTART+16, RLENGTH-16)
+  if (match(line, /"cache_creation_input_tokens":[0-9]+/)) T_C  = substr(line, RSTART+30, RLENGTH-30)
+  if (match(line, /"cache_read_input_tokens":[0-9]+/))     T_R  = substr(line, RSTART+26, RLENGTH-26)
+  if (match(line, /"input_tokens":[0-9]+/))                T_I  = substr(line, RSTART+15, RLENGTH-15)
+  if (match(line, /"ephemeral_1h_input_tokens":[0-9]+/))   T_W1 = substr(line, RSTART+28, RLENGTH-28)
+  if (T_W1 + 0 > T_C + 0) T_W1 = T_C
+  return (T_I + T_O + T_C + T_R > 0)
+}
+function hk_msg_usd(pm,    cr) {
+  cr = ((pm in pcr) ? pcr[pm] : pin[pm] * 0.1)
+  return (T_I * pin[pm] + T_O * pout[pm] + (T_C - T_W1) * pin[pm] * 1.25 + T_W1 * pin[pm] * 2 + T_R * cr) / 1000000
+}
+'
+
 # hk_cost_micro <transcript> [prices] -> cost in MICRO-dollars, or nothing when
 # a model in the transcript is missing from the price table.
 #
@@ -587,14 +644,10 @@ hk_cost_micro() {
   t="$1"; prices="${2:-$(hk_prices)}"
   [ -n "$t" ] && [ -f "$t" ] || return 1
   [ -f "$prices" ] || return 1
-  awk '
-    NR==FNR {
-      if ($0 ~ /^[[:space:]]*#/ || NF < 3) next
-      pin[$1]=$2; pout[$1]=$3
-      next
-    }
+  awk "$HK_AWK_USAGE"'
+    FILENAME == ARGV[1] { hk_price_line(); next }
     {
-      if (!match($0, /"usage":\{/)) next
+      if (!hk_tokens($0)) next
       id = ""
       if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) id = substr($0, RSTART, RLENGTH)
       if (id != "" && (id in seen)) next
@@ -609,16 +662,7 @@ hk_cost_micro() {
       # whole reason an unknown model reports null and names itself.
       sub(/-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/, "", model)
       if (model == "" || !(model in pin)) { bad = 1; next }
-
-      o = c = r = i = 0
-      if (match($0, /"output_tokens":[0-9]+/))               o = substr($0, RSTART+16, RLENGTH-16)
-      if (match($0, /"cache_creation_input_tokens":[0-9]+/)) c = substr($0, RSTART+30, RLENGTH-30)
-      if (match($0, /"cache_read_input_tokens":[0-9]+/))     r = substr($0, RSTART+26, RLENGTH-26)
-      if (match($0, /"input_tokens":[0-9]+/))                i = substr($0, RSTART+15, RLENGTH-15)
-
-      # cache write = input x1.25, cache read = input x0.1
-      usd += (i * pin[model] + o * pout[model] \
-              + c * pin[model] * 1.25 + r * pin[model] * 0.1) / 1000000
+      usd += hk_msg_usd(model)
     }
     END { if (bad) exit 1; printf "%d", usd * 1000000 + 0.5 }
   ' "$prices" "$t" 2>/dev/null
@@ -632,10 +676,10 @@ hk_unpriced_models() {
   t="$1"; prices="${2:-$(hk_prices)}"
   [ -n "$t" ] && [ -f "$t" ] || return 0
   [ -f "$prices" ] || return 0
-  awk '
-    NR==FNR { if ($0 !~ /^[[:space:]]*#/ && NF >= 3) pin[$1]=1; next }
+  awk "$HK_AWK_USAGE"'
+    FILENAME == ARGV[1] { hk_price_line(); next }
     {
-      if (!match($0, /"usage":\{/)) next
+      if (!hk_tokens($0)) next
       if (!match($0, /"model":"[^"]+"/)) next
       m = substr($0, RSTART+9, RLENGTH-10)
       raw = m
@@ -738,9 +782,9 @@ hk_model_counts() {
   local t
   t="$1"
   [ -n "$t" ] && [ -f "$t" ] || return 0
-  awk '
+  awk "$HK_AWK_USAGE"'
     {
-      if (!match($0, /"usage":\{/)) next
+      if (!hk_tokens($0)) next
       id = ""
       if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) id = substr($0, RSTART, RLENGTH)
       if (id != "" && (id in seen)) next
@@ -818,18 +862,22 @@ hk_transcript_scan() {
     return 1
   fi
   # An unreadable price table must not also blank out the token/model tally --
-  # those never depended on prices.conf. /dev/null as the NR==FNR input leaves
-  # every model "unpriced" (cost correctly comes out NULL) without skipping
-  # the rest of the scan.
+  # those never depended on prices.conf. /dev/null as the price input leaves
+  # every model "unpriced", so cost comes out NULL and the rest of the scan
+  # still runs.
+  #
+  # Every price loader keys on FILENAME == ARGV[1], never on NR==FNR. That
+  # idiom is true for every line of the SECOND file when the first one is
+  # empty, so /dev/null here -- or an empty prices.conf anywhere -- fed the
+  # whole transcript to the loader: cost 0, tokens 0, no models, logged as a
+  # free run on the one machine whose --check says every cost will be null.
+  # Present since the scan was written; found 2026-10-02, measured on a real
+  # transcript before trusting the reading.
   [ -f "$prices" ] || prices=/dev/null
-  awk '
-    NR==FNR {
-      if ($0 ~ /^[[:space:]]*#/ || NF < 3) next
-      pin[$1]=$2; pout[$1]=$3
-      next
-    }
+  awk "$HK_AWK_USAGE"'
+    FILENAME == ARGV[1] { hk_price_line(); next }
     {
-      if (!match($0, /"usage":\{/)) next
+      if (!hk_tokens($0)) next
       id = ""
       if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) id = substr($0, RSTART, RLENGTH)
       if (id != "" && (id in seen)) next
@@ -843,21 +891,14 @@ hk_transcript_scan() {
       if (match($0, /"model":"[^"]+"/)) model = substr($0, RSTART+9, RLENGTH-10)
       if (model != "") n[model]++
 
-      lo = lc = lr = li = 0
-      if (match($0, /"output_tokens":[0-9]+/))               lo = substr($0, RSTART+16, RLENGTH-16)
-      if (match($0, /"cache_creation_input_tokens":[0-9]+/)) lc = substr($0, RSTART+30, RLENGTH-30)
-      if (match($0, /"cache_read_input_tokens":[0-9]+/))     lr = substr($0, RSTART+26, RLENGTH-26)
-      if (match($0, /"input_tokens":[0-9]+/))                li = substr($0, RSTART+15, RLENGTH-15)
       # Token components are model-independent -- accumulated regardless of
       # whether this message can be priced, same as hk_token_components.
-      o += lo; c += lc; r += lr
+      o += T_O; c += T_C; r += T_R
 
       pm = model
       sub(/-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/, "", pm)
       if (pm == "" || !(pm in pin)) { bad = 1; next }
-      # cache write = input x1.25, cache read = input x0.1
-      usd += (li * pin[pm] + lo * pout[pm] \
-              + lc * pin[pm] * 1.25 + lr * pin[pm] * 0.1) / 1000000
+      usd += hk_msg_usd(pm)
     }
     END {
       if (bad) print "NULL"; else printf "%d\n", usd * 1000000 + 0.5
@@ -929,6 +970,16 @@ hk_flush_abandoned() {
   # claim.
   hk_claim_close "$f" || return 0
   sid=$(hk_field_file "$f" "session_id")
+  # A run file with no session_id names no run, so it is cleared and never
+  # logged. Four lines in the author's runs.jsonl are exactly that: an
+  # `abandoned` outcome with an empty session_id, cwd and duration, one of them
+  # counted in every tally until someone noticed. The invariant is that a
+  # payload without a session_id triggers nothing; a FILE without one is the
+  # same input arriving by another door.
+  if [ -z "$sid" ]; then
+    hk_run_clear "$f"
+    return 0
+  fi
   tpath=$(hk_field_file "$f" "transcript_path")
   root=$(hk_field_file "$f" "project_root")
   [ -n "$root" ] || root=$(hk_field_file "$f" "cwd")

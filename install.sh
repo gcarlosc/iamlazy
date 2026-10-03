@@ -751,6 +751,14 @@ if [ "$WITH_HOOKS" -eq 1 ]; then
   mkdir -p "$LOG_DIR"
   if [ -d "$SRC/.git" ] && command -v git >/dev/null 2>&1 \
      && ver="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null)" && [ -n "$ver" ]; then
+    # A SHA names a commit, and an install from a working tree with uncommitted
+    # enforcement code is not that commit. Stamping the bare SHA there made the
+    # log claim a version it was not running -- the author installs from a
+    # working tree routinely. `-dirty` says "this commit plus changes", which is
+    # the honest answer to "was this run before or after the fix".
+    if [ -n "$(git -C "$SRC" status --porcelain -- hooks adapters 2>/dev/null)" ]; then
+      ver="${ver}-dirty"
+    fi
     printf '%s\n' "$ver" > "$LOG_DIR/hooks_version"
   else
     # Whichever OpenCode adapter this install actually chose -- V1's default,
