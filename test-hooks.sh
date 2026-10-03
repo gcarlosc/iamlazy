@@ -1839,8 +1839,15 @@ assert_grep '"drift_thresholds":"80000/50/3000000/3600/10000000"' "$BADT/.iamlaz
 # $12,87 con drift_fired:0 y $0,0296 por linea.
 
 # Duracion: barata y sana por ratio, pero abierta mas de una hora.
+# age_run <run file> <seconds> -- moves start_epoch into the past. sed to a
+# temp file, the way the rest of this project rewrites files: these two lines
+# used `sd`, which exists on the author's machine and on no CI runner, so the
+# suite was green locally and red on every platform the first time it was pushed.
+age_run() {
+  sed -E "s/\"start_epoch\":[0-9]+/\"start_epoch\":$(( $(date +%s) - $2 ))/" "$1" > "$1.new" && mv "$1.new" "$1"
+}
 DURT="$(mkrepo)"; mk_cheap_run "$DURT"
-sd '"start_epoch":[0-9]+' "\"start_epoch\":$(( $(date +%s) - 4000 ))" "$(runfile "$DURT" s)"
+age_run "$(runfile "$DURT" s)" 4000
 if [ "$(flush_rc "$DURT" "$(stop_payload "$DURT" "$CLOSE_MSG" s "$DURT/t.jsonl")")" = "2" ]; then
   ok "una corrida de mas de una hora dispara el breaker aunque el ratio este sano"
 else no "el techo de duracion no disparo sobre una corrida de 4000s"; fi
@@ -1869,7 +1876,7 @@ assert_grep '"drift_reason":"cost"' "$(runfile "$COST" s)" "el run recuerda que 
 # Los techos son configurables como los otros tres, y un valor no numerico
 # tampoco puede convertirse en umbral.
 RAIS="$(mkrepo)"; mk_cheap_run "$RAIS"
-sd '"start_epoch":[0-9]+' "\"start_epoch\":$(( $(date +%s) - 4000 ))" "$(runfile "$RAIS" s)"
+age_run "$(runfile "$RAIS" s)" 4000
 printf 'DRIFT_MAX_SECONDS=7200\n' > "$RAIS/.iamlazy/config"
 if [ "$(flush_rc "$RAIS" "$(stop_payload "$RAIS" "$CLOSE_MSG" s "$RAIS/t.jsonl")")" = "2" ]; then
   no "subir DRIFT_MAX_SECONDS debia silenciar el techo de duracion"

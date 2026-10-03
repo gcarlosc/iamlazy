@@ -254,6 +254,24 @@ else
   ok "no voseo forms in what the hooks emit"
 fi
 
+# Bash and coreutils only, in every script this project ships or tests with.
+# Two lines of test-hooks.sh called `sd`, a tool on the author's machine and on
+# no CI runner: the suite passed locally, the pre-push hook passed, and all three
+# CI jobs failed the first time the commit was pushed, two weeks after it was
+# written. A tool is flagged only in command position -- at the start of a line
+# or after a pipe, a separator or `$(` -- so a quoted test payload that merely
+# NAMES one (a Critic command under test) is not a call.
+foreign="$(for f in "$SRC"/hooks/*.sh "$SRC"/install.sh "$SRC"/uninstall.sh "$SRC"/test.sh \
+                    "$SRC"/test-hooks.sh "$SRC"/.githooks/pre-push "$SRC"/adapters/opencode-v2/build.sh; do
+  grep -nE '(^|[|;&(]|\$\()[[:space:]]*(sd|rg|fd|bat|eza|jq)[[:space:]]' "$f" \
+    | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$(basename "$f"):|"
+done)"
+if [ -n "$foreign" ]; then
+  no "a shipped script calls a tool outside bash + coreutils: $(printf '%s' "$foreign" | tr '\n' ' ')"
+else
+  ok "no shipped script calls sd, rg, fd, bat, eza or jq"
+fi
+
 # The close banner's box-drawing character must stay LITERAL in lib.sh. This
 # path has died silently three times; the last cause was the character being
 # written as an escape, which matches under LC_ALL=C and does not under the
