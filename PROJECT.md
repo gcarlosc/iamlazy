@@ -50,14 +50,14 @@ by the plugin, which is the registration there:
 
 | Hook | Event | Guarantees |
 |---|---|---|
-| `open-run.sh` | `UserPromptSubmit` | run identity from the real payload; stale-run sweep; refuses a permission bypass; **injects the run's state into the model's context** |
+| `open-run.sh` | `UserPromptSubmit` | run identity from the real payload; **snapshots HEAD and the untracked files at the open**; stale-run sweep; refuses a permission bypass; **injects the run's state into the model's context** |
 | `guard-agent.sh` | `PreToolUse` `^(Agent\|Task)$` | only `iamlazy-critic` may be spawned, and asks before it does |
 | `guard-critic-bash.sh` | `PreToolUse` `^Bash$` | inside the Critic, Bash cannot write: redirections, file commands, in-place edits, git mutations, installs |
-| `track-edit.sh` | `PostToolUse` on edit tools | every edit appended to `.iamlazy/journal.md`; the contract's location fixes `project_root` and `base_ref` |
+| `track-edit.sh` | `PostToolUse` on edit tools | every edit appended to `.iamlazy/journal.md`; the contract's location fixes `project_root` and `base_ref`, which a contract written any other way also gets on the next Stop |
 | `host-cost.sh` | OpenCode only, per completed message | a host that prices its own messages hands the figure over, with the model that wrote it; accumulated into the run's cost sidecar, never re-priced |
 | `flush-run.sh` | `Stop` | the log line is written **exactly once**, derived, never self-reported; **the scope gate speaks**; **circuit breaker** on dollars per changed line, plus absolute ceilings on duration and cost |
 | `end-run.sh` | `SessionEnd` | a run that ends without closing is logged as `abandoned`, not lost — **exactly once**, same claim as a real close |
-| `subagent-done.sh` | `SubagentStop` | the review actually returned, and its `findings: H/M/L/I` tally |
+| `subagent-done.sh` | `SubagentStop` | the review actually returned, and its `findings: H/M/L/I` tally; for a background Critic, `flush-run.sh` reads both from the Critic's own files |
 
 **Layer 1 — asked** (`core/iamlazy.md`, ≤200 lines). Judgement: analysis, questions, the contract,
 surgical edits, what the reviewer receives, the close. Prose is acceptable here *because the task
@@ -66,7 +66,7 @@ is bounded* — the short logged run obeyed every prose instruction; the long on
 Three files carry the work: `PROJECT.md` (durable model), `.iamlazy/contract.md` (the signed
 contract), `.iamlazy/journal.md` (append-only trace). **Run state is per session**, under
 `~/.iamlazy/active/<session_id>.json` plus its sidecars (`.untracked`, `.gate`, `.stage`,
-`.findings`, `.cost`); it used to be one global file, which let an open run in one project govern
+`.findings`, `.cost`, `.opened`); it used to be one global file, which let an open run in one project govern
 every other session.
 
 ## The rule that decides where something lives
@@ -135,7 +135,8 @@ justification; an undeclared deviation is an automatic reviewer finding.
 - A run **cannot close** with a changed file outside the declared `## Scope`, and is **told so**,
   naming the file — but only when it claims to be closing. A gate that blocks in silence cannot be
   obeyed; one that blocks mid-run, where groups are open by design, traps the human out.
-- A contract run **cannot close before its review returns**, unless the human **declines** the
+- A contract run **cannot close before its review returns**, a review still running in the
+  background included, unless the human **declines** the
   Critic when asked — and **the decline must be real**: `guard-agent.sh` records that it actually
   asked, so a close claiming a decline nobody was asked for stays blocked. Every box ticked is
   necessary and never sufficient; Layer 1 puts review and close *after* the execution that ticks
