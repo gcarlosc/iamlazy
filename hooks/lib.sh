@@ -27,6 +27,15 @@ HK_CRITIC_DONE=""
 # asked. See hk_close_signal.
 HK_CRITIC_ASKED=""
 
+# Set by hk_critic_pull: "1" while a Critic launched in the background THIS run
+# has not handed back yet. hk_close_signal refuses every close while it is set.
+HK_CRITIC_RUNNING=""
+
+# A background Critic whose transcript has not moved in this many minutes, and
+# that never handed back, is taken for dead. Without a limit, a crashed review
+# would hold the run open until the 24h sweep.
+HK_CRITIC_STALE_MIN=30
+
 # Git's empty-tree hash. The base_ref for a repository with no commits yet, so
 # a greenfield run still has something to diff against.
 HK_EMPTY_TREE="4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -180,11 +189,16 @@ hk_cost_file()      { printf '%s.cost' "${1%.json}"; }
 # for anything but its existence.
 hk_closing_file()   { printf '%s.closing' "${1%.json}"; }
 
+# <sid>.opened -- an empty file touched when the run opens, and never written
+# again. Its mtime is the run's start for `find -newer`, which is POSIX and
+# needs no BSD-vs-GNU `stat` split: "was this file written during THIS run?"
+hk_opened_file()    { printf '%s.opened' "${1%.json}"; }
+
 # hk_run_clear <run_file> -> remove a run and all of its sidecars.
 hk_run_clear() {
   rm -f "$1" "$(hk_untracked_file "$1")" "$(hk_gate_file "$1")" \
         "$(hk_stage_file "$1")" "$(hk_findings_file "$1")" "$(hk_cost_file "$1")" \
-        "$(hk_closing_file "$1")"
+        "$(hk_closing_file "$1")" "$(hk_opened_file "$1")"
 }
 
 # hk_claim_close <run_file> -> 0 the FIRST time this run is claimed as closing
@@ -264,14 +278,57 @@ hk_set_project_root() {
 # is accountable for. Everything downstream diffs against it instead of against
 # the index -- see hk_changed_files for why that matters.
 hk_set_base() {
-  local f root ref
+  local f root ref ocwd oref
   f="$1"; root="$2"
   grep -q '"base_ref"' "$f" 2>/dev/null && return 0
+  # When the contract lands where the run opened, the snapshot open-run.sh took
+  # at /iamlazy is the right base: HEAD and the untracked files from BEFORE any
+  # work. Taking them now instead would count a file the run created between
+  # opening and writing the contract as one that was already there -- invisible
+  # to the scope gate and to lines_changed. A contract in another directory has
+  # no such snapshot, so it falls through to a fresh one, as it always did.
+  ocwd=$(hk_field_file "$f" "cwd")
+  oref=$(hk_field_file "$f" "open_ref")
+  if [ -n "$oref" ] && [ "$root" = "$ocwd" ] && [ -f "$(hk_untracked_file "$f")" ]; then
+    hk_set_field "$f" "base_ref" "\"$oref\""
+    return 0
+  fi
   ref=$(cd "$root" 2>/dev/null && git rev-parse HEAD 2>/dev/null)
   [ -n "$ref" ] || ref="$HK_EMPTY_TREE"
   hk_set_field "$f" "base_ref" "\"$ref\""
   (cd "$root" 2>/dev/null && git ls-files --others --exclude-standard 2>/dev/null) \
     > "$(hk_untracked_file "$f")" 2>/dev/null || : > "$(hk_untracked_file "$f")"
+}
+
+# hk_adopt_contract <run_file> <cwd> -> pin base_ref for a contract this run
+# wrote by ANY means, not only through Edit/Write.
+#
+# track-edit.sh pins base_ref when it sees Edit or Write on the contract, and
+# that was the only door. A real run (sperant, 2026-10-03) wrote it with
+# `cp plan.md .iamlazy/contract.md` from Bash: no PostToolUse on an edit tool,
+# so no base_ref, and with it went the scope gate, the ratio breaker, the close
+# by contract and the rule that a run cannot close before its review. The log
+# said 0 files and 0 lines over 3 files and 270 real ones, and the run closed
+# on its banner.
+#
+# A contract counts as this run's only if it was written after the run opened
+# (newer than <sid>.opened). One left on disk by a previous run is older and
+# stays ignored -- that is the smoke-test bug of 2026-09-05, where a stale,
+# fully ticked contract closed the next run on its first turn. A contract
+# written by Bash in a directory other than the session's is still not seen;
+# that run keeps the banner path, as before.
+hk_adopt_contract() {
+  local f cwd root contract marker
+  f="$1"; cwd="$2"
+  grep -q '"base_ref"' "$f" 2>/dev/null && return 0
+  root=$(hk_project_root "$f" "$cwd")
+  [ -n "$root" ] || return 0
+  contract="${root}/.iamlazy/contract.md"
+  marker=$(hk_opened_file "$f")
+  [ -f "$contract" ] && [ -f "$marker" ] || return 0
+  [ -n "$(find "$contract" -newer "$marker" 2>/dev/null)" ] || return 0
+  hk_set_project_root "$f" "$root"
+  hk_set_base "$f" "$root"
 }
 
 hk_deny() {
@@ -418,6 +475,74 @@ hk_scope_violations() {
   return 0
 }
 
+# ------------------------------------------------------------ critic state
+
+# hk_critic_pull <run_file> <transcript> -> what the Critic did, read from its
+# OWN files rather than from a hook payload.
+#
+# subagent-done.sh reads the tally from SubagentStop's last_assistant_message.
+# On Claude Code 2.1.287 that no longer works, measured on a real run (sperant,
+# 2026-10-03): the Critic runs in the background (its meta file says
+# "requestShape":"background"), and it returns its report through a
+# SubagentHandback tool call. Its last assistant TEXT was "I'll start by
+# reading the artifacts", so the logged tally was empty over a real 0/1/3/5.
+# Whether SubagentStop even fires for a background agent is unconfirmed, so this
+# depends on neither: it reads the files Claude Code writes for every sub-agent.
+#
+#   <session>/subagents/agent-<id>.meta.json   "agentType":"iamlazy-critic"
+#   <session>/subagents/agent-<id>.jsonl       the Critic's own transcript
+#
+# Only Critics launched THIS run count (meta newer than <sid>.opened). For each:
+#   - a SubagentHandback tool_use in its transcript: it returned. critic_done is
+#     set and the tally is read from that call, the newest one when there were
+#     two review cycles.
+#   - otherwise, a background Critic is still RUNNING, unless the main
+#     transcript already carries its task notification with a <status> (it
+#     ended without handing back) or its files have not moved in
+#     HK_CRITIC_STALE_MIN minutes (taken for dead). A foreground Critic never
+#     counts as running: the turn that spawned it cannot end before it does.
+#
+# The handback is matched as the tool_use fragment, never as the bare tool
+# name: the Critic's own transcript lists its available tools in a
+# prompt_snapshot line within seconds of starting, SubagentHandback among them,
+# and a bare-name grep read every Critic as finished from its third second.
+hk_critic_pull() {
+  local f t dir marker meta tr id latest tally
+  f="$1"; t="$2"
+  HK_CRITIC_RUNNING=""
+  [ -n "$t" ] || return 0
+  dir="${t%.jsonl}/subagents"
+  marker=$(hk_opened_file "$f")
+  [ -d "$dir" ] && [ -f "$marker" ] || return 0
+  latest=""
+  for meta in "$dir"/agent-*.meta.json; do
+    [ -f "$meta" ] || continue
+    grep -q '"agentType":"iamlazy-critic"' "$meta" 2>/dev/null || continue
+    [ -n "$(find "$meta" -newer "$marker" 2>/dev/null)" ] || continue
+    tr="${meta%.meta.json}.jsonl"
+    if grep -Eq '"type":"tool_use","id":"[^"]*","name":"SubagentHandback"' "$tr" 2>/dev/null; then
+      if [ -z "$latest" ] || [ -n "$(find "$tr" -newer "$latest" 2>/dev/null)" ]; then
+        latest="$tr"
+      fi
+      continue
+    fi
+    grep -q '"requestShape":"background"' "$meta" 2>/dev/null || continue
+    id="${meta##*/agent-}"; id="${id%.meta.json}"
+    if [ -f "$t" ] && grep -F "<task-id>${id}</task-id>" "$t" 2>/dev/null | grep -q '<status>'; then
+      continue
+    fi
+    if [ -n "$(find "$meta" "$tr" -mmin -"$HK_CRITIC_STALE_MIN" 2>/dev/null)" ]; then
+      HK_CRITIC_RUNNING=1
+    fi
+  done
+  [ -n "$latest" ] || return 0
+  hk_set_field "$f" "critic_done" "1"
+  tally=$(grep -E '"type":"tool_use","id":"[^"]*","name":"SubagentHandback"' "$latest" 2>/dev/null \
+    | grep -Eo 'findings: [0-9]+/[0-9]+/[0-9]+/[0-9]+' | tail -1 | sed 's/^findings: //')
+  if [ -n "$tally" ]; then printf '%s' "$tally" > "$(hk_findings_file "$f")"; fi
+  return 0
+}
+
 # ------------------------------------------------------------ close signal
 
 # hk_stage <payload> -> the stage name from this turn's banner, empty if none.
@@ -505,6 +630,11 @@ hk_has_close_banner() {
 hk_close_signal() {
   local payload contract root base basefile
   payload="$1"; contract="$2"; root="$3"; base="$4"; basefile="$5"
+  # A review still in flight blocks every close, on either path. A background
+  # Critic lets the spawning turn end, and before this a CLOSE banner on that
+  # turn was enough: critic_asked is set the moment the spawn is asked about,
+  # so "asked and declined" and "approved and still reviewing" looked the same.
+  [ "$HK_CRITIC_RUNNING" = "1" ] && return 1
   if [ -f "$contract" ] && [ -n "$base" ]; then
     [ -n "$(hk_close_blockers "$root" "$contract" "$base" "$basefile")" ] && return 1
     if [ "$HK_CRITIC_DONE" != "1" ]; then

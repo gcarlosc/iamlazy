@@ -43,6 +43,9 @@ hk_bool_true "$payload" "stop_hook_active" && stop_active=1
 sid=$(hk_field "$payload" "session_id")
 cwd=$(hk_field "$payload" "cwd")
 tpath=$(hk_field "$payload" "transcript_path")
+# A contract written by Bash never passed through track-edit.sh; pin its base
+# here, before anything reads base_ref (see hk_adopt_contract).
+hk_adopt_contract "$TMP" "$cwd"
 # The work may live somewhere other than the session's cwd (see hk_project_root).
 root=$(hk_project_root "$TMP" "$cwd")
 contract="${root}/.iamlazy/contract.md"
@@ -62,8 +65,13 @@ turn_stage=$(hk_stage "$payload")
 [ -n "$turn_stage" ] && printf '%s' "$turn_stage" > "$(hk_stage_file "$TMP")"
 stage=$(cat "$(hk_stage_file "$TMP")" 2>/dev/null)
 
-# Whether the Critic has returned. Recorded by subagent-done.sh on SubagentStop;
-# hk_close_signal refuses to close a contract run before the review lands.
+# Whether the Critic has returned, or is still reviewing in the background. Read
+# from its own files first (hk_critic_pull), because a background Critic hands
+# its report back through a tool call that SubagentStop's payload does not carry.
+hk_critic_pull "$TMP" "$tpath"
+# Whether the Critic has returned. Recorded by subagent-done.sh on SubagentStop,
+# or by hk_critic_pull above; hk_close_signal refuses to close a contract run
+# before the review lands.
 HK_CRITIC_DONE=$(hk_json_num "$TMP" "critic_done")
 # Whether guard-agent.sh actually asked about it THIS run. Recorded on
 # PreToolUse, before the human answers -- proof an attempt happened, which is
@@ -352,6 +360,11 @@ if ! signal=$(hk_close_signal "$payload" "$contract" "$root" "$base" "$ubase"); 
     # file, not left for hk_close_signal to refuse in silence.
     if [ "$HK_CRITIC_DONE" != "1" ] && [ "$HK_CRITIC_ASKED" != "1" ]; then
       crit_line="el Critic nunca fue invocado en esta corrida: no hay una llamada real a la tool que este hook haya visto"
+      if [ -n "$blockers" ]; then blockers=$(printf '%s\n%s' "$blockers" "$crit_line")
+      else blockers="$crit_line"; fi
+    fi
+    if [ "$HK_CRITIC_RUNNING" = "1" ]; then
+      crit_line="el Critic sigue revisando en segundo plano: espera su informe y recien despues cierra"
       if [ -n "$blockers" ]; then blockers=$(printf '%s\n%s' "$blockers" "$crit_line")
       else blockers="$crit_line"; fi
     fi

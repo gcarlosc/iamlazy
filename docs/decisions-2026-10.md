@@ -87,3 +87,51 @@ Four `abandoned` lines in the author's log have an empty session id, cwd and dur
 attribute them to a run. The invariant already says a payload without a session id triggers
 nothing; a run file without one is the same input by another door, so the sweep now clears it
 without writing a line.
+
+## A contract written by any means gets a base (2026-10-03)
+
+The first live run after Phase 0 (sperant, session `733298b9`) wrote its contract with
+`cp plan.md .iamlazy/contract.md` from Bash. `track-edit.sh` only sees Edit and Write, so
+`base_ref` was never pinned, and everything keyed on it went dark: the scope gate, the ratio
+breaker, the close by contract, and the rule that a run cannot close before its review. The log
+said 0 files and 0 lines over 3 files and 270 real ones, and the run closed on its banner.
+
+Two changes, kept apart on purpose:
+
+- **The snapshot moves to the open.** `open-run.sh` records HEAD as `open_ref` and the untracked
+  baseline when `/iamlazy` starts, before any work. Taken when the contract appears instead, a file
+  the run created before writing its contract would count as already there.
+- **The contract is adopted, not just observed.** On every Stop and every prompt,
+  `hk_adopt_contract` pins the base for a contract newer than the run's `<sid>.opened` marker,
+  whoever wrote it. "Newer than the open" is what keeps the 2026-09-05 smoke-test bug fixed: a
+  fully ticked contract left by the previous run is older, so it is never this run's contract.
+
+Not covered: a contract written by Bash in a directory other than the session's. Nothing tells the
+hooks where it is, so that run keeps the banner path, as before.
+
+## The Critic's result is read from its own files (2026-10-03)
+
+On Claude Code 2.1.287 the Critic runs in the background: its `meta.json` says
+`"requestShape":"background"`, and the spawning tool returns `async_launched` at once. It returns
+its report through a `SubagentHandback` tool call, so the tally travels inside that call. The last
+assistant text, which is what `SubagentStop` carries, was "I'll start by reading the artifacts",
+and the log recorded an empty tally over a real `0/1/3/5`. Whether `SubagentStop` fires at all for
+a background agent is still unconfirmed; the transcript does not record hook events of that kind.
+
+So the state is read from the files Claude Code writes for every sub-agent, and depends on no
+payload: `hk_critic_pull` looks for an `iamlazy-critic` meta file newer than the run's open, and
+for a `SubagentHandback` tool call in that Critic's transcript. Replayed on the real run's files,
+it returns `critic_done` and `0/1/3/5`. `subagent-done.sh` stays, for builds where the Critic runs
+in the foreground and its last text carries the tally.
+
+The same files close the hole the run exposed: the spawning turn ended while the review was in
+flight, and a CLOSE banner on that turn would have closed the run without it. `critic_asked` is set
+when the spawn is asked about, so "declined" and "approved and still reviewing" looked identical. A
+background Critic with no handback now blocks every close, and the gate says so. It stops counting
+as running when the main transcript carries its task notification with a `<status>`, which means
+it ended without a report, or when its files have not moved in 30 minutes. Without that limit a
+crashed review would hold the run open until the 24-hour sweep.
+
+One trap is pinned by a test. The Critic's own transcript lists its tools in a `prompt_snapshot`
+line seconds after it starts, `SubagentHandback` among them. A grep for the bare tool name read
+every Critic as finished three seconds in. The match is on the `tool_use` fragment.

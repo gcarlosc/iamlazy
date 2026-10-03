@@ -43,6 +43,7 @@ hk_sweep_stale
 if [ -n "$sid" ]; then
   run_file=$(hk_run_file "$sid")
   if [ -f "$run_file" ] && [ "$is_iamlazy" = "0" ]; then
+    hk_adopt_contract "$run_file" "$cwd"
     root=$(hk_project_root "$run_file" "$cwd")
     base=$(hk_field_file "$run_file" "base_ref")
     ubase=$(hk_untracked_file "$run_file")
@@ -160,9 +161,23 @@ fi
 host=$(hk_field "$payload" "host")
 [ -n "$host" ] || host="claude-code"
 
-printf '{"schema_version":5,"host":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":%s,"cost_priced":%s,"start_out":%s,"start_cw":%s,"start_cr":%s,"start_interventions":%s,"start_models":"%s","opened_at":"%s","outcome":"incomplete"}' \
+# The repository as it stood when the run opened: HEAD, and the files already
+# untracked. The base used to be taken only when the contract was written
+# through Edit/Write, so a contract written any other way left the run with no
+# base at all (see hk_adopt_contract). Taken here, before any work, it is also
+# the honest baseline: nothing the run creates can be mistaken for something
+# that was already there. hk_set_base reuses it when the contract lands in this
+# same directory.
+open_ref=$( (cd "$cwd" 2>/dev/null && git rev-parse HEAD) 2>/dev/null )
+[ -n "$open_ref" ] || open_ref="$HK_EMPTY_TREE"
+
+printf '{"schema_version":5,"host":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","start_epoch":%s,"start_cost":%s,"cost_priced":%s,"start_out":%s,"start_cw":%s,"start_cr":%s,"start_interventions":%s,"start_models":"%s","open_ref":"%s","opened_at":"%s","outcome":"incomplete"}' \
   "$(hk_json_esc "$host")" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$cwd")" \
   "$now_epoch" "$start_cost" "$cost_priced" "$start_out" "$start_cw" "$start_cr" \
-  "${start_interventions:-0}" "$(hk_json_esc "$start_models")" "$now_iso" > "$RUN_FILE"
+  "${start_interventions:-0}" "$(hk_json_esc "$start_models")" "$open_ref" "$now_iso" > "$RUN_FILE"
+
+(cd "$cwd" 2>/dev/null && git ls-files --others --exclude-standard 2>/dev/null) \
+  > "$(hk_untracked_file "$RUN_FILE")" 2>/dev/null || : > "$(hk_untracked_file "$RUN_FILE")"
+: > "$(hk_opened_file "$RUN_FILE")"
 
 hk_allow

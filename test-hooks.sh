@@ -862,6 +862,134 @@ if [ -f "$(runfile "$NC")" ]; then ok "otro sub-agente no cuenta como la revisio
 else no "un sub-agente cualquiera destrabo el cierre"; fi
 
 echo
+echo "contrato escrito por cualquier via — no solo por Edit/Write"
+
+# Corrida real (sperant, 2026-10-03): el modelo escribio el contrato con
+# `cp plan.md .iamlazy/contract.md` desde Bash. track-edit.sh no lo vio, no
+# hubo base_ref, y con eso se apagaron el gate de alcance, el breaker por ratio
+# y el cierre por contrato: el log dijo 0 archivos sobre 3 reales y cerro por
+# banner. El marcador de apertura se envejece en cada caso para que el orden
+# "antes / despues de abrir" no dependa de la precision del reloj del sistema.
+# -c: never CREATE the marker. A helper that creates it would hide an
+# open-run.sh that stopped writing it -- which is exactly how this test once
+# let that mutation through.
+age_marker() { touch -c -t 202001010000 "$1/.iamlazy/active/$2.opened"; }
+open_real() { # $1 dir  $2 sid  [$3 transcript]
+  run_open "$1" '{"hook_event_name":"UserPromptSubmit","session_id":"'"$2"'","transcript_path":"'"${3:-/x.jsonl}"'","cwd":"'"$1"'","prompt":"/iamlazy tarea"}'
+  mark_critic_asked "$1" "$2"
+  age_marker "$1" "$2"
+}
+
+CPC="$(mkrepo)"
+mkdir -p "$CPC/src"; echo base > "$CPC/src/a.ts"; git -C "$CPC" add -A; git -C "$CPC" commit -q -m init
+open_real "$CPC" sid-cp
+mkdir -p "$CPC/.iamlazy"
+printf '# Task\nx\n## Scope\n- src/*\n## Groups\n- [x] g1\n' > "$CPC/.iamlazy/contract.md"
+echo cambio >> "$CPC/src/a.ts"
+run_flush "$CPC" "$(stop_payload "$CPC" "$CLOSE_MSG" sid-cp)" >/dev/null
+assert_grep '"close_detected_via":"contract"' "$CPC/.iamlazy/runs.jsonl" "un contrato escrito por Bash cierra por contrato, no por banner"
+assert_grep '"files_changed":1' "$CPC/.iamlazy/runs.jsonl" "y su cambio se cuenta contra el base_ref de la apertura"
+
+# Un contrato que ya estaba en disco antes de abrir es de la corrida anterior.
+# Adoptarlo es el bug del smoke test de 2026-09-05: un contrato viejo, con todo
+# marcado, cerraba la corrida nueva en su primer turno.
+STC="$(mkrepo)"
+mkdir -p "$STC/.iamlazy"
+printf '# Task\nvieja\n## Groups\n- [x] g1\n' > "$STC/.iamlazy/contract.md"
+touch -t 201901010000 "$STC/.iamlazy/contract.md"
+open_real "$STC" sid-st
+run_flush "$STC" "$(stop_payload "$STC" 'analizando' sid-st)" >/dev/null
+if [ -f "$(runfile "$STC" sid-st)" ]; then ok "un contrato anterior a la apertura no cierra la corrida nueva"
+else no "un contrato viejo cerro la corrida nueva en su primer turno"; fi
+assert_ungrep '"base_ref"' "$(runfile "$STC" sid-st)" "y no se adopta como contrato de esta corrida"
+
+# La linea base de archivos sin seguimiento se toma al ABRIR. Tomada al adoptar
+# el contrato, un archivo creado por la corrida antes del contrato pasaria por
+# preexistente: invisible para el gate de alcance.
+NEWF="$(mkrepo)"
+mkdir -p "$NEWF/src"; echo base > "$NEWF/src/a.ts"; git -C "$NEWF" add -A; git -C "$NEWF" commit -q -m init
+open_real "$NEWF" sid-nf
+echo nuevo > "$NEWF/extra.txt"
+mkdir -p "$NEWF/.iamlazy"
+printf '# Task\nx\n## Scope\n- src/*\n## Groups\n- [x] g1\n' > "$NEWF/.iamlazy/contract.md"
+out="$(run_flush "$NEWF" "$(stop_payload "$NEWF" "$CLOSE_MSG" sid-nf)")"
+case "$out" in
+  *extra.txt*) ok "un archivo creado antes del contrato sigue fuera de alcance, y se nombra" ;;
+  *) no "un archivo creado antes del contrato se tomo por preexistente (obtuvo: ${out:-<vacio>})" ;;
+esac
+
+echo
+echo "el Critic en segundo plano — se lee de sus propios archivos"
+
+# Claude Code 2.1.287 corre el Critic en segundo plano y devuelve su informe
+# con una llamada a SubagentHandback. El tally viaja ahi dentro, no en el
+# ultimo texto del Critic, y el log real quedo vacio sobre un 0/1/3/5. La
+# primera linea de su transcript (prompt_snapshot) lista sus herramientas,
+# SubagentHandback incluida, y el ejemplo de tally de su prompt.
+crit_dir() { # $1 dir -> crea la sesion y devuelve el directorio de sub-agentes
+  : > "$1/sess.jsonl"; mkdir -p "$1/sess/subagents"; printf '%s' "$1/sess/subagents"
+}
+crit_meta() { # $1 subagents dir  $2 id  [$3 requestShape]
+  printf '{"agentType":"iamlazy-critic","description":"r","toolUseId":"toolu_%s","spawnDepth":1,"requestShape":"%s","requestNonInteractive":true}' \
+    "$2" "${3:-background}" > "$1/agent-$2.meta.json"
+}
+crit_snapshot() { # $1 subagents dir  $2 id
+  printf '{"type":"attachment","attachment":{"type":"prompt_snapshot","tools":[{"name":"SubagentHandback"}],"system":"Close with your own tally: findings: 9/9/9/9"}}\n' \
+    > "$1/agent-$2.jsonl"
+}
+crit_handback() { # $1 subagents dir  $2 id  $3 tally
+  printf '{"type":"assistant","message":{"id":"msg_%s","model":"claude-opus-5","content":[{"type":"tool_use","id":"toolu_h%s","name":"SubagentHandback","input":{"message":"Informe.\\nfindings: %s"}}],"usage":{"input_tokens":0,"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n' \
+    "$2" "$2" "$3" >> "$1/agent-$2.jsonl"
+}
+crit_contract() { mkdir -p "$1/.iamlazy"; printf '# Task\nx\n## Groups\n- [x] g1\n' > "$1/.iamlazy/contract.md"; }
+
+CRH="$(mkrepo)"; SUBD="$(crit_dir "$CRH")"
+open_real "$CRH" sid-cr "$CRH/sess.jsonl"; crit_contract "$CRH"
+crit_meta "$SUBD" aaa; crit_snapshot "$SUBD" aaa; crit_handback "$SUBD" aaa "0/1/3/5"
+run_flush "$CRH" "$(stop_payload "$CRH" "$CLOSE_MSG" sid-cr "$CRH/sess.jsonl")" >/dev/null
+assert_grep '"critic_findings":"0/1/3/5"' "$CRH/.iamlazy/runs.jsonl" "el tally del Critic se lee de su SubagentHandback"
+assert_grep '"close_detected_via":"contract"' "$CRH/.iamlazy/runs.jsonl" "y la corrida cierra por contrato con la revision devuelta"
+
+# Mientras revisa, ningun cierre pasa: ni con el banner. Su prompt_snapshot ya
+# nombra SubagentHandback; leerlo como "termino" cerraba a los tres segundos.
+CRR="$(mkrepo)"; SUBD="$(crit_dir "$CRR")"
+open_real "$CRR" sid-rr "$CRR/sess.jsonl"; crit_contract "$CRR"
+crit_meta "$SUBD" bbb; crit_snapshot "$SUBD" bbb
+out="$(run_flush "$CRR" "$(stop_payload "$CRR" "$CLOSE_MSG" sid-rr "$CRR/sess.jsonl")")"
+if [ -f "$(runfile "$CRR" sid-rr)" ]; then ok "con el Critic revisando en segundo plano, el banner de CIERRE no cierra"
+else no "la corrida cerro mientras el Critic seguia revisando"; fi
+case "$out" in
+  *'sigue revisando'*) ok "el bloqueo dice que el Critic sigue revisando" ;;
+  *) no "el bloqueo no explico que el Critic sigue revisando (obtuvo: ${out:-<vacio>})" ;;
+esac
+assert_absent "$CRR/.iamlazy/active/sid-rr.findings" "la lista de herramientas no se toma por un informe"
+
+# Termino sin devolver informe: su aviso de tarea ya trae <status>. No esta
+# revisando, asi que vale el camino de "se pregunto y no hubo revision".
+CRN="$(mkrepo)"; SUBD="$(crit_dir "$CRN")"
+open_real "$CRN" sid-nn "$CRN/sess.jsonl"; crit_contract "$CRN"
+crit_meta "$SUBD" ccc; crit_snapshot "$SUBD" ccc
+printf '{"type":"queue-operation","content":"<task-notification>\\n<task-id>ccc</task-id>\\n<status>failed</status>\\n</task-notification>"}\n' >> "$CRN/sess.jsonl"
+run_flush "$CRN" "$(stop_payload "$CRN" "$CLOSE_MSG" sid-nn "$CRN/sess.jsonl")" >/dev/null
+assert_absent "$(runfile "$CRN" sid-nn)" "un Critic que termino sin informe no retiene la corrida"
+
+# Muerto: sin informe, sin aviso, y sus archivos quietos hace mas de 30 minutos.
+CRD="$(mkrepo)"; SUBD="$(crit_dir "$CRD")"
+open_real "$CRD" sid-dd "$CRD/sess.jsonl"; crit_contract "$CRD"
+crit_meta "$SUBD" ddd; crit_snapshot "$SUBD" ddd
+touch -t 202101010000 "$SUBD/agent-ddd.meta.json" "$SUBD/agent-ddd.jsonl"
+run_flush "$CRD" "$(stop_payload "$CRD" "$CLOSE_MSG" sid-dd "$CRD/sess.jsonl")" >/dev/null
+assert_absent "$(runfile "$CRD" sid-dd)" "un Critic quieto hace mas de 30 minutos se da por muerto"
+
+# Un Critic de una corrida anterior en la misma sesion no cuenta para esta.
+CRO="$(mkrepo)"; SUBD="$(crit_dir "$CRO")"
+crit_meta "$SUBD" eee; crit_snapshot "$SUBD" eee; crit_handback "$SUBD" eee "7/7/7/7"
+touch -t 201901010000 "$SUBD/agent-eee.meta.json"
+open_real "$CRO" sid-oo "$CRO/sess.jsonl"; crit_contract "$CRO"
+run_flush "$CRO" "$(stop_payload "$CRO" "$CLOSE_MSG" sid-oo "$CRO/sess.jsonl")" >/dev/null
+assert_ungrep '7/7/7/7' "$CRO/.iamlazy/runs.jsonl" "el informe de un Critic anterior a esta corrida no se le atribuye"
+
+echo
 echo "guarantee 6 — never under a permission bypass"
 
 BYPASS_DIR="$(mktmp)"
