@@ -438,6 +438,9 @@ assert_grep "no such mode"                 "$H/.config/opencode/agents/iamlazy.m
 assert_no_grep "refuses to start under"    "$H/.config/opencode/agents/iamlazy.md" "opencode: never claims the bypass refusal"
 assert_grep "plan\` agent first"           "$H/.config/opencode/agents/iamlazy.md" "opencode: the gate is its own plan agent"
 assert_grep 'Request:.*ARGUMENTS'   "$H/.claude/skills/iamlazy/SKILL.md" "argument hook appended"
+# A client that pastes the skill leaves $ARGUMENTS unreplaced (MonoCode), and
+# a bare /iamlazy leaves it empty: the prompt says what to do in both cases.
+assert_grep "your client did not fill it" "$H/.claude/skills/iamlazy/SKILL.md" "the request line says what to do when it is not filled"
 assert_grep "Anti-condescension"    "$H/.claude/agents/iamlazy-critic.md" "critic body composed in"
 
 # ------------------------------------------------------------- idempotency

@@ -29,6 +29,22 @@ case "$payload" in
   *'"prompt":"/iamlazy '*|*'"prompt":"/iamlazy"'*) is_iamlazy=1 ;;
 esac
 
+# A client that INLINES the skill instead of sending /iamlazy. MonoCode 0.7.0,
+# measured 2026-10-05: the prompt is its own preamble ("The user invoked
+# skill(s) with /name...", "## /iamlazy"), then the installed SKILL.md pasted
+# whole, frontmatter included, with $ARGUMENTS left unreplaced. No /iamlazy
+# prefix, so no run opened, and the model followed the whole protocol with
+# every guarantee off and nothing said. Recognised by OUR OWN frontmatter, not
+# the client's wording: the skill's name line (exactly `iamlazy`, so the review
+# skill does not match) together with the marker only this installer writes.
+# In the payload the prompt is a JSON string, so a newline is the two
+# characters backslash-n, matched literally here.
+if [ "$is_iamlazy" = 0 ]; then
+  case "$payload" in
+    *'name: iamlazy\n'*'# iamlazy-managed'*) is_iamlazy=1 ;;
+  esac
+fi
+
 # Runs whose session died without SessionEnd, and the pre-2026-09-05 global
 # run file, are reclaimed here. Cheap: a listing of a small directory.
 mkdir -p "$HK_ACTIVE_DIR"

@@ -187,6 +187,11 @@ modelo por su cuenta. No es un detalle de estilo. La Capa 0 abre la corrida cuan
 con `/iamlazy`, y un skill lanzado por el modelo no pasa por ahí: el harness trabajaría sin ninguna
 garantía y sin avisar.
 
+**En clientes que pegan el skill en vez de enviar `/iamlazy`**, como MonoCode, la corrida también se
+abre: la Capa 0 reconoce el frontmatter del skill dentro del mensaje. Pero en todas las sesiones
+medidas MonoCode lanzó Claude Code con los permisos en bypass, y iamlazy se niega a correr así. Si tu
+cliente no ofrece otro modo de permisos, usa `/iamlazy` desde Claude Code.
+
 Nunca ves mecánica interna — ni ids de sesión, ni estados, ni charla de protocolo. Ves un bloque de
 preguntas (cada una con su recomendación), el contrato con sus comandos de aceptación y sus claims
 (en el gate), la entrega, y el cierre. Cada etapa abre con un banner que declara el modelo y el

@@ -390,7 +390,7 @@ install_claude() {
     compose_core "$SRC/core/iamlazy.md" \
       "$SRC/templates/claude-code/guarantees.md" "$SRC/templates/claude-code/gate.md"
     # shellcheck disable=SC2016  # $ARGUMENTS is Claude Code's own placeholder, not ours
-    printf '\n\n---\n\n**Request:** $ARGUMENTS\n'
+    printf '\n\n---\n\n**Request:** $ARGUMENTS\n\nIf the request line above shows a placeholder or nothing, your client did not fill it: the request is the rest of the human'"'"'s message. If there is none, ask for the task before anything else.\n'
   } | write_file "$CC_SKILL_DIR/iamlazy/SKILL.md"
   {
     render "$SRC/templates/claude-code/skill-review.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"

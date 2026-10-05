@@ -960,6 +960,37 @@ case "$out" in
 esac
 
 echo
+echo "un cliente que pega el skill en vez de enviar /iamlazy (MonoCode)"
+
+# MonoCode 0.7.0 no envia /iamlazy: envia su propio preambulo y el SKILL.md
+# completo, frontmatter incluido, con $ARGUMENTS sin reemplazar. Forma real
+# medida el 2026-10-05. Sin detector, el modelo seguia todo el protocolo sin
+# ninguna garantia y sin aviso.
+mono_payload() { # $1 dir  $2 sid  $3 permission_mode  $4 nombre del skill
+  # shellcheck disable=SC2016  # $ARGUMENTS is the literal MonoCode leaves in place
+  printf '{"hook_event_name":"UserPromptSubmit","session_id":"%s","transcript_path":"/x.jsonl","cwd":"%s","permission_mode":"%s","prompt":"The user invoked skill(s) with /name. Follow every instruction in each skill body.\\n\\n## /%s\\n\\n---\\nname: %s\\ndescription: x\\ndisable-model-invocation: true\\n# iamlazy-managed\\n---\\n# cuerpo\\n\\n**Request:** $ARGUMENTS\\n"}' \
+    "$2" "$1" "$3" "$4" "$4"
+}
+MONO="$(mkrepo)"
+run_open "$MONO" "$(mono_payload "$MONO" sid-mono default iamlazy)" >/dev/null
+if [ -f "$(runfile "$MONO" sid-mono)" ]; then ok "un skill pegado por el cliente abre la corrida igual que /iamlazy"
+else no "un skill pegado por el cliente no abrio la corrida: el harness corre sin garantias"; fi
+
+MONB="$(mkrepo)"
+printf '%s' "$(mono_payload "$MONB" sid-monb bypassPermissions iamlazy)" | HOME="$MONB" "$SRC/hooks/open-run.sh" >/dev/null 2>&1; monb_rc=$?
+if [ "$monb_rc" = "2" ] && [ ! -f "$(runfile "$MONB" sid-monb)" ]; then
+  ok "pegado bajo bypass, se rechaza en voz alta en vez de correr sin garantias"
+else no "pegado bajo bypass no se rechazo (rc=$monb_rc)"; fi
+
+MONR="$(mkrepo)"
+run_open "$MONR" "$(mono_payload "$MONR" sid-monr default iamlazy-review)" >/dev/null
+assert_absent "$(runfile "$MONR" sid-monr)" "el skill iamlazy-review pegado no abre una corrida"
+
+MONT="$(mkrepo)"
+run_open "$MONT" '{"hook_event_name":"UserPromptSubmit","session_id":"sid-mont","transcript_path":"/x.jsonl","cwd":"'"$MONT"'","prompt":"en el SKILL.md puse name: iamlazy\\n y nada mas"}' >/dev/null
+assert_absent "$(runfile "$MONT" sid-mont)" "un prompt que solo menciona el nombre, sin el marcador, no abre corrida"
+
+echo
 echo "historial — el contrato y el journal anteriores se archivan al abrir"
 
 ARC="$(mkrepo)"

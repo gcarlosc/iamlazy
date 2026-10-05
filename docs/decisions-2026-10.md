@@ -212,3 +212,26 @@ test and `--check` require the field.
 Not verified from here: what MonoCode sends when a skill is picked from its menu. If it writes
 `/iamlazy <task>` into the prompt, the run opens as before. If it rewrites it, no run opens. One
 real `/iamlazy` from MonoCode, checking for a file in `~/.iamlazy/active/`, settles it.
+
+### What MonoCode actually sends, and what it means (2026-10-05)
+
+The check the previous entry left open was run, and failed. MonoCode does not send `/iamlazy`. It
+sends its own preamble ("The user invoked skill(s) with /name. Follow every instruction in each
+skill body."), a `## /iamlazy` heading, and the installed `SKILL.md` pasted whole, frontmatter
+included, with `$ARGUMENTS` left as a literal. No run opened, and a model following that text runs
+the whole protocol with every guarantee off and nothing said.
+
+`open-run.sh` now also opens a run when the prompt carries the skill's own frontmatter: the exact
+`name: iamlazy` line followed by the marker only this installer writes. It keys on our file, not on
+MonoCode's wording, so a client that pastes the skill differently is still recognised, and the
+review skill (`name: iamlazy-review`) is not. Replayed with MonoCode's real prompt: without bypass
+the run opens; under bypass it is refused with the usual message. The request line now says what to
+do when its placeholder arrives unfilled, or empty after a bare `/iamlazy`: take the rest of the
+message, or ask for the task first.
+
+**MonoCode ran both measured Claude sessions under `bypassPermissions`.** iamlazy refuses to run
+that way, by invariant, because the approval gate rides on native plan mode. Whether MonoCode can
+launch Claude Code in another permission mode was not visible from its binary. If it cannot,
+`/iamlazy` there is refused out loud, which is the honest outcome, and the harness is used from
+Claude Code directly. Relaxing the bypass refusal for one client is the human's call, and not
+recommended.
