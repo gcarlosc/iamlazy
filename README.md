@@ -161,7 +161,10 @@ El instalador:
   `--tool=opencode-v2`; un `--tool=opencode`/`--tool=both` explícito se niega en lugar de instalar
   algo que no puede cargar. Si la versión no se puede leer, se instala V1 como antes. `--check`
   verifica el mismo emparejamiento, así que un desajuste se reporta en vez de descubrirse después,
-- escribe los comandos slash y el sub-agente Critic en sus directorios globales de configuración,
+- en Claude Code instala `/iamlazy` y `/iamlazy-review` como **skills**, y el sub-agente Critic; en
+  OpenCode, sus comandos y agentes. Un skill aparece en cualquier cliente que liste skills, MonoCode
+  incluido, y solo lo puede lanzar un humano. Si una instalación anterior dejó los comandos en
+  `~/.claude/commands/`, el instalador los reemplaza por los skills,
 - instala la Capa 0: los hooks, registrados en el `settings.json` de Claude Code, o detrás del
   plugin en OpenCode,
 - proyecta `models.conf` en el frontmatter de cada archivo,
@@ -178,6 +181,11 @@ El instalador:
 /iamlazy <tu tarea>       # ejecuta el harness completo
 /iamlazy-review           # muestra las últimas 20 corridas, legible
 ```
+
+En Claude Code los dos son skills con `disable-model-invocation: true`: los lanzas tú, nunca el
+modelo por su cuenta. No es un detalle de estilo. La Capa 0 abre la corrida cuando tu prompt empieza
+con `/iamlazy`, y un skill lanzado por el modelo no pasa por ahí: el harness trabajaría sin ninguna
+garantía y sin avisar.
 
 Nunca ves mecánica interna — ni ids de sesión, ni estados, ni charla de protocolo. Ves un bloque de
 preguntas (cada una con su recomendación), el contrato con sus comandos de aceptación y sus claims

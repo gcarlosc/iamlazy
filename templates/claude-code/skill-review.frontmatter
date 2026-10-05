@@ -1,5 +1,7 @@
 ---
+name: iamlazy-review
 description: iamlazy — show the last 20 harness runs
+disable-model-invocation: true
 model: {{MAIN_MODEL}}
 # iamlazy-managed
 ---

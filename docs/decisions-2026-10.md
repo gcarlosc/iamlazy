@@ -188,3 +188,27 @@ Phase 1, beyond the decisions:
 Deliberately not done: skipping the transcript scan once the breaker has fired. It saves about half
 a second per turn, only in a run where the breaker already fired, which has never happened in
 production, and it reorders the close path to get there.
+
+## `/iamlazy` is a skill, and only a human can start it (2026-10-04)
+
+MonoCode 0.7.0, a desktop client that drives the real Claude Code CLI (its sessions record
+`entrypoint: sdk-cli`), did not list `/iamlazy`. Its `/` menu reads `SKILL.md` folders only, never
+`~/.claude/commands/`. Its sessions do load `~/.claude/settings.json` hooks, so Layer 0 is present
+there; only the entry point was missing.
+
+The Claude Code docs settle the move: custom commands "have been merged into skills", a command
+file and a skill folder create the same `/name`, the skill wins a conflict, and `$ARGUMENTS` works
+the same, so the composed prompt is unchanged. Both prompts now install to
+`~/.claude/skills/<name>/SKILL.md`. A reinstall removes the command files an older install left,
+but only once the skill that replaces them is ours: if someone else's skill holds the name,
+removing the command would leave the human with no `/iamlazy` at all. `--check` flags a leftover.
+
+**`disable-model-invocation: true` is the condition the move rests on.** Layer 0 opens a run when
+the prompt starts with `/iamlazy`. A skill the model invokes on its own goes through the Skill tool
+instead, with no such prompt, so no run would open and the harness would work with every guarantee
+off, silently. A gated, human-approved workflow should not start unasked either. Both the template
+test and `--check` require the field.
+
+Not verified from here: what MonoCode sends when a skill is picked from its menu. If it writes
+`/iamlazy <task>` into the prompt, the run opens as before. If it rewrites it, no run opens. One
+real `/iamlazy` from MonoCode, checking for a file in `~/.iamlazy/active/`, settles it.

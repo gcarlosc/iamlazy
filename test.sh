@@ -322,9 +322,18 @@ echo "install --tool=both"
 H="$(mktmp)"
 HOME="$H" "$SRC/install.sh" --tool=both >/dev/null 2>&1
 
-assert_file "$H/.claude/commands/iamlazy.md"        "claude: command installed"
-assert_file "$H/.claude/commands/iamlazy-review.md" "claude: review installed"
+assert_file "$H/.claude/skills/iamlazy/SKILL.md"        "claude: /iamlazy installed as a skill"
+assert_file "$H/.claude/skills/iamlazy-review/SKILL.md" "claude: /iamlazy-review installed as a skill"
 assert_file "$H/.claude/agents/iamlazy-critic.md"   "claude: critic installed"
+# Skills, not commands: clients that drive Claude Code list skills only, and
+# /iamlazy was installed and missing from MonoCode's menu. disable-model-
+# invocation is what keeps Layer 0 alive: a skill the MODEL invokes carries no
+# /iamlazy in the prompt, open-run.sh never opens the run, and every guarantee
+# is off without a word.
+assert_grep "^name: iamlazy$" "$H/.claude/skills/iamlazy/SKILL.md" "claude: the skill is named iamlazy"
+assert_grep "^disable-model-invocation: true$" "$H/.claude/skills/iamlazy/SKILL.md" "claude: only a human can start /iamlazy"
+assert_grep "^disable-model-invocation: true$" "$H/.claude/skills/iamlazy-review/SKILL.md" "claude: only a human can start /iamlazy-review"
+assert_absent "$H/.claude/commands/iamlazy.md" "claude: no command file alongside the skill"
 assert_file "$H/.config/opencode/agents/iamlazy.md" "opencode: primary installed"
 assert_file "$H/.config/opencode/agents/iamlazy-critic.md" "opencode: critic installed"
 assert_file "$H/.config/opencode/commands/iamlazy.md"      "opencode: command installed"
@@ -384,16 +393,16 @@ assert_grep "99.00" "$H/.iamlazy/prices.conf" "re-install does NOT clobber your 
 # Model projection: the placeholder must be gone and the configured id present.
 # shellcheck source=models.conf
 . "$SRC/models.conf"
-assert_no_grep "{{MAIN_MODEL}}"   "$H/.claude/commands/iamlazy.md" "no unsubstituted MAIN_MODEL"
+assert_no_grep "{{MAIN_MODEL}}"   "$H/.claude/skills/iamlazy/SKILL.md" "no unsubstituted MAIN_MODEL"
 assert_no_grep "{{CRITIC_MODEL}}" "$H/.claude/agents/iamlazy-critic.md" "no unsubstituted CRITIC_MODEL"
 # Empty is the shipped default and means "the host decides": a pinned id is a
 # command that fails for anyone without that model. The command then carries no
 # model line, and the Claude Code critic carries `inherit`, which outranks
 # CLAUDE_CODE_SUBAGENT_MODEL where an omitted line would not.
 if [ -z "$CC_MAIN_MODEL" ]; then
-  assert_no_grep "^model:" "$H/.claude/commands/iamlazy.md" "no model pinned: the command runs on the session model"
+  assert_no_grep "^model:" "$H/.claude/skills/iamlazy/SKILL.md" "no model pinned: the command runs on the session model"
 else
-  assert_grep "model: $CC_MAIN_MODEL" "$H/.claude/commands/iamlazy.md" "main model projected"
+  assert_grep "model: $CC_MAIN_MODEL" "$H/.claude/skills/iamlazy/SKILL.md" "main model projected"
 fi
 if [ -z "$CC_CRITIC_MODEL" ]; then
   assert_grep "^model: inherit$" "$H/.claude/agents/iamlazy-critic.md" "no model pinned: the critic inherits the session model"
@@ -412,31 +421,31 @@ fi
 
 # Composition: frontmatter + full body + argument hook, in that order.
 assert_grep "What is guaranteed vs what is asked" \
-  "$H/.claude/commands/iamlazy.md" "core body composed in"
+  "$H/.claude/skills/iamlazy/SKILL.md" "core body composed in"
 
 # Composition, per host. The prompt must never ship an unfilled token, must not
 # carry the verification marker, and must tell each host the truth about itself:
 # on Claude Code the guarantees are enforced, on OpenCode they are requests.
-for f in "$H/.claude/commands/iamlazy.md" "$H/.config/opencode/agents/iamlazy.md"; do
+for f in "$H/.claude/skills/iamlazy/SKILL.md" "$H/.config/opencode/agents/iamlazy.md"; do
   n="$(basename "$(dirname "$f")")"
   assert_no_grep '{{' "$f" "no unfilled token ($n)"
   assert_no_grep '<!-- hooks:' "$f" "verification marker stays out of the prompt ($n)"
 done
-assert_grep "Hooks enforce these for you"  "$H/.claude/commands/iamlazy.md"      "claude: guarantees are stated as enforced"
-assert_grep "Enter plan mode first" "$H/.claude/commands/iamlazy.md"              "claude: the gate is native plan mode"
+assert_grep "Hooks enforce these for you"  "$H/.claude/skills/iamlazy/SKILL.md"      "claude: guarantees are stated as enforced"
+assert_grep "Enter plan mode first" "$H/.claude/skills/iamlazy/SKILL.md"              "claude: the gate is native plan mode"
 assert_grep "plugin enforces these for you" "$H/.config/opencode/agents/iamlazy.md" "opencode: guarantees are stated as enforced by the plugin"
 assert_grep "no such mode"                 "$H/.config/opencode/agents/iamlazy.md" "opencode: says plainly there is no bypass refusal"
 assert_no_grep "refuses to start under"    "$H/.config/opencode/agents/iamlazy.md" "opencode: never claims the bypass refusal"
 assert_grep "plan\` agent first"           "$H/.config/opencode/agents/iamlazy.md" "opencode: the gate is its own plan agent"
-assert_grep 'Request:.*ARGUMENTS'   "$H/.claude/commands/iamlazy.md" "argument hook appended"
+assert_grep 'Request:.*ARGUMENTS'   "$H/.claude/skills/iamlazy/SKILL.md" "argument hook appended"
 assert_grep "Anti-condescension"    "$H/.claude/agents/iamlazy-critic.md" "critic body composed in"
 
 # ------------------------------------------------------------- idempotency
 echo
 echo "idempotency"
-before="$(cksum < "$H/.claude/commands/iamlazy.md")"
+before="$(cksum < "$H/.claude/skills/iamlazy/SKILL.md")"
 HOME="$H" "$SRC/install.sh" --tool=both >/dev/null 2>&1
-after="$(cksum < "$H/.claude/commands/iamlazy.md")"
+after="$(cksum < "$H/.claude/skills/iamlazy/SKILL.md")"
 if [ "$before" = "$after" ]; then ok "re-install is byte-identical"
 else no "re-install changed the file"; fi
 
@@ -446,11 +455,46 @@ echo "anti-clobber"
 H2="$(mktmp)"
 mkdir -p "$H2/.claude/commands"
 echo "SOMEONE ELSE'S FILE" > "$H2/.claude/commands/iamlazy.md"
+mkdir -p "$H2/.claude/skills/iamlazy"
+echo "SOMEONE ELSE'S SKILL" > "$H2/.claude/skills/iamlazy/SKILL.md"
 mkdir -p "$H2/.config/opencode/plugins"
 echo "// SOMEONE ELSE'S PLUGIN" > "$H2/.config/opencode/plugins/iamlazy.ts"
 HOME="$H2" "$SRC/install.sh" --tool=both >/dev/null 2>&1
 assert_grep "SOMEONE ELSE'S FILE" "$H2/.claude/commands/iamlazy.md" "unmarked file is not clobbered"
+assert_grep "SOMEONE ELSE'S SKILL" "$H2/.claude/skills/iamlazy/SKILL.md" "unmarked skill is not clobbered"
 assert_grep "SOMEONE ELSE'S PLUGIN" "$H2/.config/opencode/plugins/iamlazy.ts" "unmarked plugin is not clobbered"
+
+# ------------------------------------------------ commands become skills
+echo
+echo "migration: an older install's commands become skills"
+# The old install wrote ~/.claude/commands/iamlazy.md. A reinstall writes the
+# skill and removes the command it replaces, so /iamlazy is defined once.
+HM="$(mktmp)"
+HOME="$HM" "$SRC/install.sh" --tool=claude >/dev/null 2>&1
+mkdir -p "$HM/.claude/commands"
+printf -- '---\ndescription: old\n# iamlazy-managed\n---\nold body\n' > "$HM/.claude/commands/iamlazy.md"
+printf -- '---\ndescription: old\n# iamlazy-managed\n---\nold body\n' > "$HM/.claude/commands/iamlazy-review.md"
+if hmout="$(HOME="$HM" "$SRC/install.sh" --check 2>&1)"; then no "--check should flag a leftover command from an older install"
+else
+  case "$hmout" in
+    *"comando viejo"*iamlazy.md*) ok "--check flags a leftover command from an older install, naming it" ;;
+    *) no "--check failed, but not for the leftover command (got: $hmout)" ;;
+  esac
+fi
+HOME="$HM" "$SRC/install.sh" --tool=claude >/dev/null 2>&1
+assert_file   "$HM/.claude/skills/iamlazy/SKILL.md" "migration: the skill is written"
+assert_absent "$HM/.claude/commands/iamlazy.md" "migration: the old managed command is removed"
+assert_absent "$HM/.claude/commands/iamlazy-review.md" "migration: the old managed review command is removed"
+if HOME="$HM" "$SRC/install.sh" --check >/dev/null 2>&1; then ok "--check passes once the commands are skills"
+else no "--check still fails after migrating the commands"; fi
+# Never removed when the skill that should replace it is someone else's: that
+# would leave the human with no /iamlazy at all.
+HMS="$(mktmp)"
+mkdir -p "$HMS/.claude/commands" "$HMS/.claude/skills/iamlazy"
+printf -- '---\ndescription: old\n# iamlazy-managed\n---\nold body\n' > "$HMS/.claude/commands/iamlazy.md"
+echo "THEIR SKILL" > "$HMS/.claude/skills/iamlazy/SKILL.md"
+HOME="$HMS" "$SRC/install.sh" --tool=claude >/dev/null 2>&1
+assert_file "$HMS/.claude/commands/iamlazy.md" "migration: the command stays when the skill slot belongs to someone else"
 
 # ------------------------------------------------------- --model override
 # Runs against a COPY of the repo: persist_model rewrites models.conf in place, and a
@@ -461,7 +505,7 @@ CP="$(mktmp)"
 cp_repo "$CP"
 H3="$(mktmp)"
 HOME="$H3" "$CP/install.sh" --tool=claude --model=test-model-xyz >/dev/null 2>&1
-assert_grep "model: test-model-xyz" "$H3/.claude/commands/iamlazy.md"      "override applied to main"
+assert_grep "model: test-model-xyz" "$H3/.claude/skills/iamlazy/SKILL.md"      "override applied to main"
 assert_grep "model: test-model-xyz" "$H3/.claude/agents/iamlazy-critic.md" "override applied to critic"
 assert_grep 'CC_MAIN_MODEL="test-model-xyz"' "$CP/models.conf" "override persisted to models.conf"
 assert_no_grep "test-model-xyz" "$SRC/models.conf" "real models.conf left untouched"
@@ -538,7 +582,9 @@ echo
 echo "uninstall"
 printf '{"probe":"user data"}\n' > "$H/.iamlazy/runs.jsonl"
 HOME="$H" "$SRC/uninstall.sh" >/dev/null 2>&1
-assert_absent "$H/.claude/commands/iamlazy.md"      "claude command removed"
+assert_absent "$H/.claude/skills/iamlazy/SKILL.md"      "claude: /iamlazy skill removed"
+if [ -d "$H/.claude/skills/iamlazy" ] || [ -d "$H/.claude/skills/iamlazy-review" ]; then no "uninstall leaves an empty skill folder"
+else ok "uninstall removes the skill folders"; fi
 assert_absent "$H/.claude/agents/iamlazy-critic.md" "claude critic removed"
 assert_absent "$H/.config/opencode/agents/iamlazy.md" "opencode primary removed"
 assert_absent "$H/.config/opencode/plugins/iamlazy.ts" "opencode plugin removed"
@@ -645,7 +691,7 @@ else
     *) no "native Windows refused without pointing to WSL (got: $winout)" ;;
   esac
 fi
-assert_absent "$WINH/.claude/commands/iamlazy.md" "the Windows refusal writes nothing"
+assert_absent "$WINH/.claude/skills/iamlazy/SKILL.md" "the Windows refusal writes nothing"
 
 # ------------------------------------------- adapter shape vs daemon version
 echo
@@ -691,7 +737,7 @@ else no "auto should still succeed on a 2.x daemon by installing the rest"; fi
 if [ -f "$AUTOH/.config/opencode/plugins/iamlazy.ts" ]; then
   no "auto wrote the V1 adapter onto a 2.x daemon"
 else ok "auto wrote no V1 adapter on a 2.x daemon"; fi
-if [ -f "$AUTOH/.claude/commands/iamlazy.md" ]; then
+if [ -f "$AUTOH/.claude/skills/iamlazy/SKILL.md" ]; then
   ok "auto still installed Claude Code after skipping OpenCode"
 else no "auto skipped OpenCode and dropped Claude Code with it"; fi
 

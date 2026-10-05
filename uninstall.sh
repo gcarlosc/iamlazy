@@ -6,6 +6,8 @@ set -eu
 MARKER="iamlazy-managed"
 
 TARGETS="\
+${HOME}/.claude/skills/iamlazy/SKILL.md \
+${HOME}/.claude/skills/iamlazy-review/SKILL.md \
 ${HOME}/.claude/commands/iamlazy.md \
 ${HOME}/.claude/commands/iamlazy-review.md \
 ${HOME}/.claude/agents/iamlazy-critic.md \
@@ -32,6 +34,11 @@ remove_if_managed() {
 echo "desinstalador de iamlazy"
 for t in $TARGETS; do
   remove_if_managed "$t"
+done
+# A skill is a folder; it goes with its SKILL.md, and only when nothing else of
+# the human's is left inside it.
+for d in "${HOME}/.claude/skills/iamlazy" "${HOME}/.claude/skills/iamlazy-review"; do
+  if [ -d "$d" ] && rmdir "$d" 2>/dev/null; then echo "  elimine $d/"; fi
 done
 
 # Layer 0 hooks live in their own directory and are generated wholesale by

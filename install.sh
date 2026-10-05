@@ -6,6 +6,13 @@ set -eu
 
 MARKER="iamlazy-managed"
 
+# /iamlazy and /iamlazy-review are SKILLS (2026-10-04). Claude Code merged
+# custom commands into skills -- a command file and a skill folder create the
+# same /name, and the skill wins a name conflict -- and clients that drive
+# Claude Code, MonoCode 0.7.0 among them, list skills only: /iamlazy was
+# installed, working, and absent from their menu. CC_CMD_DIR stays for one job:
+# removing the command files an older install left there.
+CC_SKILL_DIR="${HOME}/.claude/skills"
 CC_CMD_DIR="${HOME}/.claude/commands"
 CC_AGENT_DIR="${HOME}/.claude/agents"
 OC_CMD_DIR="${HOME}/.config/opencode/commands"
@@ -20,8 +27,8 @@ PAYLOAD="core/iamlazy.md core/iamlazy-review.md critic/iamlazy-critic.md \
 hooks/lib.sh hooks/guard-agent.sh hooks/open-run.sh hooks/track-edit.sh hooks/flush-run.sh \
 hooks/end-run.sh hooks/subagent-done.sh hooks/guard-critic-bash.sh hooks/host-cost.sh \
 hooks/merge-settings.sh adapters/opencode/iamlazy.ts \
-templates/claude-code/command-iamlazy.frontmatter \
-templates/claude-code/command-review.frontmatter \
+templates/claude-code/skill-iamlazy.frontmatter \
+templates/claude-code/skill-review.frontmatter \
 templates/claude-code/agent-critic.frontmatter \
 templates/claude-code/guarantees.md templates/claude-code/gate.md \
 templates/opencode/primary-iamlazy.frontmatter \
@@ -176,10 +183,21 @@ run_check() {
     if grep -q '"disableAllHooks"[[:space:]]*:[[:space:]]*true' "$HOME/.claude/settings.json" 2>/dev/null; then
       c_bad "disableAllHooks esta en true: Layer 0 esta instalado pero inerte"
     else c_ok "los hooks no estan deshabilitados"; fi
-    if [ -f "$CC_CMD_DIR/iamlazy.md" ]; then
-      if grep -q '{{' "$CC_CMD_DIR/iamlazy.md"; then c_bad "el prompt instalado tiene un token sin completar"
+    if [ -f "$CC_SKILL_DIR/iamlazy/SKILL.md" ]; then
+      if grep -q '{{' "$CC_SKILL_DIR/iamlazy/SKILL.md"; then c_bad "el prompt instalado tiene un token sin completar"
       else c_ok "prompt compuesto, sin tokens pendientes"; fi
-    else c_bad "prompt no instalado: $CC_CMD_DIR/iamlazy.md"; fi
+      # Only a human may start a run. A skill the model can invoke by itself
+      # starts with no /iamlazy in the prompt, so open-run.sh never opens the
+      # run and the harness works with every guarantee off, silently.
+      if grep -q '^disable-model-invocation: true$' "$CC_SKILL_DIR/iamlazy/SKILL.md"; then
+        c_ok "/iamlazy solo lo puede lanzar un humano"
+      else c_bad "el skill /iamlazy no tiene disable-model-invocation: true: el modelo podria lanzarlo sin abrir la corrida"; fi
+    else c_bad "prompt no instalado: $CC_SKILL_DIR/iamlazy/SKILL.md"; fi
+    for old in iamlazy.md iamlazy-review.md; do
+      if [ -f "$CC_CMD_DIR/$old" ] && grep -q "$MARKER" "$CC_CMD_DIR/$old" 2>/dev/null; then
+        c_bad "queda el comando viejo $CC_CMD_DIR/$old: corre install.sh para pasarlo a skill"
+      fi
+    done
   else
     c_skip "claude code: no hay directorio de hooks, no hay nada instalado"
   fi
@@ -348,27 +366,41 @@ write_file() {
   echo "  escribi $dest"
 }
 
+# A command file left by an older install is removed only once the skill that
+# replaces it is ours: if write_file skipped the skill because someone else's
+# is there, deleting the command would leave the human with no /iamlazy at all.
+migrate_claude_commands() {
+  for pair in "iamlazy.md:iamlazy" "iamlazy-review.md:iamlazy-review"; do
+    old="$CC_CMD_DIR/${pair%%:*}"; skill="$CC_SKILL_DIR/${pair##*:}/SKILL.md"
+    if [ -f "$old" ] && grep -q "$MARKER" "$old" 2>/dev/null && grep -q "$MARKER" "$skill" 2>/dev/null; then
+      rm -f "$old"
+      echo "  elimine $old -- ahora es el skill ${pair##*:}"
+    fi
+  done
+}
+
 install_claude() {
   # The Critic gets `inherit`, not an omitted line: per the sub-agent docs an
   # omitted model lets CLAUDE_CODE_SUBAGENT_MODEL decide, while `inherit` in
   # the frontmatter outranks it and always means "the session's model".
   cc_critic="${CC_CRITIC_MODEL:-inherit}"
-  mkdir -p "$CC_CMD_DIR" "$CC_AGENT_DIR"
+  mkdir -p "$CC_SKILL_DIR" "$CC_AGENT_DIR"
   {
-    render "$SRC/templates/claude-code/command-iamlazy.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"
+    render "$SRC/templates/claude-code/skill-iamlazy.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"
     compose_core "$SRC/core/iamlazy.md" \
       "$SRC/templates/claude-code/guarantees.md" "$SRC/templates/claude-code/gate.md"
     # shellcheck disable=SC2016  # $ARGUMENTS is Claude Code's own placeholder, not ours
     printf '\n\n---\n\n**Request:** $ARGUMENTS\n'
-  } | write_file "$CC_CMD_DIR/iamlazy.md"
+  } | write_file "$CC_SKILL_DIR/iamlazy/SKILL.md"
   {
-    render "$SRC/templates/claude-code/command-review.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"
+    render "$SRC/templates/claude-code/skill-review.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"
     cat "$SRC/core/iamlazy-review.md"
-  } | write_file "$CC_CMD_DIR/iamlazy-review.md"
+  } | write_file "$CC_SKILL_DIR/iamlazy-review/SKILL.md"
   {
     render "$SRC/templates/claude-code/agent-critic.frontmatter" "$CC_MAIN_MODEL" "$cc_critic" "${CC_CRITIC_EFFORT:-}"
     cat "$SRC/critic/iamlazy-critic.md"
   } | write_file "$CC_AGENT_DIR/iamlazy-critic.md"
+  migrate_claude_commands
 }
 
 # Shared by both OpenCode adapter versions: the agent prompts (Layer 1 body +
