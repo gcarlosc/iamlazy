@@ -12,6 +12,38 @@ HK_LOG="${HK_DIR}/runs.jsonl"
 # Pre-2026-09-05 layout: one global run file. Only read, to migrate it away.
 HK_LEGACY_TMP="${HK_DIR}/run.tmp.json"
 
+# A hook that CRASHES exits 0 and leaves a line in ~/.iamlazy/hooks.log.
+#
+# These hooks are registered globally and run on every event of every session
+# on the machine, iamlazy run or not. A crash -- `set -u` meeting an unset
+# variable, a missing binary -- used to exit 1, and the host surfaced that as a
+# hook error in sessions that had nothing to do with iamlazy. Exit 0 is the same
+# fail-open the host applies to any non-blocking hook error; what changes is
+# that it is no longer silent: the log names the hook and the status, and
+# `install.sh --check` reports it. Exit 2 is a deliberate block and passes
+# through untouched, like 0.
+hk_on_exit() {
+  # Captured in the declaration itself: a bare `local rc log` first is a
+  # command of its own, it succeeds, and $? would then read 0, not the crash.
+  local rc=$? log
+  case "$rc" in 0|2) return 0 ;; esac
+  log="${HK_DIR}/hooks.log"
+  mkdir -p "$HK_DIR" 2>/dev/null
+  printf '%s %s exit=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(basename "$0")" "$rc" >> "$log" 2>/dev/null
+  # Bounded: a hook crashing on every event would otherwise grow this forever.
+  if [ "$(wc -l < "$log" 2>/dev/null | tr -d ' ')" -gt 500 ] 2>/dev/null; then
+    tail -n 200 "$log" > "$log.new" 2>/dev/null && mv "$log.new" "$log"
+  fi
+  exit 0
+}
+
+# hk_crash_guard -- every HOOK calls this right after sourcing this file. Not
+# installed here, at source time: tests, replays and `bash -c '. lib.sh; ...'`
+# also source this file and read the exit status of single functions, and a
+# trap set on sourcing turned every legitimate non-zero return into 0 (20 tests
+# went red the moment it was tried). test.sh checks every hook calls it.
+hk_crash_guard() { trap hk_on_exit EXIT; }
+
 # Set by hk_guard to THIS session's run file. Empty until then.
 HK_RUN_TMP=""
 
@@ -194,11 +226,41 @@ hk_closing_file()   { printf '%s.closing' "${1%.json}"; }
 # needs no BSD-vs-GNU `stat` split: "was this file written during THIS run?"
 hk_opened_file()    { printf '%s.opened' "${1%.json}"; }
 
+# <sid>.laststop -- epoch of the last turn that ended waiting for the human.
+# <sid>.idle     -- seconds the run has spent in such waits, summed.
+# The duration ceiling measures the run minus its waits: a run left open over
+# lunch with a question pending is not an hour of work, and the wall clock
+# could not tell the two apart.
+hk_laststop_file()  { printf '%s.laststop' "${1%.json}"; }
+hk_idle_file()      { printf '%s.idle' "${1%.json}"; }
+
+# hk_idle_seconds <run_file> -> the idle total, 0 when absent or not a number.
+hk_idle_seconds() {
+  local v
+  v=$(cat "$(hk_idle_file "$1")" 2>/dev/null)
+  case "$v" in ''|*[!0-9]*) v=0 ;; esac
+  printf '%s' "$v"
+}
+
+# hk_close_idle_gap <run_file> -> a prompt arrived: the wait since the last
+# idle turn ends here and is added to the total. Called by open-run.sh.
+hk_close_idle_gap() {
+  local f ls now gap
+  f="$(hk_laststop_file "$1")"
+  [ -f "$f" ] || return 0
+  ls=$(cat "$f" 2>/dev/null); rm -f "$f"
+  case "$ls" in ''|*[!0-9]*) return 0 ;; esac
+  now=$(date +%s); gap=$((now - ls))
+  [ "$gap" -gt 0 ] || return 0
+  printf '%s' $(( $(hk_idle_seconds "$1") + gap )) > "$(hk_idle_file "$1")"
+}
+
 # hk_run_clear <run_file> -> remove a run and all of its sidecars.
 hk_run_clear() {
   rm -f "$1" "$(hk_untracked_file "$1")" "$(hk_gate_file "$1")" \
         "$(hk_stage_file "$1")" "$(hk_findings_file "$1")" "$(hk_cost_file "$1")" \
-        "$(hk_closing_file "$1")" "$(hk_opened_file "$1")"
+        "$(hk_closing_file "$1")" "$(hk_opened_file "$1")" "$(hk_laststop_file "$1")" \
+        "$(hk_idle_file "$1")"
 }
 
 # hk_claim_close <run_file> -> 0 the FIRST time this run is claimed as closing
@@ -747,6 +809,25 @@ function hk_tokens(line) {
   if (T_W1 + 0 > T_C + 0) T_W1 = T_C
   return (T_I + T_O + T_C + T_R > 0)
 }
+# One record per message, and the LAST transcript line for a message wins. A
+# transcript writes the same message once per content block, each line with the
+# usage as it stood THEN: the first can hold an output count of 1 where the
+# last holds 168. Keeping the first, as every scan here used to, undercounted a
+# real Critic output at 268 against 573 (sperant, 2026-10-03). A line with no
+# message id is its own record. hk_record files the tokens of this line (call it
+# after hk_tokens); hk_recall restores them and returns the model.
+function hk_record(line,    id, m) {
+  id = ""
+  if (match(line, /"id":"msg_[A-Za-z0-9_]+"/)) id = substr(line, RSTART, RLENGTH)
+  if (id == "") id = "noid:" (++hk_noid)
+  m = ""
+  if (match(line, /"model":"[^"]+"/)) m = substr(line, RSTART+9, RLENGTH-10)
+  R_I[id] = T_I; R_O[id] = T_O; R_C[id] = T_C; R_R[id] = T_R; R_W1[id] = T_W1; R_M[id] = m
+}
+function hk_recall(id) {
+  T_I = R_I[id]; T_O = R_O[id]; T_C = R_C[id]; T_R = R_R[id]; T_W1 = R_W1[id]
+  return R_M[id]
+}
 function hk_msg_usd(pm,    cr) {
   cr = ((pm in pcr) ? pcr[pm] : pin[pm] * 0.1)
   return (T_I * pin[pm] + T_O * pout[pm] + (T_C - T_W1) * pin[pm] * 1.25 + T_W1 * pin[pm] * 2 + T_R * cr) / 1000000
@@ -776,25 +857,23 @@ hk_cost_micro() {
   [ -f "$prices" ] || return 1
   awk "$HK_AWK_USAGE"'
     FILENAME == ARGV[1] { hk_price_line(); next }
-    {
-      if (!hk_tokens($0)) next
-      id = ""
-      if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) id = substr($0, RSTART, RLENGTH)
-      if (id != "" && (id in seen)) next
-      if (id != "") seen[id] = 1
-
-      model = ""
-      if (match($0, /"model":"[^"]+"/)) model = substr($0, RSTART+9, RLENGTH-10)
-      # A trailing -YYYYMMDD is a SNAPSHOT of the same model, priced the same by
-      # definition, so it is stripped before the lookup. Nothing else is: prefix
-      # matching in general would let `claude-opus-6-preview` be priced at
-      # opus-5 rates, and a wrong number is worse than none -- which is the
-      # whole reason an unknown model reports null and names itself.
-      sub(/-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/, "", model)
-      if (model == "" || !(model in pin)) { bad = 1; next }
-      usd += hk_msg_usd(model)
+    { if (hk_tokens($0)) hk_record($0) }
+    END {
+      for (id in R_M) {
+        model = hk_recall(id)
+        # A trailing -YYYYMMDD is a SNAPSHOT of the same model, priced the same
+        # by definition, so it is stripped before the lookup. Nothing else is:
+        # prefix matching in general would let `claude-opus-6-preview` be
+        # priced at opus-5 rates, and a wrong number is worse than none --
+        # which is the whole reason an unknown model reports null and names
+        # itself.
+        sub(/-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/, "", model)
+        if (model == "" || !(model in pin)) { bad = 1; continue }
+        usd += hk_msg_usd(model)
+      }
+      if (bad) exit 1
+      printf "%d", usd * 1000000 + 0.5
     }
-    END { if (bad) exit 1; printf "%d", usd * 1000000 + 0.5 }
   ' "$prices" "$t" 2>/dev/null
 }
 
@@ -872,18 +951,12 @@ hk_token_components() {
   local t
   t="$1"
   [ -n "$t" ] && [ -f "$t" ] || return 1
-  awk '
-    {
-      if (!match($0, /"usage":\{/)) next
-      id = ""
-      if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) id = substr($0, RSTART, RLENGTH)
-      if (id != "" && (id in seen)) next
-      if (id != "") seen[id] = 1
-      if (match($0, /"output_tokens":[0-9]+/))               o += substr($0, RSTART+16, RLENGTH-16)
-      if (match($0, /"cache_creation_input_tokens":[0-9]+/)) c += substr($0, RSTART+30, RLENGTH-30)
-      if (match($0, /"cache_read_input_tokens":[0-9]+/))     r += substr($0, RSTART+26, RLENGTH-26)
+  awk "$HK_AWK_USAGE"'
+    { if (hk_tokens($0)) hk_record($0) }
+    END {
+      for (id in R_M) { hk_recall(id); o += T_O; c += T_C; r += T_R }
+      printf "%d %d %d", o+0, c+0, r+0
     }
-    END { printf "%d %d %d", o+0, c+0, r+0 }
   ' "$t"
 }
 
@@ -913,16 +986,11 @@ hk_model_counts() {
   t="$1"
   [ -n "$t" ] && [ -f "$t" ] || return 0
   awk "$HK_AWK_USAGE"'
-    {
-      if (!hk_tokens($0)) next
-      id = ""
-      if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) id = substr($0, RSTART, RLENGTH)
-      if (id != "" && (id in seen)) next
-      if (id != "") seen[id] = 1
-      if (!match($0, /"model":"[^"]+"/)) next
-      n[substr($0, RSTART+9, RLENGTH-10)]++
+    { if (hk_tokens($0)) hk_record($0) }
+    END {
+      for (id in R_M) { m = hk_recall(id); if (m != "") n[m]++ }
+      for (m in n) printf "%s:%d ", m, n[m]
     }
-    END { for (m in n) printf "%s:%d ", m, n[m] }
   ' "$t" 2>/dev/null
 }
 
@@ -1006,31 +1074,21 @@ hk_transcript_scan() {
   [ -f "$prices" ] || prices=/dev/null
   awk "$HK_AWK_USAGE"'
     FILENAME == ARGV[1] { hk_price_line(); next }
-    {
-      if (!hk_tokens($0)) next
-      id = ""
-      if (match($0, /"id":"msg_[A-Za-z0-9_]+"/)) id = substr($0, RSTART, RLENGTH)
-      if (id != "" && (id in seen)) next
-      if (id != "") seen[id] = 1
-
-      # model_counts wants the RAW model (snapshot suffix kept); pricing wants
-      # it stripped (a snapshot prices the same as its base model, by
-      # definition) -- both need to coexist here, unlike in the separate
-      # single-purpose functions this replaces.
-      model = ""
-      if (match($0, /"model":"[^"]+"/)) model = substr($0, RSTART+9, RLENGTH-10)
-      if (model != "") n[model]++
-
-      # Token components are model-independent -- accumulated regardless of
-      # whether this message can be priced, same as hk_token_components.
-      o += T_O; c += T_C; r += T_R
-
-      pm = model
-      sub(/-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/, "", pm)
-      if (pm == "" || !(pm in pin)) { bad = 1; next }
-      usd += hk_msg_usd(pm)
-    }
+    { if (hk_tokens($0)) hk_record($0) }
     END {
+      for (id in R_M) {
+        # model_counts wants the RAW model (snapshot suffix kept); pricing
+        # wants it stripped (a snapshot prices the same as its base model).
+        model = hk_recall(id)
+        if (model != "") n[model]++
+        # Token components are model-independent -- accumulated whether or
+        # not this message can be priced, same as hk_token_components.
+        o += T_O; c += T_C; r += T_R
+        pm = model
+        sub(/-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/, "", pm)
+        if (pm == "" || !(pm in pin)) { bad = 1; continue }
+        usd += hk_msg_usd(pm)
+      }
       if (bad) print "NULL"; else printf "%d\n", usd * 1000000 + 0.5
       printf "%d %d %d\n", o+0, c+0, r+0
       out = ""
@@ -1138,11 +1196,11 @@ hk_flush_abandoned() {
   # tally when it priced its messages, the transcript delta otherwise.
   models=$(hk_kv "$(hk_cost_file "$f")" models)
   [ -n "$models" ] || models=$(hk_models_delta "$(hk_models_run "$tpath")" "$(hk_field_file "$f" "start_models")")
-  hk_log_append "$(printf '{"schema_version":9,"host":"%s","timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"stage_reached":"%s","models_seen":"%s","hooks_version":"%s","drift_fired":%s,"drift_reason":"%s","outcome":"abandoned"}' \
+  hk_log_append "$(printf '{"schema_version":10,"host":"%s","timestamp":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","duration_seconds":%s,"idle_seconds":%s,"stage_reached":"%s","models_seen":"%s","hooks_version":"%s","drift_fired":%s,"drift_reason":"%s","outcome":"abandoned"}' \
     "$(hk_json_esc "$host")" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" "$(hk_json_esc "$root")" \
-    "$dur" "$(hk_json_esc "$stage")" "$(hk_json_esc "$models")" "$(hk_json_esc "$(hk_hooks_version)")" \
+    "$dur" "$(hk_idle_seconds "$f")" "$(hk_json_esc "$stage")" "$(hk_json_esc "$models")" "$(hk_json_esc "$(hk_hooks_version)")" \
     "$fired" "$(hk_json_esc "$reason")")"
   hk_run_clear "$f"
 }

@@ -3,5 +3,6 @@ name: iamlazy-critic
 description: Adversarial read-only reviewer for iamlazy. Spawning it asks first — decline and the run closes without one, a declared deviation.
 tools: Read, Grep, Glob, Bash
 model: {{CRITIC_MODEL}}
+effort: {{CRITIC_EFFORT}}
 # iamlazy-managed
 ---

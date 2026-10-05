@@ -16,7 +16,7 @@ A trigger written against a field that no longer exists is **unmeasurable**, not
 have been retired below rather than left to accumulate — 8 of 11 candidates were in that state on
 2026-09-05, which made the whole sweep noise.
 
-Fields a `[log]` trigger may use today (schema 9): `host`, `duration_seconds`,
+Fields a `[log]` trigger may use today (schema 10): `host`, `duration_seconds`, `idle_seconds`,
 `human_interventions`, `files_changed`, `lines_changed`, `cost_usd`, `models_seen`,
 `hooks_version`, `tokens_output` / `tokens_cache_write` / `tokens_cache_read`, `project_md`,
 `stage_reached`, `critic_findings`, `close_detected_via`, `drift_thresholds`, `drift_fired`,
@@ -202,7 +202,10 @@ rule in `PROJECT.md`, applied to the one number a human reads on every single ru
 
 Trigger `[log]`: 2+ runs whose `models_seen` names a model the close banner did not, on a host
 where the banner claims to be derived. Now checkable; it was not before.
-Status: 1 recorded (session `7f32cddc`, both of its close banners).
+Status: **fired, 3 recorded** — sessions `7f32cddc` (both close banners), `733298b9` (2026-10-03,
+CIERRE declared `claude-opus-5-5`, written by `claude-sonnet-5-5`) and `966451fa` (2026-10-03, declared
+`claude-opus-5`, written by `claude-sonnet-5-5`). Always the CLOSE banner, always after the session
+model changed. Awaiting evaluation.
 
 ## Candidate 20 — The Critic's severity gates nothing (origin: repo audit, 2026-09-18)
 
@@ -227,7 +230,8 @@ Trigger `[log]`: 2+ runs whose `critic_findings` shows a non-zero first number. 
 derivable; the field is canonical because it comes from the Critic's own final message.
 Trigger `[human]`: 1 run where a `[HIGH]` was reported, the run closed, and the problem reached
 the repository — the falsifiable version of "the severity should have stopped something".
-Status: 0 recorded in 14 runs with a tally.
+Status: 1 recorded — session `966451fa` (2026-10-03), `critic_findings: 1/5/7/4`, the first `[HIGH]`
+the log has ever held. The trigger asks for 2.
 
 ## Candidate 21 — The security lens is decided in Layer 1 (origin: repo audit, 2026-09-18)
 

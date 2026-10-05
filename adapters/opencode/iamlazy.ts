@@ -205,7 +205,14 @@ export const server: Plugin = async ({ $, client, directory }) => {
           stop_hook_active: continued.delete(sid),
           last_assistant_message: text,
         })
-        if (r.code !== 2) return
+        if (r.code !== 2) {
+          // A notice on a turn that did not block (no git, no price, no
+          // .gitignore entry) is for the human only: shown as a toast, never
+          // fed back to the model, which has nothing to do about it.
+          const note = decisionOf(r.stdout)?.systemMessage
+          if (note) void client.tui.showToast({ body: { message: note, variant: "info" } }).catch(() => undefined)
+          return
+        }
         const block = decisionOf(r.stdout)
         const reason = block?.reason ?? r.stderr.trim()
         if (!reason) return

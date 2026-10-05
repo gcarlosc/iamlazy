@@ -291,6 +291,16 @@ else
   ok "README.md has no <repo> placeholder"
 fi
 
+# Every registered hook installs the crash guard (hk_crash_guard in lib.sh):
+# without it a crash exits 1 and surfaces as a hook error in every session on
+# the machine. A list nobody has to remember to extend, same as above.
+for s in "$SRC"/hooks/*.sh; do
+  n="$(basename "$s")"
+  case "$n" in lib.sh|merge-settings.sh) continue ;; esac
+  if grep -q '^hk_crash_guard$' "$s"; then ok "$n installs the crash guard"
+  else no "$n does not call hk_crash_guard: a crash in it surfaces in every session"; fi
+done
+
 # Every template must declare the idempotency marker, or uninstall can never reclaim it.
 for f in "$SRC"/templates/*/*.frontmatter; do
   assert_grep "iamlazy-managed" "$f" "marker present: $(basename "$(dirname "$f")")/$(basename "$f")"
@@ -376,8 +386,29 @@ assert_grep "99.00" "$H/.iamlazy/prices.conf" "re-install does NOT clobber your 
 . "$SRC/models.conf"
 assert_no_grep "{{MAIN_MODEL}}"   "$H/.claude/commands/iamlazy.md" "no unsubstituted MAIN_MODEL"
 assert_no_grep "{{CRITIC_MODEL}}" "$H/.claude/agents/iamlazy-critic.md" "no unsubstituted CRITIC_MODEL"
-assert_grep "model: $CC_MAIN_MODEL"   "$H/.claude/commands/iamlazy.md"      "main model projected"
-assert_grep "model: $CC_CRITIC_MODEL" "$H/.claude/agents/iamlazy-critic.md" "critic model projected"
+# Empty is the shipped default and means "the host decides": a pinned id is a
+# command that fails for anyone without that model. The command then carries no
+# model line, and the Claude Code critic carries `inherit`, which outranks
+# CLAUDE_CODE_SUBAGENT_MODEL where an omitted line would not.
+if [ -z "$CC_MAIN_MODEL" ]; then
+  assert_no_grep "^model:" "$H/.claude/commands/iamlazy.md" "no model pinned: the command runs on the session model"
+else
+  assert_grep "model: $CC_MAIN_MODEL" "$H/.claude/commands/iamlazy.md" "main model projected"
+fi
+if [ -z "$CC_CRITIC_MODEL" ]; then
+  assert_grep "^model: inherit$" "$H/.claude/agents/iamlazy-critic.md" "no model pinned: the critic inherits the session model"
+else
+  assert_grep "model: $CC_CRITIC_MODEL" "$H/.claude/agents/iamlazy-critic.md" "critic model projected"
+fi
+if [ -z "${CC_CRITIC_EFFORT:-}" ]; then
+  assert_no_grep "^effort:" "$H/.claude/agents/iamlazy-critic.md" "no effort pinned: the critic inherits the session's"
+fi
+if [ -z "$OC_MAIN_MODEL" ]; then
+  assert_no_grep "^model:" "$H/.config/opencode/agents/iamlazy.md" "no model pinned: the OpenCode agent uses the configured default"
+fi
+if [ -z "$OC_CRITIC_MODEL" ]; then
+  assert_no_grep "^model:" "$H/.config/opencode/agents/iamlazy-critic.md" "no model pinned: the OpenCode critic uses the invoking agent's"
+fi
 
 # Composition: frontmatter + full body + argument hook, in that order.
 assert_grep "What is guaranteed vs what is asked" \
@@ -433,7 +464,15 @@ HOME="$H3" "$CP/install.sh" --tool=claude --model=test-model-xyz >/dev/null 2>&1
 assert_grep "model: test-model-xyz" "$H3/.claude/commands/iamlazy.md"      "override applied to main"
 assert_grep "model: test-model-xyz" "$H3/.claude/agents/iamlazy-critic.md" "override applied to critic"
 assert_grep 'CC_MAIN_MODEL="test-model-xyz"' "$CP/models.conf" "override persisted to models.conf"
-assert_grep "$CC_MAIN_MODEL" "$SRC/models.conf" "real models.conf left untouched"
+assert_no_grep "test-model-xyz" "$SRC/models.conf" "real models.conf left untouched"
+
+# CC_CRITIC_EFFORT reaches the critic's frontmatter as `effort:`, the field the
+# sub-agent docs define; empty, the line is dropped and the session's applies.
+CPE="$(mktmp)"; cp_repo "$CPE"
+sed 's/^CC_CRITIC_EFFORT=.*/CC_CRITIC_EFFORT="high"/' "$CPE/models.conf" > "$CPE/models.conf.new" && mv "$CPE/models.conf.new" "$CPE/models.conf"
+HE="$(mktmp)"
+HOME="$HE" "$CPE/install.sh" --tool=claude >/dev/null 2>&1
+assert_grep "^effort: high$" "$HE/.claude/agents/iamlazy-critic.md" "CC_CRITIC_EFFORT is projected into the critic's frontmatter"
 
 # --model with two tools must be refused: the id namespaces differ.
 H4="$(mktmp)"
@@ -479,6 +518,20 @@ PY
 if HOME="$HC2" "$SRC/install.sh" --check >/dev/null 2>&1; then
   no "--check missed an installed hook that is no longer registered"
 else ok "--check catches an installed hook that is no longer registered"; fi
+
+# A crashed hook exits 0 on purpose, so its log is the only trace of the crash:
+# --check has to say so.
+HC3="$(mktmp)"
+HOME="$HC3" "$SRC/install.sh" --tool=claude >/dev/null 2>&1
+printf '2026-10-03T00:00:00Z open-run.sh exit=1\n' > "$HC3/.iamlazy/hooks.log"
+if c3out="$(HOME="$HC3" "$SRC/install.sh" --check 2>&1)"; then
+  no "--check missed a crash recorded in hooks.log"
+else
+  case "$c3out" in
+    *hooks.log*open-run.sh*) ok "--check reports a crashed hook, naming it" ;;
+    *) no "--check failed but did not name the crashed hook (got: $c3out)" ;;
+  esac
+fi
 
 # ---------------------------------------------------------------- uninstall
 echo
@@ -577,6 +630,22 @@ else
     *) no "opencode-v2 refused without a git checkout, but did not explain why" ;;
   esac
 fi
+
+# ------------------------------------------------- native Windows is refused
+echo
+echo "native Windows is refused, before anything is written"
+WINBIN="$(mktmp)"
+printf '#!/bin/sh\necho "MINGW64_NT-10.0-19045"\n' > "$WINBIN/uname"; chmod +x "$WINBIN/uname"
+WINH="$(mktmp)"
+if winout="$(PATH="$WINBIN:$PATH" HOME="$WINH" "$SRC/install.sh" --tool=claude 2>&1)"; then
+  no "install on native Windows should refuse, not succeed"
+else
+  case "$winout" in
+    *WSL*) ok "native Windows refuses and points to WSL" ;;
+    *) no "native Windows refused without pointing to WSL (got: $winout)" ;;
+  esac
+fi
+assert_absent "$WINH/.claude/commands/iamlazy.md" "the Windows refusal writes nothing"
 
 # ------------------------------------------- adapter shape vs daemon version
 echo

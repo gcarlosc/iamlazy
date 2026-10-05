@@ -16,6 +16,7 @@
 set -u
 # shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
+hk_crash_guard
 
 payload=$(cat)
 
@@ -271,6 +272,13 @@ now_epoch=$(date +%s)
 start_epoch=$(hk_json_num "$TMP" "start_epoch")
 elapsed=0
 [ -n "$start_epoch" ] && elapsed=$((now_epoch - start_epoch))
+# What the ceiling measures is the run's WORK: wall clock minus the time it sat
+# waiting for the human (see hk_laststop_file). duration_seconds stays the wall
+# clock, and idle_seconds is logged beside it, so a run over an hour that did
+# not fire is explainable from its own line.
+idle_seconds=$(hk_idle_seconds "$TMP")
+active=$((elapsed - idle_seconds))
+[ "$active" -lt 0 ] && active=0
 
 # WHICH ceiling tripped, so the log can say. Without it a recalibration cannot
 # tell a ratio breach from a duration one, and the ratio's own thresholds went
@@ -286,7 +294,7 @@ if ! grep -q '"drift_warned"' "$TMP" 2>/dev/null && [ "$stop_active" = 0 ]; then
      && [ "${lines_changed:-0}" -ge "$DRIFT_MIN_LINES" ] \
      && [ $((run_cost / lines_changed)) -ge "$DRIFT_MICRO_PER_LINE" ]; then
     drift_reason="ratio"
-  elif [ "$elapsed" -ge "$DRIFT_MAX_SECONDS" ]; then
+  elif [ "$active" -ge "$DRIFT_MAX_SECONDS" ]; then
     drift_reason="duration"
   elif [ -n "$run_cost" ] && [ "$run_cost" -ge "$DRIFT_MAX_COST" ]; then
     drift_reason="cost"
@@ -319,9 +327,9 @@ lugar de hacer un intento mas.
 MSG
       ;;
     duration)
-      mins=$((elapsed / 60))
-      printf '{"decision":"block","reason":"iamlazy: esta corrida lleva %s minutos abierta. El harness esta hecho para UNA tarea de punta a punta, no para una sesion de horas: una corrida larga es el sintoma, no el caso de uso. Cierra lo que ya este completo y declara el resto como una tarea aparte, con su propio contrato. Si de verdad falta poco, dilo y sigue; el aviso no se repite.","systemMessage":"iamlazy: %s minutos abiertos. Circuit breaker por duracion."}\n' "$mins" "$mins"
-      printf 'iamlazy: esta corrida lleva %s minutos abierta. El harness esta hecho para una tarea, no para una sesion de horas: corta aqui y declara el resto como tarea aparte.\n' "$mins" >&2
+      mins=$((active / 60))
+      printf '{"decision":"block","reason":"iamlazy: esta corrida lleva %s minutos de trabajo, sin contar las esperas por el humano. El harness esta hecho para UNA tarea de punta a punta, no para una sesion de horas: una corrida larga es el sintoma, no el caso de uso. Cierra lo que ya este completo y declara el resto como una tarea aparte, con su propio contrato. Si de verdad falta poco, dilo y sigue; el aviso no se repite.","systemMessage":"iamlazy: %s minutos de trabajo. Circuit breaker por duracion."}\n' "$mins" "$mins"
+      printf 'iamlazy: esta corrida lleva %s minutos de trabajo, sin contar esperas. El harness esta hecho para una tarea, no para una sesion de horas: corta aqui y declara el resto como tarea aparte.\n' "$mins" >&2
       ;;
     cost)
       usd_total=$(hk_micro_to_usd "$run_cost")
@@ -380,6 +388,11 @@ if ! signal=$(hk_close_signal "$payload" "$contract" "$root" "$base" "$ubase"); 
       fi
     fi
   fi
+  # This turn ends waiting for the human, unless a background Critic is still
+  # reviewing: that wait is the run working, and it is not idle time.
+  if [ "$HK_CRITIC_RUNNING" != "1" ]; then
+    printf '%s' "$now_epoch" > "$(hk_laststop_file "$TMP")"
+  fi
   emit_notices
   exit 0
 fi
@@ -423,7 +436,10 @@ fi
 # already wrote it there and the human approved it, so it is a record, not a
 # self-report.
 task_summary=""
-if [ -f "$contract" ]; then
+# Only from a contract THIS run owns (base pinned). A real run (sperant,
+# 2026-10-03) wrote no contract at all, and the summary was read from the one
+# the previous run left on disk: the log named a task the run never did.
+if [ -f "$contract" ] && [ -n "$base" ]; then
   task_summary=$(awk '/^# Task/{f=1;next} /^#/{if(f)exit} f&&NF{print;exit}' "$contract" \
     | tr '\t' ' ' | hk_utf8_cut 160)
   task_summary=$(hk_json_esc "$task_summary")
@@ -492,10 +508,10 @@ if [ -n "$base" ] && [ -d "$root/.git" ]; then
 fi
 emit_notices
 
-hk_log_append "$(printf '{"schema_version":9,"host":"%s","timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","models_seen":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","drift_thresholds":"%s","drift_fired":%s,"drift_reason":"%s","hooks_version":"%s","outcome":"flushed"}' \
+hk_log_append "$(printf '{"schema_version":10,"host":"%s","timestamp":"%s","task_summary":"%s","session_id":"%s","transcript_path":"%s","cwd":"%s","base_ref":"%s","duration_seconds":%s,"idle_seconds":%s,"human_interventions":%s,"files_changed":%s,"lines_changed":%s,"cost_usd":%s,"cost_unpriced":"%s","models_seen":"%s","tokens_output":%s,"tokens_cache_write":%s,"tokens_cache_read":%s,"project_md":"%s","stage_reached":"%s","critic_findings":"%s","close_detected_via":"%s","drift_thresholds":"%s","drift_fired":%s,"drift_reason":"%s","hooks_version":"%s","outcome":"flushed"}' \
   "$(hk_json_esc "$host")" "$now_iso" "$task_summary" "$(hk_json_esc "$sid")" "$(hk_json_esc "$tpath")" \
   "$(hk_json_esc "$root")" "$(hk_json_esc "$base")" \
-  "${duration:-null}" "$human_interventions" "${files_changed:-0}" "${lines_changed:-0}" \
+  "${duration:-null}" "$idle_seconds" "$human_interventions" "${files_changed:-0}" "${lines_changed:-0}" \
   "$cost_field" "$(hk_json_esc "$unpriced")" "$(hk_json_esc "$models_seen")" "$d_out" "$d_cw" "$d_cr" \
   "$project_md" "$(hk_json_esc "$stage")" \
   "$(hk_json_esc "$critic_findings")" "$signal" "$drift_thresholds" "$drift_fired" \

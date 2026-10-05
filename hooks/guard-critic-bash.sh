@@ -20,6 +20,7 @@
 set -u
 # shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
+hk_crash_guard
 
 payload=$(cat)
 
@@ -84,6 +85,35 @@ fi
 
 if printf '%s' "$payload" | grep -Eq '(^|[^A-Za-z0-9_])wget([[:space:]]|$)|curl[^|;]*[[:space:]](-[oO]|--output)([[:space:]]|$)'; then
   deny_write "a download that writes to disk"
+fi
+
+# Writes the first version let through, found 2026-10-03 by asking what else
+# writes to disk from a shell. Each is matched narrowly enough that its
+# read-only form still passes: `find` without -delete, `tar -t`, `unzip -l`,
+# `git worktree list`. Two are matched only in COMMAND position, because their
+# names are ordinary words a description uses all the time: `install` and
+# `patch` ("check the install script" must not deny a Critic its reading).
+if printf '%s' "$payload" | grep -Eq '(^|[^A-Za-z0-9_./-])find[^|;&]*[[:space:]]-(delete|fprint|fprint0|fprintf|fls)([[:space:]]|"|$)'; then
+  deny_write "a find that deletes files or writes its output to one"
+fi
+if printf '%s' "$payload" | grep -Eq '(^|[^A-Za-z0-9_./-])sort[^|;&]*[[:space:]](-o|--output)'; then
+  deny_write "a sort that writes its output to a file"
+fi
+if printf '%s' "$payload" | grep -Eq '(^|[^A-Za-z0-9_./-])rsync([[:space:]]|$)'; then
+  deny_write "rsync, which copies files"
+fi
+if printf '%s' "$payload" | grep -Eq '("command":"|[;&|(][[:space:]]*)(install|patch)[[:space:]]'; then
+  deny_write "install or patch, which write files into place"
+fi
+if printf '%s' "$payload" | grep -Eq '(^|[^A-Za-z0-9_./-])tar[[:space:]]+(-?[A-Za-z]*[xcru]|--(extract|create|append|update|get))'; then
+  deny_write "a tar that extracts or creates an archive"
+fi
+if printf '%s' "$payload" | grep -Eq '(^|[^A-Za-z0-9_./-])unzip[[:space:]]' \
+   && ! printf '%s' "$payload" | grep -Eq '(^|[^A-Za-z0-9_./-])unzip[[:space:]]+-l([[:space:]]|$)'; then
+  deny_write "an unzip that extracts files"
+fi
+if printf '%s' "$payload" | grep -Eq 'git[[:space:]]+(revert|gc|update-ref|worktree[[:space:]]+(add|remove|move|prune|lock|unlock|repair)|notes[[:space:]]+(add|append|copy|edit|merge|remove|prune)|submodule[[:space:]]+(add|update|init|deinit|sync|set-branch|set-url|absorbgitdirs))'; then
+  deny_write "a git command that changes the repository"
 fi
 
 hk_allow

@@ -28,7 +28,11 @@ Show the human the last runs of the harness in a readable form.
    `hooks_version` — the git SHA (or content fingerprint, on a `curl|bash` install with no `.git`)
    of the enforcement code that wrote this line, stamped once at install time. Useful for exactly
    one question: was this run before or after a given fix landed. Empty on any install that
-   predates this field — not a bug, that install simply never stamped one.
+   predates this field — not a bug, that install simply never stamped one. `9` adds `drift_reason` —
+   which ceiling stopped the run (`ratio`, `duration`, `cost`), empty when none did. `10` adds
+   `idle_seconds` — time the run sat waiting for the human between a finished turn and the next
+   prompt. The duration ceiling measures `duration_seconds` minus it, so a run longer than an hour
+   that did not fire is explained by its own line.
    **Report what each line actually has. Never carry a field across generations, and never infer a
    missing one** — a run that predates a field did not score badly on it, it simply has no value,
    and those are different facts. An `abandoned` line carries only the subset a run that never

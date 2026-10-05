@@ -229,6 +229,11 @@ run_check() {
   fi
 
   echo "estado"
+  # A crashed hook exits 0 by design (see hk_on_exit in lib.sh), so this log is
+  # the only place a crash shows. Reported, never cleared: delete it once read.
+  if [ -s "$LOG_DIR/hooks.log" ]; then
+    c_bad "hay $(wc -l < "$LOG_DIR/hooks.log" | tr -d ' ') falla(s) de hooks en $LOG_DIR/hooks.log; la ultima: $(tail -n 1 "$LOG_DIR/hooks.log"). Borralo cuando lo hayas revisado"
+  else c_ok "ningun hook fallo"; fi
   if [ -f "$LOG_DIR/prices.conf" ]; then c_ok "tabla de precios presente"
   else c_bad "no hay tabla de precios: todo costo va a quedar null ($LOG_DIR/prices.conf)"; fi
   if command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1; then
@@ -290,9 +295,18 @@ EOF
 }
 
 # Substitute model tokens. `|` delimiter because model ids contain `/`.
+# An EMPTY model drops its `model:` line instead, so the host's own default
+# applies: a command runs on the session model, an OpenCode primary agent on
+# the configured default, an OpenCode subagent on the agent that invoked it.
+# Pinning a model by default broke the command for anyone without access to
+# that exact id, which is the default for almost everyone who installs this.
 render() {
-  # $1 template, $2 main model, $3 critic model
-  sed -e "s|{{MAIN_MODEL}}|$2|g" -e "s|{{CRITIC_MODEL}}|$3|g" "$1"
+  # $1 template, $2 main model, $3 critic model, [$4 critic effort]
+  r_main="s|{{MAIN_MODEL}}|$2|g"; r_crit="s|{{CRITIC_MODEL}}|$3|g"; r_eff="s|{{CRITIC_EFFORT}}|${4:-}|g"
+  [ -n "$2" ] || r_main="/{{MAIN_MODEL}}/d"
+  [ -n "$3" ] || r_crit="/{{CRITIC_MODEL}}/d"
+  [ -n "${4:-}" ] || r_eff="/{{CRITIC_EFFORT}}/d"
+  sed -e "$r_main" -e "$r_crit" -e "$r_eff" "$1"
 }
 
 # Compose the core body for ONE host: {{GUARANTEES}} and {{GATE}} are replaced
@@ -335,6 +349,10 @@ write_file() {
 }
 
 install_claude() {
+  # The Critic gets `inherit`, not an omitted line: per the sub-agent docs an
+  # omitted model lets CLAUDE_CODE_SUBAGENT_MODEL decide, while `inherit` in
+  # the frontmatter outranks it and always means "the session's model".
+  cc_critic="${CC_CRITIC_MODEL:-inherit}"
   mkdir -p "$CC_CMD_DIR" "$CC_AGENT_DIR"
   {
     render "$SRC/templates/claude-code/command-iamlazy.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"
@@ -348,7 +366,7 @@ install_claude() {
     cat "$SRC/core/iamlazy-review.md"
   } | write_file "$CC_CMD_DIR/iamlazy-review.md"
   {
-    render "$SRC/templates/claude-code/agent-critic.frontmatter" "$CC_MAIN_MODEL" "$CC_CRITIC_MODEL"
+    render "$SRC/templates/claude-code/agent-critic.frontmatter" "$CC_MAIN_MODEL" "$cc_critic" "${CC_CRITIC_EFFORT:-}"
     cat "$SRC/critic/iamlazy-critic.md"
   } | write_file "$CC_AGENT_DIR/iamlazy-critic.md"
 }
@@ -549,6 +567,21 @@ for arg in "$@"; do
   esac
 done
 
+# ---------- platform ----------
+# Native Windows is refused before anything is written. Layer 0 is bash run by
+# the host on every event, with POSIX paths, `find -newer`, `git` and a bash
+# 3.2+ under it; under Git Bash or Cygwin none of that is tested, and a hook
+# that fails there fails open on every guarantee. WSL is Linux and works as
+# Linux. An unsupported platform said up front beats a silent, half-working
+# install.
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    echo "iamlazy: Windows nativo no esta soportado. Los hooks son bash y aqui no hay como garantizarlos." >&2
+    echo "  Usa WSL (Linux dentro de Windows): ahi iamlazy se instala y funciona como en Linux." >&2
+    exit 1
+    ;;
+esac
+
 # ---------- locate source (clone+run vs curl|bash) ----------
 SCRIPT_DIR=""
 case "$0" in
@@ -685,15 +718,15 @@ elif [ -f "$LOG_DIR/prices.conf" ]; then
 fi
 echo "instalador de iamlazy  (fuente: $SRC)"
 if [ "$do_claude" -eq 1 ]; then
-  echo "Claude Code -> $CC_MAIN_MODEL (principal) / $CC_CRITIC_MODEL (critico)"
+  echo "Claude Code -> ${CC_MAIN_MODEL:-modelo de la sesion} (principal) / ${CC_CRITIC_MODEL:-modelo de la sesion} (critico)"
   install_claude
 fi
 if [ "$do_opencode" -eq 1 ]; then
-  echo "OpenCode -> $OC_MAIN_MODEL (principal) / $OC_CRITIC_MODEL (critico)"
+  echo "OpenCode -> ${OC_MAIN_MODEL:-modelo por defecto de OpenCode} (principal) / ${OC_CRITIC_MODEL:-el del agente principal} (critico)"
   install_opencode
 fi
 if [ "$do_opencode_v2" -eq 1 ]; then
-  echo "OpenCode V2 -> $OC_MAIN_MODEL (principal) / $OC_CRITIC_MODEL (critico)"
+  echo "OpenCode V2 -> ${OC_MAIN_MODEL:-modelo por defecto de OpenCode} (principal) / ${OC_CRITIC_MODEL:-el del agente principal} (critico)"
   install_opencode_v2
 fi
 if [ "$WITH_HOOKS" -eq 1 ] && [ "$do_claude" -eq 1 ]; then
@@ -776,10 +809,15 @@ echo "  directorio de log:  $LOG_DIR"
 echo "  comandos: /iamlazy  /iamlazy-review"
 if [ "$do_claude" -eq 1 ]; then
   echo
-  echo "  ALCANCE DEL MODELO: '$CC_MAIN_MODEL' cubre SOLO el turno del planner. El model:"
-  echo "  del frontmatter de un comando expira en tu proximo prompt -- y el gate ES un"
-  echo "  prompt -- asi que el builder (A4-A5) corre en tu modelo de SESION, nunca en"
-  echo "  models.conf."
+  if [ -n "$CC_MAIN_MODEL" ]; then
+    echo "  ALCANCE DEL MODELO: '$CC_MAIN_MODEL' cubre SOLO el turno del planner. El model:"
+    echo "  del frontmatter de un comando expira en tu proximo prompt -- y el gate ES un"
+    echo "  prompt -- asi que el builder (A4-A5) corre en tu modelo de SESION, nunca en"
+    echo "  models.conf."
+  else
+    echo "  MODELO: models.conf no fija ninguno, asi que /iamlazy y el Critic corren en el"
+    echo "  modelo de tu sesion. Para fijar uno: install.sh --tool=claude --model=<id>."
+  fi
   if grep -q '"model"' "$HOME/.claude/settings.json" 2>/dev/null; then
     echo "  OK: ~/.claude/settings.json fija un modelo de sesion, asi que el build es deterministico."
   else
@@ -790,15 +828,16 @@ if [ "$do_claude" -eq 1 ]; then
     echo "  Un .claude/settings.json de proyecto tambien funciona, y tiene prioridad."
   fi
   if [ -n "${CLAUDE_CODE_SUBAGENT_MODEL:-}" ]; then
-    echo "  AVISO: CLAUDE_CODE_SUBAGENT_MODEL='$CLAUDE_CODE_SUBAGENT_MODEL' esta fijada y"
-    echo "  pisa a CC_CRITIC_MODEL ('$CC_CRITIC_MODEL'). Desfijala para usar el valor de arriba."
+    echo "  AVISO: CLAUDE_CODE_SUBAGENT_MODEL='$CLAUDE_CODE_SUBAGENT_MODEL' esta fijada. Segun la"
+    echo "  documentacion, el model: del Critic tiene prioridad sobre ella; si el Critic no corre"
+    echo "  en el modelo que esperas, revisa esa variable."
   fi
 fi
 if [ "$do_opencode" -eq 1 ] || [ "$do_opencode_v2" -eq 1 ]; then
   echo "  nota: OpenCode necesita una credencial para su provider (env u opencode.json). Este instalador no la configura."
   echo "  El analisis corre en el agente 'plan' propio de OpenCode, que no fija modelo y"
   echo "  hereda el modelo de la SESION EN VIVO -- el que entrar a 'iamlazy' acaba de fijar."
-  echo "  Asi que el planner tambien corre en $OC_MAIN_MODEL, y tu default de OpenCode no"
+  echo "  Asi que el planner tambien corre en ${OC_MAIN_MODEL:-ese mismo modelo}, y tu default de OpenCode no"
   echo "  cambia eso. Para separarlos, fijalo en tu propio opencode.json:"
   echo "    \"agent\": { \"plan\": { \"model\": \"...\" } }"
 fi

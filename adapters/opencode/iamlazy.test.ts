@@ -300,6 +300,22 @@ test("the scope gate speaks: a blocked close is fed back to the model once, the 
   expect(existsSync(runFile(S3))).toBe(true)
 })
 
+test("a notice on a turn that does not block reaches the human as a toast, and never the model", async () => {
+  const R6 = mkdtempSync(join(tmpdir(), "iamlazy-oc-nogit-"))
+  const h6 = await plugin(R6)
+  const S6 = "ses_notice"
+  await open(h6, S6, "x")
+  await assistant(h6, S6, "msg_n", 0.01)
+  await text(h6, S6, "msg_n", "prt_n", "sigo trabajando")
+  const prompts = calls.prompts.length
+  const toasts = calls.toasts.length
+  await idle(h6, S6)
+  expect(calls.toasts.length).toBe(toasts + 1)
+  expect(calls.toasts.at(-1)?.body.message).toContain("no es un repositorio git")
+  expect(calls.prompts.length).toBe(prompts)
+  expect(existsSync(runFile(S6))).toBe(true)
+})
+
 test("dispose logs every run this plugin opened as abandoned", async () => {
   const R4 = mkrepo()
   const h4 = await plugin(R4)

@@ -128,6 +128,9 @@ su búsqueda adversarial; un "se ve bien" pelado es un veredicto inválido.
 
 ## Instalación
 
+Funciona en macOS y Linux. En Windows, dentro de WSL; el instalador rechaza Windows nativo, porque
+los hooks son bash y ahí no hay cómo garantizarlos.
+
 Clona y ejecuta (totalmente offline):
 
 ```sh
@@ -178,89 +181,65 @@ El instalador:
 
 Nunca ves mecánica interna — ni ids de sesión, ni estados, ni charla de protocolo. Ves un bloque de
 preguntas (cada una con su recomendación), el contrato con sus comandos de aceptación y sus claims
-(en el gate), la entrega, y el cierre. Cada etapa abre con un banner que lleva el modelo y el
-esfuerzo que la produjeron, así que un cambio de modelo se ve exactamente donde pasa.
+(en el gate), la entrega, y el cierre. Cada etapa abre con un banner que declara el modelo y el
+esfuerzo; el modelo que corrió de verdad está en `models_seen`, en `runs.jsonl`.
 
 Durante una tarea, `.iamlazy/` en la raíz de tu proyecto guarda el contrato aprobado —persistido
 **textual, tal como lo aprobaste**— y el journal, para que el revisor trabaje contra eso y para que
-tú lo inspecciones después. Agrega `.iamlazy/` a tu `.gitignore` (en Claude Code, si falta, iamlazy te lo avisa al cerrar la corrida).
+tú lo inspecciones después. Agrega `.iamlazy/` a tu `.gitignore` (si falta, iamlazy te lo avisa al cerrar la corrida, en Claude Code y en OpenCode V1).
 
 ## Modelos y credenciales
 
-`models.conf` mapea modelos **por herramienta** — edítalo y vuelve a ejecutar `./install.sh`, o fija
-los dos roles de una herramienta en un solo comando: `./install.sh --tool=claude --model=<id>`
-(persiste la elección en `models.conf`, y después reinstala). Un `--model` apunta a una sola
-herramienta — Claude Code y OpenCode usan namespaces distintos de model-id.
+**Por defecto, iamlazy no fija ningún modelo.** `/iamlazy` corre en el modelo de tu sesión, y el
+Critic hereda ese mismo modelo. En OpenCode, el agente `iamlazy` usa el modelo que tengas
+configurado, y el Critic usa el del agente que lo lanza. Antes venían fijados, y un modelo fijado
+rompe el comando para quien no tiene acceso a ese id exacto.
 
-| Rol | Lo fija | Claude Code | OpenCode |
-|---|---|---|---|
-| Planner (A1–A3) | `CC_MAIN_MODEL` · **tu default de OpenCode** | `claude-opus-5` | heredado por el agente `plan` |
-| Builder (A4–A5) | **tu modelo de sesión** · `OC_MAIN_MODEL` | ver abajo | `opencode-go/kimi-k2.7-code` |
-| Critic | `*_CRITIC_MODEL` | `claude-opus-5` | `opencode-go/deepseek-v4-pro` |
+Para fijar uno, edita `models.conf` y vuelve a ejecutar `./install.sh`, o hazlo en un solo comando:
 
-**Hasta dónde llega `models.conf` de verdad en Claude Code.** El `model:` del frontmatter de un
-comando sobreescribe el modelo **solo para el turno actual** — el modelo de sesión vuelve en tu
-próximo prompt, y el gate *es* un prompt. Así que `CC_MAIN_MODEL` cubre al planner, y tu **modelo
-de sesión** cubre al builder. `CC_CRITIC_MODEL` es la excepción: el modelo de un sub-agente vale
-para toda su corrida.
-
-**Fijá el modelo donde es durable: en settings, no en `models.conf`.** Sin un modelo de sesión
-fijado, el build corre sobre lo que la sesión tenga por default — la única fuente real de
-no-determinismo aquí. Coloca `"model"` en `~/.claude/settings.json`, o en un `.claude/settings.json`
-del proyecto, que tiene precedencia y se reaplica en cada arranque incluso por encima de un cambio
-con `/model`:
-
-| Lo que quieres | Fija |
-|---|---|
-| Un solo modelo todo el camino | `"model": "claude-opus-5"` |
-| Planner fuerte, builder barato | `"model": "opusplan"` |
-
-`opusplan` corre Opus durante el plan mode y cambia a Sonnet en la ejecución. Como el gate de
-iamlazy va montado sobre el plan mode nativo, ese cambio cae exactamente en el límite
-plan/build — una política declarada, no una moneda al aire. **Verás qué modelo está
-corriendo**: cada banner de artefacto lleva el modelo y el esfuerzo que lo produjeron —
-`── CONTRATO · opus-5 · high ──` — leídos del transcript de la sesión, nunca adivinados. Así que el
-cambio en el gate se ve exactamente donde pasa, y un cambio que esperabas y no ocurrió se ve igual
-de bien. `CC_MAIN_MODEL` funciona entonces como piso: un planner fuerte incluso cuando la sesión
-está en algo barato.
-
-**OpenCode no se divide por su cuenta, y la razón vale saberla.** El `model:` del frontmatter de un
-agente fija ese agente, así que `OC_MAIN_MODEL` vale para todo lo que corra como el agente
-`iamlazy`. El gate te manda al agente `plan` que OpenCode trae de fábrica para el análisis — pero
-ese agente **no** fija modelo, así que hereda el **modelo de la sesión en vivo**, que entrar a
-`iamlazy` acaba de poner en `OC_MAIN_MODEL`. Tab no lo resetea. Por eso el planner corre sobre el
-modelo del *builder* por default: medido en una corrida real, 15 mensajes de planner en
-`kimi-k2.7-code` mientras el default configurado de OpenCode era `deepseek-v4-pro`. Cambiar ese
-default no lo arregla.
-
-Para conseguir la división, fija el agente de fábrica en tu propio `opencode.json`:
-
-```json
-{ "agent": { "plan": { "model": "opencode-go/deepseek-v4-pro" } } }
+```sh
+./install.sh --tool=claude --model=claude-opus-5-5
 ```
 
-`models.conf` no puede hacerlo por ti — el agente `plan` es de OpenCode, y el instalador nunca
-escribe configuración del usuario.
+`--model` fija los dos roles de una herramienta y guarda la elección en `models.conf`. Claude Code
+toma ids de Anthropic. OpenCode toma `provider/model`, tal como lo lista `opencode models`.
 
-**`*_CRITIC_MODEL` ahora cubre todas las revisiones.** Antes esto era la excepción y no la regla:
-con tres modos de revisión, `inline` y `same-thread-reset` corrían *en el hilo principal* —17 de 29
-corridas logueadas, 58%— así que bajo `opusplan` la mayoría de las revisiones pasaban calladas en
-Sonnet después del gate, y nadie eligió eso. Hacer que el revisor sea **siempre un sub-agente** lo
-arregló como efecto lateral: el modelo de un sub-agente vale para toda su corrida, así que lo que
-fijas aquí es lo que revisa tu código. También significa que revisor y builder pueden
-**descorrelacionarse** a propósito — modelos distintos tienen puntos ciegos distintos, y un revisor
-que comparte los del builder no puede ver lo que el builder no pudo.
+| Rol en Claude Code | Sin fijar, que es el default | Fijado |
+|---|---|---|
+| Planner | modelo de la sesión | `CC_MAIN_MODEL`, solo en el turno del planner |
+| Builder | modelo de la sesión | sigue siendo el de la sesión |
+| Critic | `model: inherit`, el de la sesión | `CC_CRITIC_MODEL`, en toda la revisión |
 
-> **Atención:** la variable de entorno `CLAUDE_CODE_SUBAGENT_MODEL`, cuando está seteada,
-> sobreescribe `CC_CRITIC_MODEL` en silencio. Quítala del entorno si quieres que aplique
-> `models.conf`.
+**Hasta dónde llega un modelo fijado.** El `model:` de un comando vale solo para el turno actual, y
+el gate es un turno nuevo. Por eso `CC_MAIN_MODEL` cubre al planner y el builder corre en el modelo
+de la sesión. El modelo de un sub-agente, en cambio, vale para toda su revisión. El Critic usa
+`inherit` y no omite el campo: según la documentación de Claude Code, un campo omitido deja decidir a
+`CLAUDE_CODE_SUBAGENT_MODEL`, y `inherit` tiene prioridad sobre esa variable.
 
-> **OpenCode necesita una credencial para su provider, que configuras tú** — una API key en tu
-> entorno o en `opencode.json`. El instalador escribe el `model` en el frontmatter; **no**
-> configura credenciales, y tampoco puede alcanzar el modelo del agente `plan`.
+**Para dividir planner y builder, usa la sesión.** Pon `"model": "opusplan"` en
+`~/.claude/settings.json`: Opus en plan mode y Sonnet en la ejecución. El gate de iamlazy va sobre
+el plan mode nativo, así que el cambio cae justo en el límite entre plan y build.
 
-Los strings de modelo de OpenCode son exactamente lo que lista `opencode models`
-(`provider/model`). Claude Code toma ids de modelo de Anthropic pelados.
+**El esfuerzo del Critic.** Hereda el de la sesión. Con `xhigh`, una revisión real tardó nueve
+minutos en 37 turnos seguidos. Para bajarlo, pon `CC_CRITIC_EFFORT="high"` en `models.conf` y
+reinstala; llega al frontmatter del Critic como `effort:`.
+
+**Qué modelo corrió de verdad.** Mira `models_seen` en `runs.jsonl`: se cuenta desde el transcript.
+Cada banner de etapa declara un modelo, pero lo escribe el propio modelo, y el de CIERRE ya nombró
+en tres corridas un modelo que no lo escribió (candidato 17 de `DELTAS.md`).
+
+**OpenCode no divide planner y builder por su cuenta.** El gate te manda al agente `plan` que
+OpenCode trae de fábrica, y ese agente no fija modelo: hereda el de la sesión en vivo, el mismo que
+usa `iamlazy`. Para separarlos, fija el agente de fábrica en tu propio `opencode.json`:
+
+```json
+{ "agent": { "plan": { "model": "provider/modelo" } } }
+```
+
+El instalador no puede hacerlo por ti, porque nunca escribe configuración del usuario.
+
+> **OpenCode necesita una credencial para su provider, que configuras tú**: una API key en tu
+> entorno o en `opencode.json`. El instalador no configura credenciales.
 
 ## El gate no es opcional
 
@@ -320,7 +299,7 @@ cuál fue y por qué; después decides tú. No vuelve a hablar en esa corrida.
 | `DRIFT_MICRO_PER_LINE` | `80000` ($0,08) | el costo por línea cambiada se dispara: esfuerzo en intentos, no en avance |
 | `DRIFT_MIN_LINES` | `50` | (piso) debajo de esto el ratio es ruido y no se evalúa |
 | `DRIFT_MIN_COST` | `3000000` ($3,00) | (piso) debajo de esto una corrida cara no es cara |
-| `DRIFT_MAX_SECONDS` | `3600` (1 h) | la corrida lleva demasiado abierta, por productiva que sea |
+| `DRIFT_MAX_SECONDS` | `3600` (1 h) | la corrida lleva demasiado tiempo de trabajo, sin contar las esperas por ti |
 | `DRIFT_MAX_COST` | `10000000` ($10,00) | el gasto total es demasiado para una sola tarea |
 
 Los dos últimos existen porque el costo por línea **baja** cuanto más crece una corrida: una
@@ -331,6 +310,12 @@ Se ajustan en `~/.iamlazy/config`, una línea por umbral, sin reinstalar nada:
 
 ```sh
 DRIFT_MAX_SECONDS=7200    # dos horas, si tus tareas son realmente así
+```
+
+El mismo archivo apaga la pregunta antes de lanzar al Critic, si prefieres que arranque solo:
+
+```sh
+CRITIC_ASK=0
 ```
 
 Un valor no numérico se ignora y vale el default. Los umbrales vigentes quedan registrados en

@@ -16,6 +16,7 @@
 set -u
 # shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
+hk_crash_guard
 
 payload=$(cat)
 hk_guard "$payload" || hk_allow

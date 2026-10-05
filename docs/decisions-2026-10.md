@@ -135,3 +135,56 @@ crashed review would hold the run open until the 24-hour sweep.
 One trap is pinned by a test. The Critic's own transcript lists its tools in a `prompt_snapshot`
 line seconds after it starts, `SubagentHandback` among them. A grep for the bare tool name read
 every Critic as finished three seconds in. The match is on the `tool_use` fragment.
+
+## The human's decisions of 2026-10-03, and the rest of Phase 1
+
+The review's open decisions were answered, all as recommended. What each one became:
+
+- **No model is pinned by default.** `models.conf` ships empty. A command with no `model:` runs on
+  the session model; the Claude Code Critic gets `model: inherit`, chosen over an omitted line
+  because the sub-agent docs let `CLAUDE_CODE_SUBAGENT_MODEL` decide an omitted model and rank the
+  frontmatter above it. On OpenCode an agent with no model uses the configured default, and a
+  subagent the invoking agent's (opencode.ai/docs/agents). The README's claim that the variable
+  silently overrides `CC_CRITIC_MODEL` contradicted those docs and was removed. `CC_CRITIC_EFFORT`
+  joins it, empty by default: the docs define an `effort:` field for sub-agents, and the Critic's
+  nine-minute review ran at the session's `xhigh`.
+- **`CRITIC_ASK=0`** in `~/.iamlazy/config` skips the question before the Critic. The attempt is
+  still recorded, so the close keeps its proof that a review was tried.
+- **Two runs in one directory are announced, not separated.** The second `/iamlazy` names the
+  other session in a `systemMessage`. Separating `.iamlazy/` per session would change paths the
+  prompt and the Critic both know.
+- **The previous contract and journal are archived** into `.iamlazy/history/<UTC time>/` when a
+  run opens, never while another run is live there. Run 3 (session `966451fa`) is the argument:
+  it wrote no contract, and the per-turn line called the previous run's contract "complete" while
+  `task_summary` logged that run's task.
+- **Native Windows is refused** by the installer, before anything is written, pointing to WSL.
+- **The pilot** is three people and twenty runs, published below 15% abandoned. Nothing to build.
+
+Phase 1, beyond the decisions:
+
+- **The duration ceiling measures work, not the wall clock.** A turn that ends waiting for the
+  human stamps `<sid>.laststop`; the next prompt adds the gap to `<sid>.idle`. A turn that ends
+  with a background Critic still reviewing stamps nothing: that wait is the run working.
+  `idle_seconds` is logged beside `duration_seconds` (schema 10), so a long run that did not fire is
+  explainable from its own line.
+- **A crashed hook exits 0 and leaves a line in `~/.iamlazy/hooks.log`**, which `--check` reports.
+  The hooks are registered globally, and a crash surfaced as an error in unrelated sessions. The
+  trap is installed by an explicit `hk_crash_guard` call in each hook, not on sourcing `lib.sh`:
+  installed on sourcing, it turned the legitimate non-zero returns of single functions into 0 and
+  20 tests went red. test.sh checks every hook calls it. The first version also read `$?` after a
+  bare `local`, which always succeeds; the crash test caught it.
+- **The Critic's Bash guard covers what the first version let through**: `find -delete`,
+  `sort -o`, `rsync`, `install`, `patch`, `tar` that extracts or creates, `unzip` that extracts,
+  and the git subcommands that rewrite the repository. Each read-only form is tested to still pass.
+  `install` and `patch` match only in command position, because descriptions use both words.
+- **A message is counted by its last transcript line, not its first.** The scans now share one
+  record per message in `HK_AWK_USAGE`.
+- **The per-turn status line says three things plainly**: no contract of this run yet; groups
+  still open, which is the plan working; or files outside `## Scope`, the only state that says the
+  run cannot close.
+- **OpenCode V1 shows exit-0 notices as a toast**, never to the model. V2 has no channel to the
+  human at all; its block path only reaches the daemon log, so its notices stay unseen there.
+
+Deliberately not done: skipping the transcript scan once the breaker has fired. It saves about half
+a second per turn, only in a run where the breaker already fired, which has never happened in
+production, and it reorders the close path to get there.

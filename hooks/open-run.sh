@@ -11,6 +11,7 @@
 set -u
 # shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
+hk_crash_guard
 
 payload=$(cat)
 
@@ -43,20 +44,33 @@ hk_sweep_stale
 if [ -n "$sid" ]; then
   run_file=$(hk_run_file "$sid")
   if [ -f "$run_file" ] && [ "$is_iamlazy" = "0" ]; then
+    hk_close_idle_gap "$run_file"
     hk_adopt_contract "$run_file" "$cwd"
     root=$(hk_project_root "$run_file" "$cwd")
     base=$(hk_field_file "$run_file" "base_ref")
     ubase=$(hk_untracked_file "$run_file")
     contract="${root}/.iamlazy/contract.md"
-    blockers=$(hk_close_blockers "$root" "$contract" "$base" "$ubase" | tr '\n' ';')
-    if [ -n "$blockers" ]; then
-      printf 'iamlazy: corrida activa en %s (base %s). NO puede cerrar todavia -- %s Declara el desvio en ## Scope del contrato o revierte el archivo.\n' \
-        "$root" "${base:-sin base}" "$blockers"
-    elif [ -f "$contract" ]; then
-      printf 'iamlazy: corrida activa en %s (base %s). El contrato esta completo y todo lo cambiado cae dentro del ## Scope declarado.\n' \
-        "$root" "${base:-sin base}"
+    # Three states, said plainly, and only about a contract THIS run owns.
+    # A contract counts once its base is pinned; one left by a previous run
+    # was described here as "complete and in scope" while the real run had
+    # written none (sperant, 2026-10-03). And open groups mid-run are the plan
+    # working, not an alarm: only a file outside ## Scope earns "NO puede
+    # cerrar", because only that needs a decision from the model.
+    if [ -z "$base" ] || [ ! -f "$contract" ]; then
+      printf 'iamlazy: corrida activa en %s. Esta corrida todavia no escribio su contrato: cuando se apruebe el plan, guardalo tal cual en .iamlazy/contract.md.\n' "$root"
     else
-      printf 'iamlazy: corrida activa en %s. Todavia no hay contrato en disco.\n' "$root"
+      viol=$(hk_scope_violations "$root" "$contract" "$base" "$ubase" | tr '\n' ' ')
+      open_groups=$(grep -c -- '- \[ \]' "$contract" 2>/dev/null | tr -d ' ')
+      if [ -n "$viol" ]; then
+        printf 'iamlazy: corrida activa en %s (base %s). NO puede cerrar: archivos fuera del ## Scope declarado: %s Declara el desvio en ## Scope del contrato o revierte el archivo.\n' \
+          "$root" "$base" "$viol"
+      elif [ "${open_groups:-0}" -gt 0 ] 2>/dev/null; then
+        printf 'iamlazy: corrida activa en %s (base %s). Grupos sin marcar: %s. Marca cada uno con - [x] cuando su comando de aceptacion pase.\n' \
+          "$root" "$base" "$open_groups"
+      else
+        printf 'iamlazy: corrida activa en %s (base %s). El contrato esta completo y todo lo cambiado cae dentro del ## Scope declarado.\n' \
+          "$root" "$base"
+      fi
     fi
     hk_allow
   fi
@@ -95,6 +109,36 @@ RUN_FILE=$(hk_run_file "$sid")
 
 now_epoch=$(date +%s)
 now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# Another session with a run open in this same directory. Both would share
+# .iamlazy/contract.md and journal.md, so the second overwrites the first's
+# contract and the close gate reads whichever is on disk. Said, not blocked:
+# the human may know the other session is dead, and the 24h sweep reclaims it.
+other_sid=""
+for of in "$HK_ACTIVE_DIR"/*.json; do
+  [ -f "$of" ] || continue
+  [ "$of" = "$RUN_FILE" ] && continue
+  if [ "$(hk_project_root "$of" "$(hk_field_file "$of" "cwd")")" = "$cwd" ]; then
+    other_sid=$(hk_field_file "$of" "session_id")
+    break
+  fi
+done
+
+# The previous run's contract and journal are archived, not left in place.
+# Left in place, the journal grew across runs and was handed whole to every
+# Critic (316 lines in sperant since August), and the stale contract was read
+# as this run's by the per-turn status line and by task_summary. Never while
+# another run is live here: those files are its own, mid-run.
+if [ -z "$other_sid" ] && [ -n "$cwd" ] && \
+   { [ -f "$cwd/.iamlazy/contract.md" ] || [ -f "$cwd/.iamlazy/journal.md" ]; }; then
+  arch="$cwd/.iamlazy/history/$(date -u +%Y%m%dT%H%M%SZ)"
+  [ -e "$arch" ] && arch="${arch}-$$"
+  if mkdir -p "$arch" 2>/dev/null; then
+    for af in contract.md journal.md; do
+      [ -f "$cwd/.iamlazy/$af" ] && mv "$cwd/.iamlazy/$af" "$arch/$af"
+    done
+  fi
+fi
 
 # The transcript accumulates the WHOLE session, not this run. Recording the
 # baseline at open lets the close measure the delta -- otherwise a second
@@ -179,5 +223,12 @@ printf '{"schema_version":5,"host":"%s","session_id":"%s","transcript_path":"%s"
 (cd "$cwd" 2>/dev/null && git ls-files --others --exclude-standard 2>/dev/null) \
   > "$(hk_untracked_file "$RUN_FILE")" 2>/dev/null || : > "$(hk_untracked_file "$RUN_FILE")"
 : > "$(hk_opened_file "$RUN_FILE")"
+
+if [ -n "$other_sid" ]; then
+  # systemMessage reaches the human; additionalContext reaches the model. On
+  # OpenCode the adapters ignore stdout at the open, so this is Claude Code's.
+  two_msg="iamlazy: otra sesion ($(hk_json_esc "$other_sid")) ya tiene una corrida abierta en $(hk_json_esc "$cwd"). Las dos comparten .iamlazy/contract.md y .iamlazy/journal.md, asi que la segunda pisa el contrato de la primera. Termina o cierra una antes de seguir con la otra."
+  printf '{"systemMessage":"%s","hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}\n' "$two_msg" "$two_msg"
+fi
 
 hk_allow

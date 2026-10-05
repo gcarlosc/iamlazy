@@ -207,6 +207,20 @@ assert_ask "$ACTIVE" \
   "{$G,\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"iamlazy-critic\",\"background\":false}}" \
   "background:false sigue siendo el camino normal del Critico"
 
+# CRITIC_ASK=0 quita la pregunta (costo 7,5 minutos de espera en una corrida
+# real) pero NO la prueba del intento: critic_asked se graba igual.
+NOASK="$(mktmp)"
+open_run "$NOASK" "$NOASK" 30
+sed 's/,"critic_asked":1//' "$(runfile "$NOASK")" > "$(runfile "$NOASK").new" && mv "$(runfile "$NOASK").new" "$(runfile "$NOASK")"
+printf 'CRITIC_ASK=0\n' > "$NOASK/.iamlazy/config"
+assert_allow "$NOASK" \
+  "{$G,\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"iamlazy-critic\"}}" \
+  "con CRITIC_ASK=0 el Critic se lanza sin preguntar"
+assert_grep '"critic_asked":1' "$(runfile "$NOASK")" "y el intento queda registrado igual"
+assert_deny "$NOASK" \
+  "{$G,\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"Explore\"}}" \
+  "CRITIC_ASK=0 no abre la puerta a otros sub-agentes"
+
 # open_run graba critic_asked:1 de entrada; para probar que el rechazo NO lo
 # graba hay que SACAR el campo primero -- el mismo patron que usa el E2E de
 # abajo, que ya demuestra que sobre este fixture un intento en foreground SI
@@ -313,6 +327,23 @@ assert_cdeny 'git reset --hard'
 assert_cdeny 'git stash'
 assert_cdeny 'git apply parche.diff'
 assert_cdeny 'git clean -fd'
+# Lo que la primera version dejaba pasar (auditoria del 2026-10-03).
+assert_cdeny 'find . -name *.tmp -delete'
+assert_cdeny 'find src -type f -fprint lista.txt'
+assert_cdeny 'sort -o ordenado.txt datos.txt'
+assert_cdeny 'rsync -a src/ /tmp/copia'
+assert_cdeny 'install -m 755 bin/tool /usr/local/bin/tool'
+assert_cdeny 'patch -p1 < fix.diff'
+assert_cdeny 'tar -xzf dist.tgz'
+assert_cdeny 'tar -czf salida.tgz src'
+assert_cdeny 'tar --extract -f x.tar'
+assert_cdeny 'unzip release.zip'
+assert_cdeny 'git revert HEAD'
+assert_cdeny 'git gc'
+assert_cdeny 'git update-ref refs/heads/x HEAD'
+assert_cdeny 'git worktree add ../wt'
+assert_cdeny 'git notes add -m nota'
+assert_cdeny 'git submodule update --init'
 
 # Lecturas y tests: el Critic tiene que poder hacer su trabajo. Un falso
 # positivo aca lo deja inutil, que es peor que el agujero que cerramos.
@@ -331,6 +362,16 @@ assert_callow 'rg -n listMembers src/'
 assert_callow 'grep -rn TODO src/'
 assert_callow 'cat src/a.ts'
 assert_callow 'sed -n 40,60p src/a.ts'
+# Y sus formas de solo lectura siguen pasando.
+assert_callow 'find . -name *.ts'
+assert_callow 'sort datos.txt'
+assert_callow 'tar -tzf dist.tgz'
+assert_callow 'unzip -l release.zip'
+assert_callow 'git worktree list'
+assert_callow 'git notes show HEAD'
+assert_callow 'git submodule status'
+assert_callow 'rg -n install src/'
+assert_callow 'cat docs/patch-notes.md'
 # Redirigir a /dev/null y a stderr no es escribir un archivo.
 assert_callow 'npm test 2>/dev/null'
 assert_callow 'git diff --stat > /dev/null'
@@ -919,6 +960,37 @@ case "$out" in
 esac
 
 echo
+echo "historial — el contrato y el journal anteriores se archivan al abrir"
+
+ARC="$(mkrepo)"
+mkdir -p "$ARC/.iamlazy"
+printf '# Task\nanterior\n' > "$ARC/.iamlazy/contract.md"
+printf 'journal anterior\n' > "$ARC/.iamlazy/journal.md"
+run_open "$ARC" '{"hook_event_name":"UserPromptSubmit","session_id":"sid-arc","transcript_path":"/x.jsonl","cwd":"'"$ARC"'","prompt":"/iamlazy tarea nueva"}'
+assert_absent "$ARC/.iamlazy/contract.md" "al abrir, el contrato anterior sale de .iamlazy/"
+assert_absent "$ARC/.iamlazy/journal.md" "y el journal anterior tambien: el Critic recibe solo el de esta corrida"
+arc_hist="$(find "$ARC/.iamlazy/history" -name contract.md 2>/dev/null | head -1)"
+if [ -n "$arc_hist" ] && grep -q anterior "$arc_hist" && [ -f "$(dirname "$arc_hist")/journal.md" ]; then
+  ok "los dos quedan archivados juntos en .iamlazy/history/<fecha>/"
+else no "el contrato y el journal anteriores no quedaron archivados juntos"; fi
+
+# Otra sesion con una corrida abierta en el mismo directorio: se avisa al
+# humano, y NO se archiva nada, porque esos archivos son de la otra corrida.
+TWR="$(mkrepo)"
+run_open "$TWR" '{"hook_event_name":"UserPromptSubmit","session_id":"sid-a","transcript_path":"/x.jsonl","cwd":"'"$TWR"'","prompt":"/iamlazy tarea a"}'
+mkdir -p "$TWR/.iamlazy"; printf '# Task\nde a\n' > "$TWR/.iamlazy/contract.md"
+out="$(run_open "$TWR" '{"hook_event_name":"UserPromptSubmit","session_id":"sid-b","transcript_path":"/x.jsonl","cwd":"'"$TWR"'","prompt":"/iamlazy tarea b"}')"
+case "$out" in
+  *'"systemMessage"'*'otra sesion'*sid-a*) ok "una segunda corrida en el mismo directorio avisa al humano, nombrando la otra sesion" ;;
+  *) no "dos corridas en el mismo directorio no avisaron (obtuvo: ${out:-<vacio>})" ;;
+esac
+assert_grep 'de a' "$TWR/.iamlazy/contract.md" "y no archiva el contrato vivo de la otra corrida"
+OTH="$(mkrepo)"
+out="$(run_open "$TWR" '{"hook_event_name":"UserPromptSubmit","session_id":"sid-c","transcript_path":"/x.jsonl","cwd":"'"$OTH"'","prompt":"/iamlazy en otro repo"}')"
+if [ -z "$out" ]; then ok "una corrida en otro directorio no avisa nada"
+else no "aviso de corrida simultanea fuera de su directorio: $out"; fi
+
+echo
 echo "el Critic en segundo plano — se lee de sus propios archivos"
 
 # Claude Code 2.1.287 corre el Critic en segundo plano y devuelve su informe
@@ -990,6 +1062,25 @@ run_flush "$CRO" "$(stop_payload "$CRO" "$CLOSE_MSG" sid-oo "$CRO/sess.jsonl")" 
 assert_ungrep '7/7/7/7' "$CRO/.iamlazy/runs.jsonl" "el informe de un Critic anterior a esta corrida no se le atribuye"
 
 echo
+echo "un hook que se cae sale con 0 y deja constancia"
+
+# Los hooks estan registrados globalmente: un crash salia con 1 y la sesion
+# mostraba un error de hook aunque no tuviera nada que ver con iamlazy.
+CRASH="$(mktmp)"
+# shellcheck disable=SC2016  # $NO_EXISTE belongs to the generated script, unexpanded on purpose
+printf '#!/usr/bin/env bash\nset -u\n. "%s/hooks/lib.sh"\nhk_crash_guard\necho "$NO_EXISTE"\n' "$SRC" > "$CRASH/boom.sh"
+chmod +x "$CRASH/boom.sh"
+HOME="$CRASH" "$CRASH/boom.sh" </dev/null >/dev/null 2>&1; crash_rc=$?
+if [ "$crash_rc" = "0" ]; then ok "un hook que se cae sale con 0, no con un error en cada sesion"
+else no "un hook que se cae salio con $crash_rc"; fi
+assert_grep 'boom.sh exit=1' "$CRASH/.iamlazy/hooks.log" "y la falla queda en ~/.iamlazy/hooks.log, con el hook y el codigo"
+printf '#!/usr/bin/env bash\nset -u\n. "%s/hooks/lib.sh"\nhk_crash_guard\nexit 2\n' "$SRC" > "$CRASH/block.sh"
+chmod +x "$CRASH/block.sh"
+HOME="$CRASH" "$CRASH/block.sh" </dev/null >/dev/null 2>&1; block_rc=$?
+if [ "$block_rc" = "2" ]; then ok "un bloqueo deliberado (exit 2) pasa intacto"
+else no "la trampa se trago un exit 2 deliberado (obtuvo $block_rc)"; fi
+
+echo
 echo "guarantee 6 — never under a permission bypass"
 
 BYPASS_DIR="$(mktmp)"
@@ -1019,6 +1110,35 @@ case "$out" in
 esac
 out="$(run_open "$IDLE" '{"hook_event_name":"UserPromptSubmit","session_id":"nadie","transcript_path":"/x.jsonl","cwd":"'"$IDLE"'","prompt":"hola"}')"
 if [ -z "$out" ]; then ok "sin corrida activa no se inyecta nada"; else no "se inyecto contexto sin corrida (obtuvo: $out)"; fi
+
+# Grupos abiertos a mitad de corrida son el plan funcionando, no una alarma.
+GRP="$(mkrepo)"
+mkdir -p "$GRP/.iamlazy"
+printf '## Grupos\n- [x] g1\n- [ ] g2\n' > "$GRP/.iamlazy/contract.md"
+open_run "$GRP" "$GRP" 5 "s"; set_base "$GRP" "s" "$GRP"
+out="$(run_open "$GRP" '{"hook_event_name":"UserPromptSubmit","session_id":"s","transcript_path":"/x.jsonl","cwd":"'"$GRP"'","prompt":"sigue"}')"
+case "$out" in
+  *"NO puede cerrar"*) no "con solo grupos abiertos, la linea alarma como si hubiera un desvio: $out" ;;
+  *"Grupos sin marcar: 1"*) ok "con solo grupos abiertos, la linea los cuenta sin alarmar" ;;
+  *) no "la linea no conto los grupos abiertos (obtuvo: ${out:-<vacio>})" ;;
+esac
+
+# Un contrato que esta corrida no escribio no se describe como suyo. Corrida
+# real (sperant, 2026-10-03): no escribio contrato, y esta linea le dijo al
+# modelo que "el contrato esta completo" leyendo el de la corrida anterior.
+STL="$(mkrepo)"
+mkdir -p "$STL/.iamlazy"
+printf '# Task\nla tarea de ayer\n## Groups\n- [x] g1\n' > "$STL/.iamlazy/contract.md"
+open_run "$STL" "$STL" 5 "s"
+out="$(run_open "$STL" '{"hook_event_name":"UserPromptSubmit","session_id":"s","transcript_path":"/x.jsonl","cwd":"'"$STL"'","prompt":"sigue"}')"
+case "$out" in
+  *"completo"*) no "un contrato ajeno se describio como completo: $out" ;;
+  *"todavia no escribio su contrato"*) ok "un contrato que esta corrida no escribio no se describe como suyo" ;;
+  *) no "la linea no dijo que falta el contrato de esta corrida (obtuvo: ${out:-<vacio>})" ;;
+esac
+# Y el log no toma su tarea: esa corrida cerro por banner con el resumen ajeno.
+run_flush "$STL" "$(stop_payload "$STL" "$CLOSE_MSG" s)" >/dev/null
+assert_ungrep 'la tarea de ayer' "$STL/.iamlazy/runs.jsonl" "task_summary no sale de un contrato que esta corrida no escribio"
 
 echo
 echo "guarantee 5 — circuit breaker (calibrado en dolares, sobre corridas medidas)"
@@ -1070,7 +1190,7 @@ open_run "$CBA" "$CBA" 30 s
 sed 's/}$/,"drift_warned":1}/' "$(runfile "$CBA" s)" > "$CBA/rf.tmp" && mv "$CBA/rf.tmp" "$(runfile "$CBA" s)"
 run_end "$CBA" '{"hook_event_name":"SessionEnd","session_id":"s","cwd":"'"$CBA"'"}'
 assert_grep '"drift_fired":1' "$CBA/.iamlazy/runs.jsonl" "una corrida abandonada recuerda que el breaker disparo"
-assert_grep '"schema_version":9' "$CBA/.iamlazy/runs.jsonl" "la linea abandonada declara el schema vigente"
+assert_grep '"schema_version":10' "$CBA/.iamlazy/runs.jsonl" "la linea abandonada declara el schema vigente"
 assert_grep '"tokens_output":947600' "$CB/.iamlazy/runs.jsonl" "los componentes crudos quedan para poder reprecificar"
 
 # Debajo del piso de lineas el ratio es ruido: el costo por linea SUBE cuanto
@@ -1311,7 +1431,7 @@ run_flush "$SEM" "$(stop_payload "$SEM" "$CLOSE_MSG" s "$SEMT/t.jsonl")" >/dev/n
 assert_grep '"task_summary":"Add rate limiting to the \\"login\\" endpoint"' "$SEM/.iamlazy/runs.jsonl" \
   "task_summary derivado del contrato, con las comillas ESCAPADAS (no borradas)"
 assert_grep '"project_md":"updated"' "$SEM/.iamlazy/runs.jsonl" "project_md derivado del diff"
-assert_grep '"schema_version":9' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
+assert_grep '"schema_version":10' "$SEM/.iamlazy/runs.jsonl" "la linea declara su schema"
 assert_grep '"cost_usd":0.5000' "$SEM/.iamlazy/runs.jsonl" "cost_usd derivado del transcript y la tabla de precios"
 assert_grep '"close_detected_via":"contract"' "$SEM/.iamlazy/runs.jsonl" \
   "PROJECT.md modificado no bloquea el cierre (es parte del cierre)"
@@ -1580,6 +1700,24 @@ else no "duplicados no deduplicados: esperaba 5000, obtuvo $got"; fi
 gotc=$(. "$SRC/hooks/lib.sh"; hk_token_components "$DEDUP/t.jsonl")
 if [ "$gotc" = "200 0 0" ]; then ok "los componentes crudos tambien deduplican (obtuvo: $gotc)"
 else no "componentes sin deduplicar: esperaba '200 0 0', obtuvo '$gotc'"; fi
+
+# El ULTIMO registro de un mensaje trae su uso final. El transcript escribe un
+# registro por bloque de contenido, cada uno con el uso de ese momento: en el
+# Critic real el primero decia 1 token de salida y el ultimo 168.
+{
+  printf '{"model":"claude-opus-5","message":{"id":"msg_L","usage":{"input_tokens":0,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+  printf '{"model":"claude-opus-5","message":{"id":"msg_L","usage":{"input_tokens":0,"output_tokens":168,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}\n'
+} > "$DEDUP/last.jsonl"
+gotl=$(. "$SRC/hooks/lib.sh"; hk_token_components "$DEDUP/last.jsonl")
+gotlc=$(. "$SRC/hooks/lib.sh"; hk_cost_micro "$DEDUP/last.jsonl" "$PRICES")
+gotlm=$(. "$SRC/hooks/lib.sh"; hk_model_counts "$DEDUP/last.jsonl")
+gotls=$(. "$SRC/hooks/lib.sh"; hk_transcript_scan "$DEDUP/last.jsonl" "$PRICES" | sed -n '2p')
+# 168 x \$25/MTok = 4.200 micro-dolares; con el primer registro serian 25.
+if [ "$gotl" = "168 0 0" ] && [ "$gotlc" = "4200" ] && [ "$gotls" = "168 0 0" ]; then
+  ok "un mensaje se cuenta por su ULTIMO registro, el del uso final"
+else no "se conto un registro parcial: componentes '$gotl', costo '$gotlc', escaneo '$gotls'"; fi
+if [ "$gotlm" = "claude-opus-5:1 " ]; then ok "y sigue contando un mensaje, no dos"
+else no "dos registros del mismo mensaje se contaron dos veces: '$gotlm'"; fi
 
 # El precio depende del MODELO, que es exactamente lo que la unidad ponderada
 # no distinguia: mismos tokens, distinto costo.
@@ -1858,7 +1996,43 @@ if [ "$(flush_rc "$DURT" "$(stop_payload "$DURT" "$CLOSE_MSG" s "$DURT/t.jsonl")
   no "el techo de duracion no debe repetir el aviso"
 else ok "el techo de duracion avisa una sola vez"; fi
 assert_grep '"drift_reason":"duration"' "$DURT/.iamlazy/runs.jsonl" "el motivo del breaker llega a la linea"
-assert_grep '"schema_version":9' "$DURT/.iamlazy/runs.jsonl" "la linea con motivo declara schema 9"
+assert_grep '"schema_version":10' "$DURT/.iamlazy/runs.jsonl" "la linea con motivo declara el schema vigente"
+
+# El techo mide trabajo, no reloj: 4000s abierta con 1000s esperando al humano
+# son 3000s de trabajo, por debajo de la hora. Antes, una pausa de almuerzo con
+# una pregunta pendiente lo disparaba al volver.
+IDLT="$(mkrepo)"; mk_cheap_run "$IDLT"
+age_run "$(runfile "$IDLT" s)" 4000
+printf '1000' > "$IDLT/.iamlazy/active/s.idle"
+if [ "$(flush_rc "$IDLT" "$(stop_payload "$IDLT" "$CLOSE_MSG" s "$IDLT/t.jsonl")")" = "2" ]; then
+  no "el techo de duracion conto como trabajo la espera por el humano"
+else ok "el techo de duracion descuenta el tiempo esperando al humano"; fi
+assert_grep '"duration_seconds":40' "$IDLT/.iamlazy/runs.jsonl" "duration_seconds sigue siendo el reloj"
+assert_grep '"idle_seconds":1000' "$IDLT/.iamlazy/runs.jsonl" "y la espera queda en la linea, para explicar el techo"
+
+# La espera se mide sola: un turno que termina sin cerrar marca la hora, y el
+# prompt siguiente suma el hueco.
+GAP="$(mkrepo)"
+mkdir -p "$GAP/.iamlazy"; printf '## Groups\n- [ ] g1\n' > "$GAP/.iamlazy/contract.md"
+open_run "$GAP" "$GAP" 30 "s"; set_base "$GAP" "s" "$GAP"
+run_flush "$GAP" "$(stop_payload "$GAP" 'te pregunto algo' s)" >/dev/null
+if [ -f "$GAP/.iamlazy/active/s.laststop" ]; then ok "un turno que espera al humano marca la hora"
+else no "el turno que espera al humano no marco la hora"; fi
+printf '%s' $(( $(date +%s) - 600 )) > "$GAP/.iamlazy/active/s.laststop"
+run_open "$GAP" '{"hook_event_name":"UserPromptSubmit","session_id":"s","transcript_path":"/x.jsonl","cwd":"'"$GAP"'","prompt":"respuesta"}' >/dev/null
+gap_idle="$(cat "$GAP/.iamlazy/active/s.idle" 2>/dev/null)"
+if [ "${gap_idle:-0}" -ge 600 ] 2>/dev/null && [ "${gap_idle:-0}" -lt 660 ] 2>/dev/null; then
+  ok "el prompt siguiente suma la espera ($gap_idle s)"
+else no "la espera no se sumo bien (idle=${gap_idle:-<vacio>})"; fi
+assert_absent "$GAP/.iamlazy/active/s.laststop" "y la marca se consume: un segundo prompt no la cuenta dos veces"
+
+# Mientras el Critic revisa en segundo plano, la espera es la corrida
+# trabajando: no se marca como tiempo muerto.
+CRI="$(mkrepo)"; SUBD="$(crit_dir "$CRI")"
+open_real "$CRI" sid-ci "$CRI/sess.jsonl"; crit_contract "$CRI"
+crit_meta "$SUBD" fff; crit_snapshot "$SUBD" fff
+run_flush "$CRI" "$(stop_payload "$CRI" 'el Critic esta revisando' sid-ci "$CRI/sess.jsonl")" >/dev/null
+assert_absent "$CRI/.iamlazy/active/sid-ci.laststop" "con el Critic revisando, la espera no cuenta como tiempo muerto"
 
 # Costo absoluto: pocas lineas no alcanzan el piso del ratio, pero $12 es
 # demasiado para una tarea sola.

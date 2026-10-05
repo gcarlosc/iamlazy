@@ -21,6 +21,7 @@
 set -u
 # shellcheck source=hooks/lib.sh
 . "$(dirname "$0")/lib.sh"
+hk_crash_guard
 
 payload=$(cat)
 
@@ -64,6 +65,14 @@ if [ "$sub" = "iamlazy-critic" ]; then
   # not proof of what the human answered. hk_close_signal reads it to refuse
   # "declared as a deviation" when nothing was ever attempted -- see lib.sh.
   hk_set_field "$HK_RUN_TMP" "critic_asked" "1"
+  # CRITIC_ASK=0 in ~/.iamlazy/config skips the question and lets the spawn
+  # through. The question cost a real run seven and a half minutes of waiting
+  # (sperant, 2026-10-02): the review could not start until a human came back
+  # to approve it. The attempt is still recorded above, so the close keeps its
+  # proof that a review was tried.
+  if [ "$(hk_kv "${HK_DIR}/config" CRITIC_ASK)" = "0" ]; then
+    hk_allow
+  fi
   hk_ask "iamlazy: se va a lanzar el Critic para revisar el diff de esta corrida. Apruebalo para tener una revision independiente antes de cerrar; si lo rechazas, la corrida cierra sin revision, como desvio declarado."
 fi
 
